@@ -1,0 +1,18 @@
+# Example installed-team configuration for one owner.
+# A "team" is per-owner state behind the state-repository interface (Principle 1 + 3).
+# See ../../MARKETPLACE.md §5.
+owner: me
+
+agents:
+  # --- the default team (ships installed) ---
+  - template: pm@builtin
+  - template: coder@builtin
+  - template: tester@builtin
+  - template: security@builtin
+
+  # --- a hired specialist ---
+  - template: ux-researcher@1.2.0       # pinned version; upgrades are deliberate
+    overlay_ref: overlays/ux-researcher.md
+    grants: [read_files, browser]       # exactly the tools the user approved on hire
+    model: { default: deep }            # an allowed override
+    enabled_tiers: [greenfield]         # user narrowed it: greenfield only, not features

@@ -1,0 +1,45 @@
+# Example agent template manifest — a hireable UX Researcher.
+# See ../../MARKETPLACE.md §3 for the full field reference.
+id: ux-researcher
+name: UX Researcher
+version: 1.2.0
+author: first-party
+description: >
+  Evaluates proposed and built UI against usability heuristics and the product's
+  target users; produces prioritised, actionable UX findings.
+
+persona:
+  role: reviewer
+  base_prompt_ref: prompts/ux-researcher.md
+  model:
+    default: balanced
+    allowed: [balanced, deep]
+
+# Tools the template REQUESTS. The user grants these explicitly on hire.
+tools_requested:
+  - read_files
+  - browser              # to inspect a running UI
+# Deliberately NOT requested: write_files, shell, network_egress.
+
+write_scope:
+  - findings/ux-*        # may only write its own findings
+
+routing:
+  applies_to_tiers: [feature, greenfield]
+  requires_artifacts: [ui]
+  graph_position:
+    after: [coder]
+    before: [done]
+  trigger: on_artifact
+
+contract:
+  consumes: [code, ui_artifact, product_brief?]
+  produces:
+    finding_schema: ux-finding
+    verdicts: [PASS, ADVISORY, CHANGES_REQUESTED]
+    blocks_done_when: CHANGES_REQUESTED
+
+customization:
+  overlay: true
+  overridable: [model.default, trigger, enabled_tiers]
+  locked: [write_scope, base_prompt_ref, tools_requested]
