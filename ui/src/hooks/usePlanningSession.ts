@@ -340,9 +340,11 @@ export function usePlanningSession(onExecutable: (v: boolean) => void) {
     if (started.current) return;
     started.current = true;
     schedule([
-      { delay: 600, fn: p => ({ ...p, typing: 'pm' }) },
+      { delay: 600,  fn: p => ({ ...p, typing: 'pm' }) },
       { delay: 1400, fn: p => ({
-          ...p, typing: null,
+          ...p,
+          typing:   null,
+          phase:    'goal' as Phase,   // unlock the textarea
           messages: [{ from: 'pm', text: "Before I staff anything — what are we building?" }],
         }),
       },

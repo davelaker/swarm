@@ -42,8 +42,13 @@ export function App() {
       </div>
 
       <div className="surface">
-        {/* Planning stays mounted so session survives nav away and back */}
-        <div style={{ display: surface === 'planning' ? 'contents' : 'none' }}>
+        {/* Planning stays mounted so session state survives navigation.
+            display:none hides it without unmounting; height:100% on the
+            inner wrapper is what .plan{height:100%} resolves against. */}
+        <div style={{
+          height:   '100%',
+          display:  surface === 'planning' ? 'block' : 'none',
+        }}>
           <Planning onExecute={goExecute} onExecutable={setExecutable} />
         </div>
         {surface === 'running'     && <Running />}
