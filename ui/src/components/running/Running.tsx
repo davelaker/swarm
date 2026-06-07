@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect } from 'react';
 import { useRunSimulation }  from '../../hooks/useRunSimulation';
 import { useRealRun }        from '../../hooks/useRealRun';
 import { TaskGraph }         from './TaskGraph';
@@ -108,65 +108,117 @@ function RunView({
   );
 }
 
-// ─── Running: tries real backend, falls back to mock ─────────────────────────
+// ─── Server-down screen ───────────────────────────────────────────────────────
+
+function ServerDown() {
+  return (
+    <div style={{
+      height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      flexDirection: 'column', gap: 28, padding: 40,
+    }}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tx-3)', marginBottom: 10 }}>
+          Swarm server not running
+        </div>
+        <div style={{ color: 'var(--tx-2)', fontSize: 13, maxWidth: 420, lineHeight: 1.6 }}>
+          Start the server in one terminal, then run a task in another.
+          This panel will connect automatically.
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', maxWidth: 560 }}>
+        <Step n={1} label="Start the server">
+          <Code>cd /path/to/swarm/core</Code>
+          <Code>npm run dev</Code>
+        </Step>
+        <Step n={2} label="Run a task in your project">
+          <Code>cd /your/project</Code>
+          <Code>swarm init</Code>
+          <Code>swarm new "describe what you want to build"</Code>
+        </Step>
+        <Step n={3} label="Watch it here">
+          <div style={{ color: 'var(--tx-2)', fontSize: 12, fontFamily: 'var(--mono)', padding: '8px 12px' }}>
+            This panel updates live as agents run.
+          </div>
+        </Step>
+      </div>
+
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        color: 'var(--tx-3)', fontSize: 11, fontFamily: 'var(--mono)',
+      }}>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--tx-3)', animation: 'softpulse 1.4s infinite', display: 'inline-block' }} />
+        retrying every 3 seconds…
+      </div>
+    </div>
+  );
+}
+
+function Step({ n, label, children }: { n: number; label: string; children: React.ReactNode }) {
+  return (
+    <div style={{
+      background: 'var(--bg-1)', border: '1px solid var(--border)',
+      borderRadius: 'var(--r-lg)', padding: '14px 16px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <span style={{
+          width: 22, height: 22, borderRadius: '50%', background: 'var(--bg-3)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 11, fontWeight: 700, color: 'var(--tx-2)', fontFamily: 'var(--mono)', flexShrink: 0,
+        }}>{n}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--tx-1)' }}>{label}</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Code({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--tx)',
+      background: 'var(--bg)', border: '1px solid var(--border-soft)',
+      borderRadius: 5, padding: '6px 10px',
+    }}>
+      <span style={{ color: 'var(--tx-3)', userSelect: 'none' }}>$ </span>
+      {children}
+    </div>
+  );
+}
+
+// ─── Running: real backend or server-down screen ──────────────────────────────
 
 export function Running() {
-  const real = useRealRun();
-  const mock = useRunSimulation();
+  const { serverStatus, state } = useRealRun();
 
-  // While the real hook is connecting (null = still trying), show a brief spinner.
-  // After the first response — either real state or confirmed unavailable — pick a mode.
-  const [decided, setDecided] = useState(false);
-  useEffect(() => {
-    // real is null while fetching; it becomes an object (connected or not) once resolved
-    if (real !== null || decided) setDecided(true);
-    // Give it 1s to connect before falling through to mock
-    const t = setTimeout(() => setDecided(true), 1000);
-    return () => clearTimeout(t);
-  }, [real]);
-
-  if (!decided) {
+  if (serverStatus === 'probing') {
     return (
-      <div className="run" style={{ alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <span style={{ color: 'var(--tx-3)', fontFamily: 'var(--mono)', fontSize: 13 }}>
-          connecting to swarm server…
+          connecting…
         </span>
       </div>
     );
   }
 
-  // Real backend is available
-  if (real?.connected || real?.tasks.length) {
-    return (
-      <RunView
-        project   = {real.project}
-        tier      = {real.tier}
-        tasks     = {real.tasks}
-        agents    = {real.agents}
-        findings  = {real.findings}
-        pmMsgs    = {real.pmMsgs}
-        spend     = {0}
-        spendCap  = {5}
-        status    = {real.status}
-        connected = {real.connected}
-      />
-    );
+  if (serverStatus === 'down' || !state) {
+    return <ServerDown />;
   }
 
-  // No backend — mock demo
   return (
     <RunView
-      project    = "discord-rank-bot"
-      tier       = "feature"
-      tasks      = {mock.tasks}
-      agents     = {mock.agents}
-      findings   = {mock.findings}
-      pmMsgs     = {mock.pmMsgs}
-      spend      = {mock.spend}
-      spendCap   = {mock.spendCap}
-      status     = {mock.status}
-      onPause    = {mock.togglePause}
-      onAbort    = {mock.abort}
+      project   = {state.project}
+      tier      = {state.tier}
+      tasks     = {state.tasks}
+      agents    = {state.agents}
+      findings  = {state.findings}
+      pmMsgs    = {state.pmMsgs}
+      spend     = {0}
+      spendCap  = {5}
+      status    = {state.status}
+      connected = {state.connected}
     />
   );
 }

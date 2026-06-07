@@ -103,65 +103,83 @@ export interface RealRunState {
   connected: boolean;
 }
 
-export function useRealRun(): RealRunState | null {
-  const [state, setState] = useState<RealRunState | null>(null);
-  const esRef = useRef<EventSource | null>(null);
+// Three-state return:
+//   null          = still probing (show spinner)
+//   { serverUp: false } = server not reachable (show instructions)
+//   RealRunState  = connected and have real data
 
-  useEffect(() => {
-    let mounted = true;
+export type ServerStatus = 'probing' | 'down' | 'up';
 
-    // 1. Snapshot on load
-    fetch('/state')
+export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState | null } {
+  const [serverStatus, setServerStatus] = useState<ServerStatus>('probing');
+  const [state, setState]               = useState<RealRunState | null>(null);
+  const esRef   = useRef<EventSource | null>(null);
+  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const connect = (mounted: { current: boolean }) => {
+    // 1. Snapshot
+    fetch('/state', { signal: AbortSignal.timeout(2000) })
       .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); })
       .then((snap: ServerState) => {
-        if (!mounted) return;
-        const lanes = computeLanes(snap.tasks);
-        const tasks = snap.tasks.map(t => adaptTask(t, lanes.get(t.id) ?? 0));
+        if (!mounted.current) return;
+        const lanes   = computeLanes(snap.tasks);
+        const tasks   = snap.tasks.map(t => adaptTask(t, lanes.get(t.id) ?? 0));
         const allDone = tasks.length > 0 && tasks.every(t => t.status === 'done');
 
+        setServerStatus('up');
         setState({
           project:   snap.project,
           tier:      snap.tier,
           tasks,
           agents:    initAgents(),
           findings:  [],
-          pmMsgs:    [{ from: 'pm', text: `Running: ${snap.goal}` }],
+          pmMsgs:    snap.goal ? [{ from: 'pm', text: `Goal: ${snap.goal}` }] : [],
           status:    allDone ? 'done' : 'running',
           connected: true,
         });
       })
       .catch(() => {
-        // Backend not running — signal to caller to use mock
-        if (mounted) setState(null);
+        if (!mounted.current) return;
+        setServerStatus('down');
+        // Retry every 3 seconds so the UI auto-connects when the server starts
+        retryRef.current = setTimeout(() => connect(mounted), 3000);
       });
 
-    // 2. SSE stream for live updates
+    // 2. SSE stream
+    if (esRef.current) { esRef.current.close(); esRef.current = null; }
     const es = new EventSource('/events');
     esRef.current = es;
 
     es.onmessage = (e: MessageEvent) => {
-      if (!mounted) return;
+      if (!mounted.current) return;
       let ev: SwarmEvent;
       try { ev = JSON.parse(e.data); } catch { return; }
-
-      setState(prev => {
-        if (!prev) return prev;
-        return applyEvent(prev, ev);
-      });
+      setState(prev => prev ? applyEvent(prev, ev) : prev);
     };
 
     es.onerror = () => {
-      if (mounted) setState(prev => prev ? { ...prev, connected: false } : prev);
+      if (!mounted.current) return;
+      setState(prev => prev ? { ...prev, connected: false } : prev);
+      setServerStatus('down');
+      // Reconnect
+      es.close(); esRef.current = null;
+      retryRef.current = setTimeout(() => connect(mounted), 3000);
     };
 
+  };
+
+  useEffect(() => {
+    const mounted = { current: true };
+    connect(mounted);
     return () => {
-      mounted = false;
-      es.close();
+      mounted.current = false;
+      esRef.current?.close();
       esRef.current = null;
+      if (retryRef.current) clearTimeout(retryRef.current);
     };
   }, []);
 
-  return state;
+  return { serverStatus, state };
 }
 
 // ─── Event → state ────────────────────────────────────────────────────────────
