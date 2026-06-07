@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import type { Surface } from './types';
 import { Planning } from './components/planning/Planning';
 import { Running } from './components/running/Running';
@@ -9,7 +9,9 @@ export function App() {
   const [surface,    setSurface]    = useState<Surface>('planning');
   const [executable, setExecutable] = useState(false);
 
-  const goExecute = () => setSurface('running');
+  // Keep Planning mounted but hidden so session state (messages, charter)
+  // survives navigation to Marketplace and back.
+  const goExecute = useCallback(() => setSurface('running'), []);
 
   return (
     <div className="app">
@@ -38,8 +40,12 @@ export function App() {
           </>
         )}
       </div>
+
       <div className="surface">
-        {surface === 'planning'    && <Planning    onExecute={goExecute} onExecutable={setExecutable} />}
+        {/* Planning stays mounted so session survives nav away and back */}
+        <div style={{ display: surface === 'planning' ? 'contents' : 'none' }}>
+          <Planning onExecute={goExecute} onExecutable={setExecutable} />
+        </div>
         {surface === 'running'     && <Running />}
         {surface === 'marketplace' && <Marketplace />}
       </div>

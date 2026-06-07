@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
-import type { CharterData, ChatMessage } from '../../types';
-import { PLAN_SCRIPT } from '../../data/planScript';
+import { useEffect, useRef, useState } from 'react'
+import type { KeyboardEvent } from 'react';
+import { usePlanningSession } from '../../hooks/usePlanningSession';
 import { Charter } from './Charter';
 import { Message, TypingIndicator } from './Message';
 import { IconSend } from '../common/icons';
@@ -11,87 +11,82 @@ interface PlanningProps {
 }
 
 export function Planning({ onExecutable }: PlanningProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [charter, setCharter]   = useState<CharterData>({ goal: '', constraints: [], nongoals: [], questions: [] });
-  const [team, setTeam]         = useState<string[]>([]);
-  const [typing, setTyping]     = useState<string | null>(null);
+  const session   = usePlanningSession(onExecutable);
+  const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
-  const timers    = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const startTime = useRef(Date.now());
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const fmt = () => {
-    const s = Math.floor((Date.now() - startTime.current) / 1000);
-    return `00:${String(s).padStart(2, '0')}`;
-  };
+  // Start the PM opening message on mount
+  useEffect(() => { session.init(); }, []);
 
-  useEffect(() => {
-    let acc = 0;
-    PLAN_SCRIPT.forEach(step => {
-      if (step.type === 'msg') {
-        const showAt = acc - 450;
-        if (showAt > 0) timers.current.push(setTimeout(() => setTyping(step.from), showAt));
-      }
-      acc += step.d;
-      const at = acc;
-      timers.current.push(setTimeout(() => {
-        setTyping(null);
-        switch (step.type) {
-          case 'msg':
-            setMessages(m => [...m, { from: step.from, text: step.text, time: fmt() }]);
-            break;
-          case 'charter':
-            setCharter(c => ({ ...c, [step.field]: step.value }));
-            break;
-          case 'list':
-            setCharter(c => ({ ...c, [step.field]: [...(c as any)[step.field], { text: step.value }] }));
-            break;
-          case 'q':
-            setCharter(c => ({ ...c, questions: [...c.questions, { text: step.value }] }));
-            break;
-          case 'resolve':
-            setCharter(c => ({ ...c, questions: c.questions.map((q, i) =>
-              i === c.questions.length - 1 ? { text: q.text + '  →  ' + step.value, resolved: true } : q
-            )}));
-            break;
-          case 'team':
-            setTeam(t => [...t, step.value]);
-            break;
-          case 'enable':
-            onExecutable(true);
-            break;
-        }
-      }, at));
-    });
-    return () => timers.current.forEach(clearTimeout);
-  }, []);
-
+  // Auto-scroll on new messages / typing indicator
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, typing]);
+  }, [session.messages, session.typing]);
+
+  // Auto-grow textarea
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  }, [input]);
+
+  const handleSend = () => {
+    const text = input.trim();
+    if (!text || session.typing) return;
+    setInput('');
+    session.send(text);
+  };
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  const statusLabel = session.executable ? 'ready' : session.phase === 'start' ? 'initialising' : 'scoping';
+  const statusColor = session.executable ? 'var(--green)' : 'var(--green)';
 
   return (
     <div className="plan">
-      <Charter charter={charter} team={team} />
+      <Charter charter={session.charter} team={session.team} />
       <div className="plan-right">
         <div className="panel-head">
           <span>PM Conversation</span>
           <span className="spacer" />
           <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--tx-2)', fontSize: 11, textTransform: 'none', letterSpacing: 0, fontFamily: 'var(--mono)' }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)' }} />
-            scoping
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor }} />
+            {statusLabel}
           </span>
         </div>
         <div className="chat">
           <div className="chat-scroll" ref={scrollRef}>
-            {messages.map((m, i) => <Message key={i} m={m} />)}
-            {typing && <TypingIndicator from={typing} />}
+            {session.messages.map((m, i) => <Message key={i} m={m} />)}
+            {session.typing && <TypingIndicator from={session.typing} />}
           </div>
           <div className="composer">
             <div className="composer-row">
-              <textarea rows={1} placeholder="The PM is driving this conversation…" disabled />
-              <button className="send-btn" tabIndex={-1}><IconSend /></button>
+              <textarea
+                ref={textareaRef}
+                rows={1}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={session.phase === 'start' ? 'Waiting for PM…' : session.typing ? 'PM is typing…' : 'Reply to the PM — Enter to send, Shift+Enter for newline'}
+                disabled={session.phase === 'start' || !!session.typing}
+                style={{ opacity: (session.phase === 'start' || !!session.typing) ? 0.5 : 1 }}
+              />
+              <button
+                className="send-btn"
+                onClick={handleSend}
+                disabled={!input.trim() || !!session.typing}
+              >
+                <IconSend />
+              </button>
             </div>
-            <div className="hint">Auto-piloted demo · the PM assembles the charter as you talk</div>
+            <div className="hint">Enter to send · Shift+Enter for newline</div>
           </div>
         </div>
       </div>
