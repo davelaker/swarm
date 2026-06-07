@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(/Users/davidlaker/Sites/swarm/**)",
+      "Write(/Users/davidlaker/Sites/swarm/**)",
+      "Edit(/Users/davidlaker/Sites/swarm/**)",
+      "Bash(find /Users/davidlaker/Sites/swarm *)",
+      "Bash(ls /Users/davidlaker/Sites/swarm*)",
+      "Bash(cat /Users/davidlaker/Sites/swarm/*)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv /Users/davidlaker/Sites/swarm*)",
+      "Bash(rm /Users/davidlaker/Sites/swarm*)",
+      "Bash(git *)",
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(touch *)"
+    ]
+  }
+}

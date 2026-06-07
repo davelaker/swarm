@@ -1,0 +1,1736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agent Swarm</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg:      #0a0b0d;
+    --bg-1:    #0d0f12;
+    --bg-2:    #121519;
+    --bg-3:    #181c21;
+    --bg-4:    #1f242b;
+    --border:  #22272e;
+    --border-1:#2c323b;
+    --border-soft:#16191e;
+
+    --tx:   #e8eaed;
+    --tx-1: #a4abb4;
+    --tx-2: #6c747e;
+    --tx-3: #4a515a;
+
+    --blue:   #4d8df4;
+    --blue-d: #1e3252;
+    --green:  #34cf8a;
+    --green-d:#143a2c;
+    --amber:  #e8a93a;
+    --amber-d:#3a2f12;
+    --red:    #f05a52;
+    --red-d:  #3c1c1b;
+    --purple: #a585f5;
+    --purple-d:#2a2147;
+    --orange: #ef8043;
+    --grey:   #707880;
+
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    --r-sm: 5px;
+    --r:    8px;
+    --r-lg: 12px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--tx);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow: hidden;
+  }
+  #root { height: 100vh; }
+  ::selection { background: rgba(77,141,244,0.3); }
+
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--bg-4); border-radius: 6px; border: 2px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border-1); background-clip: content-box; }
+
+  .mono { font-family: var(--mono); }
+  button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+  input, textarea, select { font-family: inherit; }
+
+  /* ---------- App shell ---------- */
+  .app { display: flex; flex-direction: column; height: 100vh; }
+  .topbar {
+    display: flex; align-items: center; gap: 18px;
+    height: 48px; flex: 0 0 48px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-1);
+    -webkit-app-region: drag;
+  }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 600; letter-spacing: -0.01em; }
+  .brand .glyph { width: 18px; height: 18px; position: relative; }
+  .brand .glyph i {
+    position: absolute; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--blue);
+  }
+  .brand .glyph i:nth-child(1){ top:0; left:6px; background:var(--blue); }
+  .brand .glyph i:nth-child(2){ bottom:0; left:0; background:var(--green); }
+  .brand .glyph i:nth-child(3){ bottom:0; right:0; background:var(--amber); }
+  .brand .sep { color: var(--tx-3); font-weight: 400; }
+  .brand .proj { color: var(--tx-1); font-weight: 500; }
+
+  .nav { display: flex; gap: 2px; margin-left: 8px; }
+  .nav button {
+    padding: 6px 13px; border-radius: var(--r-sm);
+    color: var(--tx-2); font-size: 13px; font-weight: 500;
+    letter-spacing: 0.01em; transition: color .12s, background .12s;
+  }
+  .nav button:hover { color: var(--tx-1); background: var(--bg-2); }
+  .nav button.on { color: var(--tx); background: var(--bg-3); }
+
+  .topbar .spacer { flex: 1; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 24px; padding: 0 10px; border-radius: 100px;
+    font-size: 11.5px; font-weight: 600; letter-spacing: 0.03em;
+    border: 1px solid var(--border-1);
+    color: var(--tx-1);
+  }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--tx-2); }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    height: 20px; padding: 0 8px; border-radius: 5px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em;
+    font-family: var(--mono);
+    text-transform: uppercase;
+  }
+  .badge.amber { background: var(--amber-d); color: var(--amber); }
+  .badge.blue  { background: var(--blue-d);  color: var(--blue); }
+  .badge.grey  { background: var(--bg-3);    color: var(--tx-2); }
+  .badge.green { background: var(--green-d);  color: var(--green); }
+  .badge.purple{ background: var(--purple-d); color: var(--purple); }
+  .badge.red   { background: var(--red-d);    color: var(--red); }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    height: 30px; padding: 0 13px; border-radius: var(--r-sm);
+    font-size: 13px; font-weight: 600;
+    border: 1px solid var(--border-1); color: var(--tx-1);
+    background: var(--bg-2); transition: all .12s;
+    -webkit-app-region: no-drag;
+  }
+  .btn:hover { background: var(--bg-3); color: var(--tx); border-color: var(--border-1); }
+  .btn.primary { background: var(--blue); border-color: var(--blue); color: #06101f; }
+  .btn.primary:hover { background: #5d9af6; }
+  .btn.primary:disabled { background: var(--bg-2); border-color: var(--border); color: var(--tx-3); cursor: not-allowed; }
+  .btn.ghost { background: transparent; border-color: transparent; }
+  .btn.ghost:hover { background: var(--bg-2); }
+  .btn.danger:hover { color: var(--red); border-color: var(--red-d); background: var(--red-d); }
+  .btn.sm { height: 26px; padding: 0 10px; font-size: 12px; }
+
+  .surface { flex: 1; min-height: 0; overflow: hidden; }
+
+  /* ---------- Planning ---------- */
+  .plan { display: grid; grid-template-columns: minmax(380px, 1fr) 1.25fr; height: 100%; }
+  .plan-left  { border-right: 1px solid var(--border); background: var(--bg-1); overflow-y: auto; }
+  .plan-right { display: flex; flex-direction: column; min-height: 0; }
+
+  .panel-head {
+    display: flex; align-items: center; gap: 10px;
+    height: 44px; flex: 0 0 44px; padding: 0 18px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--tx-2);
+  }
+  .panel-head .spacer { flex: 1; }
+
+  .charter { padding: 20px 22px 40px; }
+  .charter h2 {
+    font-size: 19px; font-weight: 600; letter-spacing: -0.02em; color: var(--tx);
+    margin-bottom: 3px;
+  }
+  .charter .sub { color: var(--tx-2); font-size: 12.5px; font-family: var(--mono); margin-bottom: 22px; }
+
+  .csec { margin-bottom: 22px; }
+  .csec-label {
+    font-size: 10.5px; font-weight: 700; letter-spacing: 0.11em; text-transform: uppercase;
+    color: var(--tx-3); margin-bottom: 9px; display: flex; align-items: center; gap: 8px;
+  }
+  .csec-label .num { font-family: var(--mono); color: var(--tx-3); }
+  .goal-text { font-size: 15px; color: var(--tx); line-height: 1.45; font-weight: 450; }
+  .csec ul { list-style: none; display: flex; flex-direction: column; gap: 7px; }
+  .csec li {
+    display: flex; gap: 10px; font-size: 13px; color: var(--tx-1); line-height: 1.4;
+    align-items: baseline;
+  }
+  .csec li .mk { flex: 0 0 auto; margin-top: 1px; font-family: var(--mono); font-size: 12px; }
+  .csec li.con .mk { color: var(--amber); }
+  .csec li.non .mk { color: var(--red); }
+  .csec li.q .mk   { color: var(--blue); }
+  .csec li.resolved { color: var(--tx-2); }
+  .csec li.resolved .mk { color: var(--green); }
+  .csec li code { font-family: var(--mono); font-size: 12px; background: var(--bg-3); padding: 1px 5px; border-radius: 4px; color: var(--tx-1); }
+  .csec .empty { color: var(--tx-3); font-size: 12.5px; font-style: italic; }
+
+  .team-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .agent-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    height: 28px; padding: 0 11px 0 9px; border-radius: 100px;
+    background: var(--bg-2); border: 1px solid var(--border);
+    font-size: 12.5px; font-weight: 500; color: var(--tx-1);
+  }
+  .agent-chip .pdot { width: 8px; height: 8px; border-radius: 50%; }
+
+  .anim-in { animation: fadeUp .42s cubic-bezier(.2,.7,.2,1) both; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+
+  /* ---------- Chat ---------- */
+  .chat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .chat-scroll { flex: 1; overflow-y: auto; padding: 22px 24px 8px; display: flex; flex-direction: column; gap: 16px; }
+  .msg { display: flex; gap: 12px; max-width: 760px; }
+  .msg.you { align-self: flex-end; flex-direction: row-reverse; }
+  .ava {
+    flex: 0 0 26px; width: 26px; height: 26px; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; font-family: var(--mono);
+    border: 1px solid var(--border-1);
+    margin-top: 2px;
+  }
+  .msg-body { min-width: 0; }
+  .msg-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 11px; }
+  .msg.you .msg-meta { flex-direction: row-reverse; }
+  .msg-meta .who { font-weight: 600; color: var(--tx-1); }
+  .msg-meta .time { color: var(--tx-3); font-family: var(--mono); font-size: 10.5px; }
+  .bubble {
+    padding: 9px 13px; border-radius: 10px; font-size: 13.5px; line-height: 1.5;
+    background: var(--bg-2); border: 1px solid var(--border); color: var(--tx);
+  }
+  .msg.you .bubble { background: var(--blue-d); border-color: rgba(77,141,244,0.32); color: #e6eefc; }
+  .msg.interject .bubble {
+    background: transparent; border: 1px dashed var(--amber-d); color: var(--amber);
+    font-family: var(--mono); font-size: 12px;
+  }
+  .msg.interject .ava { background: var(--amber-d); color: var(--amber); border-color: var(--amber-d); }
+  .pm-tag { display: inline-flex; align-items: center; gap: 5px; }
+
+  .typing { display: inline-flex; gap: 3px; padding: 12px 14px; }
+  .typing i { width: 5px; height: 5px; border-radius: 50%; background: var(--tx-2); animation: blink 1.2s infinite both; }
+  .typing i:nth-child(2){ animation-delay: .18s; }
+  .typing i:nth-child(3){ animation-delay: .36s; }
+  @keyframes blink { 0%,80%,100%{ opacity:.25; } 40%{ opacity:1; } }
+
+  .composer { flex: 0 0 auto; padding: 12px 20px 18px; border-top: 1px solid var(--border); }
+  .composer-row {
+    display: flex; align-items: flex-end; gap: 10px;
+    background: var(--bg-2); border: 1px solid var(--border-1); border-radius: var(--r);
+    padding: 8px 8px 8px 14px;
+  }
+  .composer-row:focus-within { border-color: var(--border-1); box-shadow: 0 0 0 1px var(--blue-d); }
+  .composer textarea {
+    flex: 1; resize: none; background: transparent; border: none; outline: none;
+    color: var(--tx); font-size: 13.5px; line-height: 1.5; max-height: 120px; padding: 4px 0;
+  }
+  .composer textarea::placeholder { color: var(--tx-3); }
+  .send-btn {
+    flex: 0 0 auto; width: 30px; height: 30px; border-radius: var(--r-sm);
+    background: var(--bg-4); color: var(--tx-1); display: flex; align-items: center; justify-content: center;
+    transition: all .12s;
+  }
+  .send-btn:hover { background: var(--blue); color: #06101f; }
+  .composer .hint { color: var(--tx-3); font-size: 11px; margin-top: 7px; padding-left: 2px; font-family: var(--mono); }
+
+  /* ---------- Empty / placeholders for later surfaces ---------- */
+  .stub { height: 100%; display: flex; align-items: center; justify-content: center; color: var(--tx-3); font-family: var(--mono); font-size: 13px; }
+
+  /* ---------- Running ---------- */
+  .run { display: grid; grid-template-columns: minmax(310px, 360px) 1fr; grid-template-rows: 52px minmax(0,1fr) minmax(160px, 230px); height: 100%; }
+  .run-head {
+    grid-column: 1 / -1; display: flex; align-items: center; gap: 14px;
+    padding: 0 18px; border-bottom: 1px solid var(--border); background: var(--bg-1);
+  }
+  .run-head .pname { font-weight: 600; letter-spacing: -0.01em; font-size: 14px; }
+  .run-head .spacer { flex: 1; }
+  .run-status { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 11px; border-radius: 100px; font-size: 12px; font-weight: 600; border: 1px solid var(--border-1); }
+  .run-status .rdot { width: 7px; height: 7px; border-radius: 50%; }
+  .run-status.running { color: var(--blue); border-color: rgba(77,141,244,0.3); background: rgba(77,141,244,0.07); }
+  .run-status.running .rdot { background: var(--blue); animation: softpulse 1.4s infinite; }
+  .run-status.done { color: var(--green); border-color: rgba(52,207,138,0.3); background: rgba(52,207,138,0.08); }
+  .run-status.done .rdot { background: var(--green); }
+  .run-status.paused { color: var(--tx-1); }
+  .run-status.paused .rdot { background: var(--tx-2); }
+  .run-status.aborted { color: var(--red); border-color: var(--red-d); background: var(--red-d); }
+  .run-status.aborted .rdot { background: var(--red); }
+  @keyframes softpulse { 0%,100%{ opacity:1; } 50%{ opacity:.35; } }
+
+  .spend { display: flex; flex-direction: column; gap: 5px; width: 172px; flex: 0 0 auto; }
+  .spend-top { display: flex; justify-content: space-between; align-items: baseline; font-family: var(--mono); font-size: 11.5px; white-space: nowrap; }
+  .spend-top .amt { color: var(--tx); font-weight: 600; }
+  .spend-top .cap { color: var(--tx-3); }
+  .spend-bar { height: 4px; border-radius: 3px; background: var(--bg-3); overflow: hidden; }
+  .spend-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--blue), #6aa6f8); border-radius: 3px; transition: width .2s linear; }
+
+  .run-graph { border-right: 1px solid var(--border); background: var(--bg-1); display: flex; flex-direction: column; min-height: 0; }
+  .run-right { display: flex; flex-direction: column; min-height: 0; }
+  .run-agents { flex: 0 0 auto; border-bottom: 1px solid var(--border); }
+  .run-findings { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+  /* task graph */
+  .graph-scroll { flex: 1; overflow-y: auto; position: relative; padding: 14px 16px 24px 8px; }
+  .graph-inner { position: relative; }
+  .graph-edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; z-index: 0; }
+  .tnode { position: relative; display: flex; gap: 12px; padding: 7px 0; z-index: 1; }
+  .tnode-rail { flex: 0 0 56px; position: relative; }
+  .tnode-dot {
+    position: absolute; top: 16px; width: 13px; height: 13px; border-radius: 50%;
+    border: 2px solid var(--bg-1); transform: translate(-50%,-50%); z-index: 2;
+    transition: background .3s, box-shadow .3s;
+  }
+  .tnode-card {
+    flex: 1; min-width: 0; background: var(--bg-2); border: 1px solid var(--border);
+    border-radius: var(--r); padding: 10px 12px; transition: border-color .3s, background .3s, box-shadow .3s;
+  }
+  .tnode.in_progress .tnode-card { border-color: rgba(77,141,244,0.45); background: #0f1620; box-shadow: 0 0 0 1px rgba(77,141,244,0.12), 0 0 24px -8px rgba(77,141,244,0.5); }
+  .tnode.changes_requested .tnode-card { border-color: rgba(232,169,58,0.4); }
+  .tnode.failed .tnode-card { border-color: var(--red-d); }
+  .tnode-top { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .tnode-id { font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--tx-2); }
+  .tnode-title { font-size: 13px; font-weight: 500; color: var(--tx); line-height: 1.3; }
+  .tnode-bottom { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .tnode-assignee { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--tx-1); }
+  .tnode-assignee .pdot { width: 7px; height: 7px; border-radius: 50%; }
+  .tnode-status { margin-left: auto; font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+  .tnode-step { font-family: var(--mono); font-size: 11px; color: var(--blue); margin-top: 7px; display: flex; align-items: center; gap: 0; }
+  .cursor { display: inline-block; width: 6px; height: 12px; background: currentColor; margin-left: 3px; animation: cblink 1s steps(2) infinite; vertical-align: middle; border-radius: 1px; }
+  @keyframes cblink { 0%,50%{ opacity:1; } 51%,100%{ opacity:0; } }
+
+  /* agents panel */
+  .agent-row { display: flex; align-items: center; gap: 11px; padding: 10px 16px; border-bottom: 1px solid var(--border-soft); }
+  .agent-row:last-child { border-bottom: none; }
+  .agent-dot { flex: 0 0 auto; width: 11px; height: 11px; border-radius: 50%; position: relative; }
+  .agent-dot.idle { background: transparent; box-shadow: inset 0 0 0 1.5px var(--tx-3); }
+  .agent-dot.active::after { content:''; position: absolute; inset: -5px; border-radius: 50%; border: 1.5px solid currentColor; opacity: 0; animation: ring 1.5s infinite; }
+  @keyframes ring { 0%{ transform: scale(.6); opacity:.7; } 100%{ transform: scale(1.5); opacity:0; } }
+  .agent-name { font-size: 13px; font-weight: 500; color: var(--tx); flex: 0 0 auto; width: 92px; }
+  .agent-meta { flex: 1; min-width: 0; }
+  .agent-step { font-family: var(--mono); font-size: 11px; color: var(--tx-1); display: flex; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .agent-sub { font-size: 11px; color: var(--tx-3); }
+
+  /* findings feed */
+  .feed-scroll { flex: 1; overflow-y: auto; padding: 12px 14px 18px; display: flex; flex-direction: column; gap: 9px; }
+  .feed-empty { color: var(--tx-3); font-family: var(--mono); font-size: 12px; text-align: center; padding-top: 28px; }
+  .finding { border: 1px solid var(--border); border-radius: var(--r); background: var(--bg-2); overflow: hidden; animation: slideTop .45s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes slideTop { from { opacity: 0; transform: translateY(-12px) scale(.99); } to { opacity: 1; transform: none; } }
+  .finding-head { display: flex; align-items: center; gap: 9px; padding: 10px 12px; cursor: pointer; }
+  .finding-head:hover { background: var(--bg-3); }
+  .finding-agent { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--tx); }
+  .finding-agent .pdot { width: 7px; height: 7px; border-radius: 50%; }
+  .finding-tid { font-family: var(--mono); font-size: 11px; color: var(--tx-2); }
+  .vchip {
+    display: inline-flex; align-items: center; height: 19px; padding: 0 7px; border-radius: 4px;
+    font-family: var(--mono); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; margin-left: auto;
+    white-space: nowrap;
+  }
+  .vchip.complete { background: var(--blue-d); color: var(--blue); }
+  .vchip.pass { background: var(--green-d); color: var(--green); }
+  .vchip.changes { background: var(--amber-d); color: var(--amber); }
+  .vchip.fail { background: var(--red-d); color: var(--red); }
+  .finding-summary { padding: 0 12px 11px; font-size: 12.5px; color: var(--tx-1); line-height: 1.45; }
+  .finding-body { padding: 0 12px 13px; border-top: 1px solid var(--border-soft); margin: 0 0 0; }
+  .finding-body .fb-inner { padding-top: 11px; display: flex; flex-direction: column; gap: 9px; }
+  .fb-row { font-size: 12px; color: var(--tx-1); }
+  .fb-label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tx-3); margin-bottom: 5px; }
+  .code-block { font-family: var(--mono); font-size: 11.5px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 9px 11px; color: var(--tx-1); white-space: pre-wrap; line-height: 1.55; }
+  .code-block .add { color: var(--green); }
+  .code-block .del { color: var(--red); }
+  .code-block .cm { color: var(--tx-3); }
+  .file-tag { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11.5px; color: var(--tx-1); }
+
+  .caret { transition: transform .2s; color: var(--tx-3); display: inline-flex; }
+  .caret.open { transform: rotate(90deg); }
+
+  /* run pm chat */
+  .run-chat { grid-column: 1 / -1; border-top: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; background: var(--bg-1); }
+  .run-chat .chat-scroll { padding: 14px 20px 6px; gap: 12px; }
+  .run-chat .composer { padding: 10px 18px 14px; }
+  .icon-btn { width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r-sm); color: var(--tx-2); border: 1px solid var(--border-1); background: var(--bg-2); transition: all .12s; }
+  .icon-btn:hover { color: var(--tx); background: var(--bg-3); }
+  .icon-btn.danger:hover { color: var(--red); border-color: var(--red-d); background: var(--red-d); }
+
+  /* ---------- Marketplace ---------- */
+  .mkt { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+  .mkt-tabs { display: flex; align-items: center; gap: 2px; height: 46px; flex: 0 0 46px; padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--bg-1); }
+  .mkt-tab { padding: 6px 13px; border-radius: var(--r-sm); color: var(--tx-2); font-size: 13px; font-weight: 500; }
+  .mkt-tab:hover { color: var(--tx-1); background: var(--bg-2); }
+  .mkt-tab.on { color: var(--tx); background: var(--bg-3); }
+  .mkt-tab .cnt { font-family: var(--mono); font-size: 11px; color: var(--tx-3); margin-left: 6px; }
+  .mkt-body { flex: 1; min-height: 0; overflow-y: auto; }
+
+  .filterbar { display: flex; align-items: center; gap: 12px; padding: 16px 22px; border-bottom: 1px solid var(--border-soft); flex-wrap: wrap; position: sticky; top: 0; background: var(--bg); z-index: 5; }
+  .chipgroup { display: flex; gap: 4px; flex-wrap: wrap; }
+  .fchip { height: 27px; padding: 0 11px; border-radius: 100px; font-size: 12px; font-weight: 500; color: var(--tx-2); border: 1px solid var(--border); background: var(--bg-1); transition: all .12s; }
+  .fchip:hover { color: var(--tx-1); border-color: var(--border-1); }
+  .fchip.on { color: var(--tx); background: var(--bg-3); border-color: var(--border-1); }
+  .filter-sep { width: 1px; height: 22px; background: var(--border); }
+  .search { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 11px; border-radius: var(--r-sm); border: 1px solid var(--border-1); background: var(--bg-1); margin-left: auto; min-width: 210px; }
+  .search input { background: transparent; border: none; outline: none; color: var(--tx); font-size: 13px; flex: 1; }
+  .search input::placeholder { color: var(--tx-3); }
+  .search svg { color: var(--tx-3); flex: 0 0 auto; }
+  .prov-select { height: 30px; padding: 0 10px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--bg-1); color: var(--tx-1); font-size: 12.5px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; padding: 20px 22px 40px; }
+  .acard { border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg-1); padding: 15px 16px; cursor: pointer; transition: border-color .14s, background .14s, transform .14s; display: flex; flex-direction: column; gap: 11px; }
+  .acard:hover { border-color: var(--border-1); background: var(--bg-2); transform: translateY(-2px); }
+  .acard-top { display: flex; align-items: flex-start; gap: 10px; }
+  .acard-icon { flex: 0 0 36px; width: 36px; height: 36px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-weight: 700; font-size: 13px; border: 1px solid var(--border-1); }
+  .acard-name { font-size: 14.5px; font-weight: 600; letter-spacing: -0.01em; }
+  .acard-sub { display: flex; align-items: center; gap: 7px; margin-top: 3px; }
+  .rolechip { height: 19px; padding: 0 7px; border-radius: 4px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.02em; background: var(--bg-3); color: var(--tx-1); display: inline-flex; align-items: center; }
+  .prov { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; font-family: var(--mono); white-space: nowrap; }
+  .prov.first { color: var(--blue); }
+  .prov.community { color: var(--purple); }
+  .prov.private { color: var(--tx-2); }
+  .prov .pdot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .acard-desc { font-size: 12.5px; color: var(--tx-1); line-height: 1.45; flex: 1; }
+  .acard-foot { display: flex; align-items: center; gap: 10px; }
+  .stars { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--tx-1); font-family: var(--mono); }
+  .stars svg { color: var(--amber); }
+  .toolrow { display: inline-flex; gap: 5px; margin-left: auto; }
+  .tool-i { width: 22px; height: 22px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); }
+  .tool-i.read { color: var(--grey); }
+  .tool-i.write { color: var(--amber); background: rgba(232,169,58,0.07); border-color: rgba(232,169,58,0.2); }
+  .tool-i.network { color: var(--orange); background: rgba(239,128,67,0.07); border-color: rgba(239,128,67,0.2); }
+  .tool-i.shell { color: var(--red); background: rgba(240,90,82,0.08); border-color: rgba(240,90,82,0.22); }
+
+  /* overlay + drawer */
+  .scrim { position: fixed; inset: 0; background: rgba(4,5,7,0.66); backdrop-filter: blur(2px); z-index: 100; animation: fade .18s ease both; }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 540px; max-width: 94vw; background: var(--bg-1); border-left: 1px solid var(--border-1); z-index: 101; display: flex; flex-direction: column; animation: slideR .26s cubic-bezier(.2,.8,.2,1) both; box-shadow: -30px 0 60px -30px rgba(0,0,0,0.6); }
+  @keyframes slideR { from { transform: translateX(30px); opacity: .4; } to { transform: none; opacity: 1; } }
+  .drawer-head { display: flex; align-items: flex-start; gap: 13px; padding: 20px 22px; border-bottom: 1px solid var(--border); }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 20px 22px 30px; }
+  .drawer-foot { flex: 0 0 auto; padding: 14px 22px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 12px; background: var(--bg-1); }
+  .dsec { margin-bottom: 22px; }
+  .dsec-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--tx-3); margin-bottom: 10px; display: flex; align-items: center; gap: 7px; }
+  .meta-grid { display: flex; gap: 22px; }
+  .meta-grid .mg { font-size: 12px; }
+  .meta-grid .mg .k { color: var(--tx-3); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 3px; }
+  .meta-grid .mg .v { color: var(--tx); font-family: var(--mono); }
+  .prompt-block { position: relative; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r); padding: 13px 15px; font-family: var(--mono); font-size: 11.5px; line-height: 1.7; color: var(--tx-1); max-height: 190px; overflow-y: auto; white-space: pre-wrap; }
+  .prompt-lock { position: absolute; top: 9px; right: 10px; display: inline-flex; align-items: center; gap: 5px; font-size: 10px; color: var(--tx-3); background: var(--bg-2); padding: 3px 7px; border-radius: 5px; border: 1px solid var(--border); }
+  .toolitem { display: flex; align-items: flex-start; gap: 11px; padding: 11px 13px; border: 1px solid var(--border); border-radius: var(--r); margin-bottom: 8px; }
+  .toolitem.caution { border-color: rgba(240,90,82,0.22); background: rgba(240,90,82,0.04); }
+  .toolitem.caution.write { border-color: rgba(232,169,58,0.24); background: rgba(232,169,58,0.04); }
+  .toolitem.caution.network { border-color: rgba(239,128,67,0.24); background: rgba(239,128,67,0.04); }
+  .toolitem .ti-name { font-family: var(--mono); font-size: 12.5px; font-weight: 600; color: var(--tx); display: flex; align-items: center; gap: 7px; }
+  .toolitem .ti-desc { font-size: 11.5px; color: var(--tx-2); margin-top: 3px; }
+  .sens-tag { font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; padding: 2px 5px; border-radius: 3px; }
+  .sens-tag.read { color: var(--grey); background: var(--bg-3); }
+  .sens-tag.write { color: var(--amber); background: var(--amber-d); }
+  .sens-tag.network { color: var(--orange); background: rgba(239,128,67,0.13); }
+  .sens-tag.shell { color: var(--red); background: var(--red-d); }
+  .routing { font-size: 13px; color: var(--tx-1); line-height: 1.55; padding: 12px 14px; background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r); }
+  .routing b { color: var(--tx); font-weight: 600; }
+
+  /* hire modal */
+  .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); width: 560px; max-width: 94vw; max-height: 90vh; background: var(--bg-1); border: 1px solid var(--border-1); border-radius: var(--r-lg); z-index: 102; display: flex; flex-direction: column; animation: pop .2s cubic-bezier(.2,.8,.2,1) both; box-shadow: 0 30px 80px -20px rgba(0,0,0,0.7); }
+  @keyframes pop { from { transform: translate(-50%,-48%) scale(.97); opacity: 0; } to { transform: translate(-50%,-50%) scale(1); opacity: 1; } }
+  .modal-head { display: flex; align-items: center; gap: 11px; padding: 17px 20px; border-bottom: 1px solid var(--border); }
+  .modal-title { font-size: 15px; font-weight: 600; }
+  .modal-sub { font-size: 12px; color: var(--tx-2); }
+  .modal-body { flex: 1; overflow-y: auto; padding: 18px 20px; }
+  .modal-foot { flex: 0 0 auto; padding: 14px 20px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  .mfield { margin-bottom: 20px; }
+  .mfield-label { font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--tx-2); margin-bottom: 9px; display: flex; align-items: center; gap: 7px; }
+  .grant { display: flex; align-items: center; gap: 12px; padding: 11px 13px; border: 1px solid var(--border); border-radius: var(--r); margin-bottom: 8px; transition: border-color .14s, background .14s; }
+  .grant.sensitive { border-color: rgba(240,90,82,0.2); background: rgba(240,90,82,0.035); }
+  .grant.sensitive.write { border-color: rgba(232,169,58,0.22); background: rgba(232,169,58,0.04); }
+  .grant.sensitive.network { border-color: rgba(239,128,67,0.22); background: rgba(239,128,67,0.04); }
+  .grant.locked { opacity: 0.6; }
+  .grant.unack { box-shadow: 0 0 0 1px rgba(240,90,82,0.25); }
+  .grant-main { flex: 1; min-width: 0; }
+  .grant-name { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--tx); display: flex; align-items: center; gap: 8px; }
+  .grant-desc { font-size: 11.5px; color: var(--tx-2); margin-top: 3px; }
+  .grant-warn { font-size: 11px; color: var(--red); margin-top: 5px; display: flex; align-items: center; gap: 5px; }
+  .grant.write .grant-warn { color: var(--amber); }
+  .grant.network .grant-warn { color: var(--orange); }
+
+  .switch { flex: 0 0 auto; width: 38px; height: 22px; border-radius: 100px; background: var(--bg-4); position: relative; cursor: pointer; transition: background .16s; border: 1px solid var(--border-1); }
+  .switch::after { content:''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--tx-1); transition: transform .16s, background .16s; }
+  .switch.on { background: var(--blue); border-color: var(--blue); }
+  .switch.on::after { transform: translateX(16px); background: #06101f; }
+  .switch.on.amber { background: var(--amber); border-color: var(--amber); }
+  .switch.on.danger { background: var(--red); border-color: var(--red); }
+  .switch.on.orange { background: var(--orange); border-color: var(--orange); }
+  .switch.disabled { cursor: not-allowed; opacity: 0.5; }
+  .lockchip { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: var(--tx-3); font-family: var(--mono); }
+
+  .ta { width: 100%; min-height: 76px; resize: vertical; background: var(--bg); border: 1px solid var(--border-1); border-radius: var(--r); padding: 10px 12px; color: var(--tx); font-size: 12.5px; line-height: 1.5; outline: none; }
+  .ta:focus { border-color: var(--blue-d); box-shadow: 0 0 0 1px var(--blue-d); }
+  .helper { font-size: 11px; color: var(--tx-3); margin-top: 6px; line-height: 1.45; }
+  .sel { height: 32px; padding: 0 10px; border-radius: var(--r-sm); border: 1px solid var(--border-1); background: var(--bg); color: var(--tx); font-size: 12.5px; }
+  .tier-multi { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tier-opt { height: 28px; padding: 0 11px; border-radius: 100px; font-size: 11.5px; font-weight: 600; font-family: var(--mono); letter-spacing: 0.03em; border: 1px solid var(--border); background: var(--bg-1); color: var(--tx-2); cursor: pointer; transition: all .12s; }
+  .tier-opt.on { color: var(--amber); border-color: rgba(232,169,58,0.35); background: var(--amber-d); }
+  .ack-note { font-size: 11.5px; color: var(--amber); display: flex; align-items: center; gap: 6px; }
+
+  /* my team */
+  .team-wrap { padding: 22px; }
+  .team-group { margin-bottom: 28px; }
+  .team-group-h { font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--tx-3); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .trow { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg-1); margin-bottom: 10px; }
+  .trow-icon { flex: 0 0 38px; width: 38px; height: 38px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-weight: 700; font-size: 13px; border: 1px solid var(--border-1); }
+  .trow-main { flex: 1; min-width: 0; }
+  .trow-name { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 9px; }
+  .trow-sub { font-size: 11.5px; color: var(--tx-2); margin-top: 3px; display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+  .tierpill { font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 3px; background: var(--bg-3); color: var(--tx-2); }
+  .lockbadge { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; font-weight: 600; color: var(--tx-3); font-family: var(--mono); background: var(--bg-3); padding: 3px 7px; border-radius: 5px; white-space: nowrap; }
+  .upgrade-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: var(--amber); background: var(--amber-d); padding: 4px 9px; border-radius: 100px; cursor: pointer; border: 1px solid rgba(232,169,58,0.25); transition: all .12s; }
+  .upgrade-badge:hover { background: rgba(232,169,58,0.22); }
+  .trow-tools { display: flex; gap: 5px; flex: 0 0 auto; }
+  .trow-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+  .trow-actions .lockbadge { white-space: nowrap; }
+
+  .diff-line { font-family: var(--mono); font-size: 12px; padding: 3px 10px; border-radius: 4px; line-height: 1.6; white-space: pre-wrap; }
+  .diff-line.add { background: rgba(52,207,138,0.1); color: var(--green); }
+  .diff-line.del { background: rgba(240,90,82,0.09); color: var(--red); }
+  .diff-line.ctx { color: var(--tx-2); }
+  .newtool { border: 1px solid rgba(232,169,58,0.4); background: var(--amber-d); border-radius: var(--r); padding: 11px 13px; display: flex; align-items: center; gap: 10px; }
+  .x-btn { margin-left: auto; width: 28px; height: 28px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--tx-2); }
+  .x-btn:hover { background: var(--bg-3); color: var(--tx); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+/* =====================================================================
+   DATA / DESIGN TOKENS
+   ===================================================================== */
+const PERSONAS = {
+  pm:         { id:'pm',         name:'Project Manager', short:'PM', color:'#a585f5', role:'Referee' },
+  coder:      { id:'coder',      name:'Coder',           short:'CO', color:'#4d8df4', role:'Implementation' },
+  tester:     { id:'tester',     name:'Tester',          short:'TE', color:'#34cf8a', role:'Verification' },
+  security:   { id:'security',   name:'Security',        short:'SE', color:'#e8a93a', role:'Review' },
+  negotiator: { id:'negotiator', name:'Negotiator',      short:'NE', color:'#ef8043', role:'Arbitration' },
+};
+
+function rgba(hex, a){
+  const n = parseInt(hex.slice(1),16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+
+/* =====================================================================
+   PLANNING SURFACE
+   ===================================================================== */
+const PLAN_SCRIPT = [
+  { d:500,  type:'msg', from:'pm',  text:"Before I staff anything — what are you actually trying to build?" },
+  { d:1500, type:'msg', from:'you', text:"Add a /leaderboard command to my Discord bot that ranks players by season." },
+  { d:700,  type:'charter', field:'goal', value:"Add a /leaderboard slash command that ranks players by season." },
+  { d:900,  type:'msg', from:'pm',  text:"Where does the ranking data live — the same Postgres the bot already uses?" },
+  { d:1400, type:'msg', from:'you', text:"Yeah. There's a `matches` table I can read from." },
+  { d:650,  type:'list', field:'constraints', value:"Reads from the existing Postgres `matches` table" },
+  { d:850,  type:'msg', from:'pm',  text:"Roughly how many players on a busy server? That decides pagination." },
+  { d:1300, type:'msg', from:'you', text:"A few thousand on the big ones." },
+  { d:800,  type:'msg', from:'pm',  text:"Then we cap to the top 100 and paginate. Noting it." },
+  { d:600,  type:'list', field:'constraints', value:"Cap to top 100 results, paginated" },
+  { d:950,  type:'msg', from:'security', text:"[Security consulted] Season filter takes raw user input — SQL injection risk on the query path." },
+  { d:850,  type:'msg', from:'pm',  text:"Security's right. The season filter gets parameterized — non-negotiable, and it becomes a gate." },
+  { d:600,  type:'list', field:'constraints', value:"Season filter must be parameterized — no string interpolation" },
+  { d:550,  type:'list', field:'nongoals', value:"No write access to match data" },
+  { d:550,  type:'list', field:'nongoals', value:"No new ranking math — reuse the existing Elo" },
+  { d:700,  type:'q', value:"Should tied players share a rank?" },
+  { d:1300, type:'msg', from:'you', text:"Ties can share a rank, that's fine." },
+  { d:650,  type:'resolve', value:"yes — tied players share a rank" },
+  { d:900,  type:'msg', from:'pm',  text:"Good. I'd staff this with a Coder, a Tester, and a Security reviewer." },
+  { d:450,  type:'team', value:'coder' },
+  { d:400,  type:'team', value:'tester' },
+  { d:400,  type:'team', value:'security' },
+  { d:650,  type:'msg', from:'pm',  text:"Charter's ready. Hit Execute when you want the swarm to start." },
+  { d:300,  type:'enable' },
+];
+
+function Avatar({ from }){
+  if(from === 'you') return <div className="ava" style={{ background:'var(--bg-3)', color:'var(--tx-1)' }}>YOU</div>;
+  if(from === 'security') return <div className="ava" style={{ background:'var(--amber-d)', color:'var(--amber)' }}>SE</div>;
+  return <div className="ava" style={{ background:'var(--purple-d)', color:'var(--purple)' }}>PM</div>;
+}
+
+function Message({ m, time }){
+  const cls = m.from === 'you' ? 'you' : m.from === 'security' ? 'interject' : 'pm';
+  const who = m.from === 'you' ? 'You' : m.from === 'security' ? 'Security' : 'Project Manager';
+  return (
+    <div className={`msg ${cls} anim-in`}>
+      <Avatar from={m.from} />
+      <div className="msg-body">
+        <div className="msg-meta">
+          <span className="who">{who}</span>
+          <span className="time">{time}</span>
+        </div>
+        <div className="bubble">{renderText(m.text)}</div>
+      </div>
+    </div>
+  );
+}
+
+function renderText(t){
+  // render `code` spans
+  const parts = String(t).split(/(`[^`]+`)/g);
+  return parts.map((p,i) => p.startsWith('`') && p.endsWith('`')
+    ? <code key={i} style={{ fontFamily:'var(--mono)', fontSize:'0.85em', background:'rgba(255,255,255,0.06)', padding:'1px 5px', borderRadius:4 }}>{p.slice(1,-1)}</code>
+    : <span key={i}>{p}</span>);
+}
+
+function CharterList({ items, kind, mk }){
+  if(!items.length) return <div className="empty">Listening…</div>;
+  return (
+    <ul>
+      {items.map((it,i) => (
+        <li key={i} className={`${kind} anim-in ${it.resolved ? 'resolved':''}`}>
+          <span className="mk">{it.resolved ? '✓' : mk}</span>
+          <span>{renderText(it.text || it)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Charter({ charter, team, onExecute, executable }){
+  return (
+    <div className="plan-left">
+      <div className="panel-head">
+        <span>Project Charter</span>
+        <span className="spacer"></span>
+        <span className="badge grey">DRAFT</span>
+      </div>
+      <div className="charter">
+        <h2>Leaderboard command</h2>
+        <div className="sub">discord-rank-bot · charter v0.1</div>
+
+        <div className="csec">
+          <div className="csec-label"><span className="num">01</span> Goal</div>
+          {charter.goal
+            ? <div className="goal-text anim-in">{renderText(charter.goal)}</div>
+            : <div className="empty">Listening…</div>}
+        </div>
+
+        <div className="csec">
+          <div className="csec-label"><span className="num">02</span> Constraints</div>
+          <CharterList items={charter.constraints} kind="con" mk="▸" />
+        </div>
+
+        <div className="csec">
+          <div className="csec-label"><span className="num">03</span> Non-goals</div>
+          <CharterList items={charter.nongoals} kind="non" mk="✕" />
+        </div>
+
+        <div className="csec">
+          <div className="csec-label"><span className="num">04</span> Open questions</div>
+          <CharterList items={charter.questions} kind="q" mk="?" />
+        </div>
+
+        <div className="csec">
+          <div className="csec-label"><span className="num">05</span> Recommended team</div>
+          {team.length
+            ? <div className="team-chips">
+                {team.map(id => (
+                  <span key={id} className="agent-chip anim-in">
+                    <span className="pdot" style={{ background: PERSONAS[id].color }}></span>
+                    {PERSONAS[id].name}
+                  </span>
+                ))}
+              </div>
+            : <div className="empty">Listening…</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PlanningSurface({ onExecute, charter, team, done, replay }){
+  const [messages, setMessages] = useState([]);
+  const [typing, setTyping] = useState(false);
+  const scrollRef = useRef(null);
+
+  // messages handled by parent timeline -> passed via window event; here we read from a shared store.
+  return null;
+}
+
+/* The Planning surface needs its own internal timeline, so we implement it fully here. */
+function Planning({ onExecute }){
+  const [messages, setMessages] = useState([]);
+  const [charter, setCharter] = useState({ goal:'', constraints:[], nongoals:[], questions:[] });
+  const [team, setTeam] = useState([]);
+  const [executable, setExecutable] = useState(false);
+  const [typing, setTyping] = useState(null); // who is typing
+  const scrollRef = useRef(null);
+  const tRef = useRef([]);
+
+  useEffect(() => { planBus.set(false); }, []);
+
+  const startClock = useRef(Date.now());
+  const fmt = () => {
+    const s = Math.floor((Date.now() - startClock.current)/1000);
+    return `00:${String(s).padStart(2,'0')}`;
+  };
+
+  useEffect(() => {
+    let acc = 0;
+    PLAN_SCRIPT.forEach(step => {
+      // show typing indicator before pm/security/you messages
+      if(step.type === 'msg'){
+        const tShow = acc;
+        tRef.current.push(setTimeout(() => setTyping(step.from), tShow - 450 > 0 ? tShow - 450 : tShow));
+      }
+      acc += step.d;
+      const at = acc;
+      tRef.current.push(setTimeout(() => {
+        setTyping(null);
+        applyStep(step);
+      }, at));
+    });
+    return () => tRef.current.forEach(clearTimeout);
+  }, []);
+
+  function applyStep(step){
+    switch(step.type){
+      case 'msg':
+        setMessages(m => [...m, { from: step.from, text: step.text, time: fmt() }]);
+        break;
+      case 'charter':
+        setCharter(c => ({ ...c, [step.field]: step.value }));
+        break;
+      case 'list':
+        setCharter(c => ({ ...c, [step.field]: [...c[step.field], { text: step.value }] }));
+        break;
+      case 'q':
+        setCharter(c => ({ ...c, questions: [...c.questions, { text: step.value }] }));
+        break;
+      case 'resolve':
+        setCharter(c => ({ ...c, questions: c.questions.map((q,i) =>
+          i === c.questions.length-1 ? { text: q.text + '  →  ' + step.value, resolved:true } : q) }));
+        break;
+      case 'team':
+        setTeam(t => [...t, step.value]);
+        break;
+      case 'enable':
+        setExecutable(true);
+        planBus.set(true);
+        break;
+    }
+  }
+
+  useEffect(() => {
+    if(scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages, typing]);
+
+  return (
+    <div className="plan">
+      <Charter charter={charter} team={team} executable={executable} onExecute={onExecute} />
+      <div className="plan-right">
+        <div className="panel-head">
+          <span>PM Conversation</span>
+          <span className="spacer"></span>
+          <span style={{ display:'flex', alignItems:'center', gap:6, color:'var(--tx-2)', fontSize:11, textTransform:'none', letterSpacing:0, fontFamily:'var(--mono)' }}>
+            <span style={{ width:6, height:6, borderRadius:'50%', background:'var(--green)' }}></span>
+            scoping
+          </span>
+        </div>
+        <div className="chat">
+          <div className="chat-scroll" ref={scrollRef}>
+            {messages.map((m,i) => <Message key={i} m={m} time={m.time} />)}
+            {typing && (
+              <div className={`msg ${typing==='you'?'you': typing==='security'?'interject':'pm'}`}>
+                <Avatar from={typing} />
+                <div className="msg-body">
+                  <div className="bubble" style={{ padding:0 }}><div className="typing"><i></i><i></i><i></i></div></div>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="composer">
+            <div className="composer-row">
+              <textarea rows="1" placeholder="The PM is driving this conversation…" disabled></textarea>
+              <button className="send-btn" tabIndex={-1}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+              </button>
+            </div>
+            <div className="hint">Auto-piloted demo · the PM assembles the charter as you talk</div>
+          </div>
+        </div>
+      </div>
+      <ExecuteFab visible={executable} onExecute={onExecute} />
+    </div>
+  );
+}
+
+function ExecuteFab({ visible, onExecute }){
+  // Execute lives in the topbar; this is a no-op placeholder kept for clarity.
+  return null;
+}
+
+/* =====================================================================
+   RUNNING SURFACE
+   ===================================================================== */
+const INIT_TASKS = [
+  { id:'t1', title:'Implement /leaderboard command', assignee:'coder',    deps:[],     lane:0 },
+  { id:'t2', title:'Write tests for t1',             assignee:'tester',   deps:['t1'], lane:1 },
+  { id:'t3', title:'Security review of t1',          assignee:'security', deps:['t1'], lane:0 },
+];
+const LATE_TASKS = [
+  { id:'t4', title:'Fix SQL injection (t3)',         assignee:'coder',    deps:['t3'], lane:0, late:true },
+  { id:'t5', title:'Security re-review of t4',       assignee:'security', deps:['t4'], lane:0, late:true },
+];
+
+const FINDINGS_FULL = {
+  'coder-t1': {
+    label:'2 files changed',
+    body: [
+      { type:'files', items:['src/commands/leaderboard.ts', 'src/db/queries/ranking.ts'] },
+      { type:'note', label:'Summary', text:'Added LeaderboardCommand. Reads the top 100 from `matches`, joins player profiles, paginates 10 per page with prev/next buttons. Reuses the existing Elo calculation.' },
+      { type:'code', label:'queries/ranking.ts', lines:[
+        { t:'cm', s:'// season filter is interpolated for now — flagged for review' },
+        { t:'del', s:'const q = `SELECT * FROM matches WHERE season = \'${season}\'`' },
+      ] },
+    ],
+  },
+  'tester-t2': {
+    label:'6 tests passing',
+    body: [
+      { type:'note', label:'Suite', text:'leaderboard.test.ts · 6 passed · 0 failed · 412ms' },
+      { type:'code', label:'results', lines:[
+        { t:'add', s:'✓ ranks players by descending Elo' },
+        { t:'add', s:'✓ caps results at 100 rows' },
+        { t:'add', s:'✓ paginates 10 per page' },
+        { t:'add', s:'✓ tied players share a rank' },
+        { t:'add', s:'✓ empty season returns a friendly message' },
+        { t:'add', s:'✓ page overflow clamps to last page' },
+      ] },
+    ],
+  },
+  'security-t3': {
+    label:'1 critical · query path',
+    body: [
+      { type:'note', label:'Vulnerability', text:'The season filter is interpolated directly into SQL. A crafted season value escapes the string literal — classic SQL injection on a user-controlled parameter.' },
+      { type:'code', label:'src/db/queries/ranking.ts:14', lines:[
+        { t:'del', s:"const q = `SELECT * FROM matches WHERE season = '${season}'`" },
+        { t:'cm',  s:'// exploit: season = "2024\' OR \'1\'=\'1"' },
+        { t:'add', s:'// recommended: parameterized query, season as $1' },
+      ] },
+      { type:'note', label:'Gate', text:'Blocks t1 from reaching done. Requires a fix task before the leaderboard can ship.' },
+    ],
+  },
+  'coder-t4': {
+    label:'1 file changed',
+    body: [
+      { type:'files', items:['src/db/queries/ranking.ts'] },
+      { type:'note', label:'Fix', text:'Replaced string interpolation with a parameterized query. Season is now bound as `$1` via a prepared statement — no user input touches the SQL text.' },
+      { type:'code', label:'queries/ranking.ts:14', lines:[
+        { t:'del', s:"const q = `SELECT * FROM matches WHERE season = '${season}'`" },
+        { t:'add', s:"const q = 'SELECT * FROM matches WHERE season = $1'" },
+        { t:'add', s:'const rows = await db.query(q, [season])' },
+      ] },
+    ],
+  },
+  'security-t5': {
+    label:'0 findings',
+    body: [
+      { type:'note', label:'Re-review', text:'Season filter is now bound as a parameter. Traced the full query path — no remaining injection vectors. Input validation and the prepared statement both hold.' },
+      { type:'note', label:'Gate', text:'Security gate PASSED. t4 cleared — all dependent tasks may complete.' },
+    ],
+  },
+};
+
+// time in ms (absolute from run start)
+const RUN_SCRIPT = [
+  { at:200,   fn:'task',  id:'t1', status:'in_progress' },
+  { at:200,   fn:'agent', who:'coder', step:'Reading codebase' },
+  { at:1400,  fn:'agent', who:'coder', step:'Writing LeaderboardCommand' },
+  { at:2700,  fn:'agent', who:'coder', step:'Writing structured findings' },
+  { at:3700,  fn:'finding', key:'coder-t1', agent:'coder', task:'t1', verdict:'complete', summary:'Implemented LeaderboardCommand, 2 files changed' },
+  { at:3700,  fn:'task',  id:'t1', status:'done' },
+  { at:3700,  fn:'idle',  who:'coder', verdict:'complete' },
+  { at:3900,  fn:'task',  id:'t2', status:'in_progress' },
+  { at:3900,  fn:'task',  id:'t3', status:'in_progress' },
+  { at:3900,  fn:'agent', who:'tester', step:'Reading the t1 diff' },
+  { at:3900,  fn:'agent', who:'security', step:'Static analysis of query path' },
+  { at:5000,  fn:'agent', who:'tester', step:'Running suite — 6 tests' },
+  { at:5200,  fn:'agent', who:'security', step:'Tracing season filter input' },
+  { at:6000,  fn:'finding', key:'tester-t2', agent:'tester', task:'t2', verdict:'pass', summary:'6 tests passing' },
+  { at:6000,  fn:'task',  id:'t2', status:'done' },
+  { at:6000,  fn:'idle',  who:'tester', verdict:'pass' },
+  { at:6800,  fn:'agent', who:'security', step:'Confirming injection vector' },
+  { at:7700,  fn:'finding', key:'security-t3', agent:'security', task:'t3', verdict:'changes', summary:'SQL injection in season filter' },
+  { at:7700,  fn:'task',  id:'t3', status:'changes_requested' },
+  { at:7700,  fn:'idle',  who:'security', verdict:'changes' },
+  { at:8400,  fn:'pm', text:"Security flagged a SQL injection in the season filter (t3). I've created t4 to fix it and t5 to re-review. Coder is on it now." },
+  { at:9100,  fn:'addtasks' },
+  { at:9800,  fn:'task',  id:'t4', status:'in_progress' },
+  { at:9800,  fn:'agent', who:'coder', step:'Reading t3 findings' },
+  { at:10900, fn:'agent', who:'coder', step:'Parameterizing the season filter' },
+  { at:12000, fn:'agent', who:'coder', step:'Writing findings' },
+  { at:12900, fn:'finding', key:'coder-t4', agent:'coder', task:'t4', verdict:'complete', summary:'Parameterized query, prepared statement' },
+  { at:12900, fn:'task',  id:'t4', status:'done' },
+  { at:12900, fn:'idle',  who:'coder', verdict:'complete' },
+  { at:13100, fn:'task',  id:'t5', status:'in_progress' },
+  { at:13100, fn:'agent', who:'security', step:'Re-checking the query path' },
+  { at:14200, fn:'agent', who:'security', step:'Verifying parameterization' },
+  { at:15100, fn:'finding', key:'security-t5', agent:'security', task:'t5', verdict:'pass', summary:'No injection vectors remain' },
+  { at:15100, fn:'task',  id:'t5', status:'done' },
+  { at:15100, fn:'idle',  who:'security', verdict:'pass' },
+  { at:15500, fn:'pm', text:"All gates are green. /leaderboard passed tests and the security re-review — ready to ship." },
+  { at:15500, fn:'finish' },
+];
+const RUN_TOTAL = 16200;
+const SPEND_CAP = 5.0;
+const SPEND_END = 1.24;
+
+const STATUS_COLOR = { pending:'var(--grey)', in_progress:'var(--blue)', done:'var(--green)', changes_requested:'var(--amber)', failed:'var(--red)' };
+const STATUS_LABEL = { pending:'pending', in_progress:'running', done:'done', changes_requested:'changes', failed:'failed' };
+const VERDICT_CLASS = { complete:'complete', pass:'pass', changes:'changes', fail:'fail' };
+const VERDICT_LABEL = { complete:'COMPLETE', pass:'PASS', changes:'CHANGES_REQUESTED', fail:'FAIL' };
+
+function TaskGraph({ tasks }){
+  const innerRef = useRef(null);
+  const dotRefs = useRef({});
+  const [edges, setEdges] = useState([]);
+
+  const recompute = useCallback(() => {
+    const inner = innerRef.current;
+    if(!inner) return;
+    const base = inner.getBoundingClientRect();
+    const pos = {};
+    tasks.forEach(t => {
+      const el = dotRefs.current[t.id];
+      if(el){ const r = el.getBoundingClientRect(); pos[t.id] = { x: r.left - base.left + r.width/2, y: r.top - base.top + r.height/2 }; }
+    });
+    const es = [];
+    tasks.forEach(t => t.deps.forEach(d => {
+      if(pos[d] && pos[t.id]) es.push({ from:pos[d], to:pos[t.id], key:`${d}-${t.id}`, color: STATUS_COLOR[t.status] === 'var(--grey)' ? '#2c323b' : 'rgba(255,255,255,0.14)' });
+    }));
+    setEdges(es);
+  }, [tasks]);
+
+  useEffect(() => { const id = requestAnimationFrame(recompute); return () => cancelAnimationFrame(id); }, [recompute]);
+  useEffect(() => {
+    const ro = new ResizeObserver(recompute);
+    if(innerRef.current) ro.observe(innerRef.current);
+    window.addEventListener('resize', recompute);
+    return () => { ro.disconnect(); window.removeEventListener('resize', recompute); };
+  }, [recompute]);
+
+  return (
+    <div className="graph-scroll">
+      <div className="graph-inner" ref={innerRef}>
+        <svg className="graph-edges">
+          {edges.map(e => {
+            const midY = (e.from.y + e.to.y)/2;
+            const d = `M ${e.from.x} ${e.from.y} C ${e.from.x} ${midY}, ${e.to.x} ${midY}, ${e.to.x} ${e.to.y}`;
+            return <path key={e.key} d={d} fill="none" stroke={e.color} strokeWidth="1.5" />;
+          })}
+        </svg>
+        {tasks.map(t => (
+          <div key={t.id} className={`tnode ${t.status} ${t.late?'anim-in':''}`}>
+            <div className="tnode-rail">
+              <div
+                className="tnode-dot"
+                ref={el => dotRefs.current[t.id] = el}
+                style={{
+                  left: 18 + t.lane*20,
+                  background: STATUS_COLOR[t.status],
+                  boxShadow: t.status==='in_progress' ? '0 0 0 4px rgba(77,141,244,0.18)' : 'none',
+                  animation: t.status==='in_progress' ? 'softpulse 1.3s infinite' : 'none',
+                }}
+              ></div>
+            </div>
+            <div className="tnode-card">
+              <div className="tnode-top">
+                <span className="tnode-id">{t.id}</span>
+                <span className="tnode-title">{t.title}</span>
+              </div>
+              <div className="tnode-bottom">
+                <span className="tnode-assignee">
+                  <span className="pdot" style={{ background: PERSONAS[t.assignee].color }}></span>
+                  {PERSONAS[t.assignee].name}
+                </span>
+                <span className="tnode-status" style={{ color: STATUS_COLOR[t.status] }}>{STATUS_LABEL[t.status]}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AgentsPanel({ agents }){
+  const order = ['pm','coder','tester','security','negotiator'];
+  return (
+    <div>
+      <div className="panel-head"><span>Agents</span></div>
+      {order.map(id => {
+        const a = agents[id]; const p = PERSONAS[id];
+        const active = a.active;
+        return (
+          <div className="agent-row" key={id}>
+            <span className={`agent-dot ${active?'active':'idle'}`} style={{ background: active ? p.color : 'transparent', color: p.color }}></span>
+            <span className="agent-name">{p.name}</span>
+            <span className="agent-meta">
+              {active
+                ? <span className="agent-step" style={{ color: p.color }}>{a.step}<span className="cursor"></span></span>
+                : a.verdict
+                  ? <span className={`vchip ${VERDICT_CLASS[a.verdict]}`} style={{ marginLeft:0 }}>{VERDICT_LABEL[a.verdict]}</span>
+                  : <span className="agent-sub mono">{id==='pm' ? 'refereeing' : id==='negotiator' ? 'no conflicts to arbitrate' : 'idle'}</span>}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Finding({ f }){
+  const [open, setOpen] = useState(false);
+  const p = PERSONAS[f.agent];
+  const full = FINDINGS_FULL[f.key];
+  return (
+    <div className="finding">
+      <div className="finding-head" onClick={() => setOpen(o=>!o)}>
+        <span className={`caret ${open?'open':''}`}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 6 15 12 9 18"></polyline></svg>
+        </span>
+        <span className="finding-agent"><span className="pdot" style={{ background:p.color }}></span>{p.name}</span>
+        <span className="finding-tid">{f.task}</span>
+        <span className={`vchip ${VERDICT_CLASS[f.verdict]}`}>{VERDICT_LABEL[f.verdict]}</span>
+      </div>
+      <div className="finding-summary">{f.summary}</div>
+      {open && full && (
+        <div className="finding-body anim-in">
+          <div className="fb-inner">
+            {full.body.map((b,i) => {
+              if(b.type==='files') return (
+                <div className="fb-row" key={i}>
+                  <div className="fb-label">Files changed</div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
+                    {b.items.map((f2,j) => <span className="file-tag" key={j}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--tx-3)" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                      {f2}</span>)}
+                  </div>
+                </div>
+              );
+              if(b.type==='note') return (
+                <div className="fb-row" key={i}>
+                  <div className="fb-label">{b.label}</div>
+                  <div>{b.text}</div>
+                </div>
+              );
+              if(b.type==='code') return (
+                <div className="fb-row" key={i}>
+                  <div className="fb-label">{b.label}</div>
+                  <div className="code-block">{b.lines.map((l,j) => <div key={j} className={l.t}>{l.t==='add'?'+ ':l.t==='del'?'- ':'  '}{l.s}</div>)}</div>
+                </div>
+              );
+              return null;
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FindingsFeed({ findings }){
+  return (
+    <div className="run-findings">
+      <div className="panel-head"><span>Findings</span><span className="spacer"></span><span className="mono" style={{ fontSize:11, color:'var(--tx-3)', textTransform:'none', letterSpacing:0 }}>{findings.length} logged</span></div>
+      <div className="feed-scroll">
+        {findings.length===0 && <div className="feed-empty">waiting for the first finding…</div>}
+        {findings.map(f => <Finding key={f.key} f={f} />)}
+      </div>
+    </div>
+  );
+}
+
+function RunningSurface(){
+  const [tasks, setTasks] = useState(() => INIT_TASKS.map(t => ({ ...t, status:'pending' })));
+  const [agents, setAgents] = useState({
+    pm:{ active:false, step:'', verdict:null }, coder:{ active:false, step:'', verdict:null },
+    tester:{ active:false, step:'', verdict:null }, security:{ active:false, step:'', verdict:null },
+    negotiator:{ active:false, step:'', verdict:null },
+  });
+  const [findings, setFindings] = useState([]);
+  const [pmMsgs, setPmMsgs] = useState([{ from:'pm', text:'Charter accepted. Building the task graph and dispatching the team.' }]);
+  const [spend, setSpend] = useState(0);
+  const [status, setStatus] = useState('running'); // running | paused | done | aborted
+  const [elapsed, setElapsed] = useState(0);
+  const stateRef = useRef({ idx:0, elapsed:0, last:0, status:'running' });
+  const chatRef = useRef(null);
+
+  const apply = useCallback((ev) => {
+    switch(ev.fn){
+      case 'task': setTasks(ts => ts.map(t => t.id===ev.id ? { ...t, status:ev.status } : t)); break;
+      case 'agent': setAgents(a => ({ ...a, [ev.who]: { active:true, step:ev.step, verdict:null } })); break;
+      case 'idle': setAgents(a => ({ ...a, [ev.who]: { active:false, step:'', verdict:ev.verdict } })); break;
+      case 'finding': setFindings(f => [{ key:ev.key, agent:ev.agent, task:ev.task, verdict:ev.verdict, summary:ev.summary }, ...f]); break;
+      case 'addtasks': setTasks(ts => [...ts, ...LATE_TASKS.map(t => ({ ...t, status:'pending' }))]); break;
+      case 'pm': setPmMsgs(m => [...m, { from:'pm', text:ev.text }]); break;
+      case 'finish': setStatus('done'); stateRef.current.status='done'; setAgents(a => ({ ...a, pm:{ active:false, step:'', verdict:null } })); break;
+    }
+  }, []);
+
+  useEffect(() => {
+    stateRef.current = { idx:0, elapsed:0, last:Date.now(), status:'running' };
+    const iv = setInterval(() => {
+      const st = stateRef.current;
+      const now = Date.now();
+      const dt = now - st.last; st.last = now;
+      if(st.status === 'running'){
+        st.elapsed += dt;
+        setElapsed(st.elapsed);
+        while(st.idx < RUN_SCRIPT.length && RUN_SCRIPT[st.idx].at <= st.elapsed){
+          apply(RUN_SCRIPT[st.idx]); st.idx++;
+        }
+        setSpend(Math.min(SPEND_END, (st.elapsed/RUN_TOTAL)*SPEND_END));
+      }
+    }, 90);
+    return () => clearInterval(iv);
+  }, [apply]);
+
+  useEffect(() => { if(chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [pmMsgs]);
+
+  const togglePause = () => {
+    setStatus(s => {
+      if(s==='done'||s==='aborted') return s;
+      const ns = s==='running' ? 'paused' : 'running';
+      stateRef.current.status = ns;
+      stateRef.current.last = Date.now();
+      return ns;
+    });
+  };
+  const abort = () => { stateRef.current.status='aborted'; setStatus('aborted'); setAgents(a => Object.fromEntries(Object.entries(a).map(([k,v]) => [k,{ ...v, active:false, step:'' }]))); };
+
+  const statusMeta = {
+    running:{ cls:'running', label:'running', icon:'●' },
+    paused: { cls:'paused', label:'paused', icon:'❚❚' },
+    done:   { cls:'done', label:'done', icon:'✓' },
+    aborted:{ cls:'aborted', label:'aborted', icon:'■' },
+  }[status];
+
+  return (
+    <div className="run">
+      <div className="run-head">
+        <span className="pname">discord-rank-bot</span>
+        <span className="badge amber">FEATURE</span>
+        <span className={`run-status ${statusMeta.cls}`}>
+          <span className="rdot"></span>{statusMeta.label}
+        </span>
+        <div className="spacer"></div>
+        <button className="btn sm" onClick={togglePause} disabled={status==='done'||status==='aborted'}>
+          {status==='paused' ? 'Resume' : 'Pause'}
+        </button>
+        <button className="btn sm danger" onClick={abort} disabled={status==='done'||status==='aborted'}>Abort</button>
+        <div className="spend">
+          <div className="spend-top"><span className="amt">${spend.toFixed(2)}</span><span className="cap">/ ${SPEND_CAP.toFixed(2)}</span></div>
+          <div className="spend-bar"><i style={{ width: `${(spend/SPEND_CAP)*100}%` }}></i></div>
+        </div>
+      </div>
+
+      <div className="run-graph">
+        <div className="panel-head"><span>Task Graph</span><span className="spacer"></span><span className="mono" style={{ fontSize:11, color:'var(--tx-3)', textTransform:'none', letterSpacing:0 }}>{tasks.filter(t=>t.status==='done').length}/{tasks.length} done</span></div>
+        <TaskGraph tasks={tasks} />
+      </div>
+
+      <div className="run-right">
+        <div className="run-agents"><AgentsPanel agents={agents} /></div>
+        <FindingsFeed findings={findings} />
+      </div>
+
+      <div className="run-chat">
+        <div className="panel-head"><span>PM Chat</span></div>
+        <div className="chat" style={{ minHeight:0 }}>
+          <div className="chat-scroll" ref={chatRef}>
+            {pmMsgs.map((m,i) => <Message key={i} m={m} time="" />)}
+          </div>
+          <div className="composer">
+            <div className="composer-row">
+              <textarea rows="1" placeholder="Message the PM — pause the run to intervene…"></textarea>
+              <button className="send-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =====================================================================
+   MARKETPLACE SURFACE
+   ===================================================================== */
+function ToolGlyph({ sens, size=13 }){
+  const s = { width:size, height:size, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:2, strokeLinecap:'round', strokeLinejoin:'round' };
+  if(sens==='read')    return <svg {...s}><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"></path><circle cx="12" cy="12" r="3"></circle></svg>;
+  if(sens==='write')   return <svg {...s}><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>;
+  if(sens==='network') return <svg {...s}><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"></path></svg>;
+  if(sens==='shell')   return <svg {...s}><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>;
+  return null;
+}
+function Lock({ size=11 }){ return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>; }
+function Warn({ size=12 }){ return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>; }
+function Star(){ return <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15 9 22 9.3 16.5 14 18.5 21 12 17 5.5 21 7.5 14 2 9.3 9 9"></polygon></svg>; }
+function XIcon(){ return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>; }
+
+const SENS_LABEL = { read:'read', write:'write', network:'network', shell:'shell' };
+const PROV_LABEL = { first:'First-party', community:'Community', private:'Private' };
+const ACOLORS = ['#4d8df4','#34cf8a','#e8a93a','#a585f5','#ef8043','#5bb8c4','#d97aa8','#7c9af2','#62c98a','#e0a14a'];
+
+function initials(name){ return name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase(); }
+
+const MARKET_AGENTS = [
+  { id:'product-researcher', name:'Product Researcher', role:'Research', prov:'first', rating:4.8, version:'2.1.0',
+    desc:'Interrogates the charter and surfaces unstated requirements and edge cases.',
+    changelog:'2.1.0 — sharper edge-case probing, charter cross-referencing.',
+    prompt:`You are the Product Researcher.\nYour job is to find what the charter does NOT say.\n\n- Read the charter and the relevant source.\n- Surface unstated requirements, hidden edge cases, and risky assumptions.\n- Write findings as questions for the PM, never as code.\n- You may not modify any file. You may not run shell commands.\n\nGuardrails (cannot be overridden): read-only, advisory output only.`,
+    tools:[ {name:'read_files',sens:'read',desc:'Read source files and the charter'}, {name:'web_search',sens:'network',desc:'Look up domain references and prior art'} ],
+    routing:[['Runs on ','GREENFIELD',' & ','FEATURE'],[', before the Architect, while the charter is still open.']],
+    tiers:['GREENFIELD','FEATURE'] },
+
+  { id:'architect', name:'Architect', role:'Architecture', prov:'first', rating:4.9, version:'3.0.1',
+    desc:'Proposes module boundaries and a build order before a line of code is written.',
+    changelog:'3.0.1 — dependency-aware build ordering, smaller task slices.',
+    prompt:`You are the Architect.\nDecide the shape before anyone builds.\n\n- Propose module boundaries and the dependency-ordered build plan.\n- Slice work into tasks the Coder can pick up independently.\n- Flag any decision that constrains future tiers.\n- Read-only. You design; you do not implement.\n\nGuardrails (cannot be overridden): no file writes, no shell.`,
+    tools:[ {name:'read_files',sens:'read',desc:'Read the full source tree'}, {name:'read_deps',sens:'read',desc:'Inspect the dependency manifest'} ],
+    routing:[['Runs on ','GREENFIELD',' & ','FEATURE'],[', after research, before any code is written.']],
+    tiers:['GREENFIELD','FEATURE'] },
+
+  { id:'ux', name:'UX Researcher', role:'Design', prov:'community', rating:4.6, version:'1.2.0',
+    desc:'Audits user-facing flows and proposes interaction improvements with evidence.',
+    changelog:'1.2.0 — artifact inspection, heuristic scoring.',
+    prompt:`You are the UX Researcher.\nJudge the experience, not the code.\n\n- Inspect rendered UI artifacts and the flows they expose.\n- Propose interaction improvements grounded in usability heuristics.\n- Flag interaction issues as suggestions.\n- Append notes to the blackboard for the PM.\n\nGuardrails (cannot be overridden): advisory only, no behavior changes.`,
+    tools:[ {name:'read_files',sens:'read',desc:'Read component and route source'}, {name:'read_artifacts',sens:'read',desc:'Inspect rendered UI artifacts'}, {name:'write_notes',sens:'write',desc:'Append research notes to the blackboard',locked:true,scope:'blackboard only'} ],
+    routing:[['Runs on ','FEATURE',' & ','GREENFIELD'],[', after the Coder, before completion, only when a UI artifact exists.']],
+    tiers:['FEATURE','GREENFIELD'] },
+
+  { id:'a11y', name:'Accessibility Auditor', role:'Quality', prov:'first', rating:4.7, version:'2.4.0',
+    desc:'Checks WCAG conformance and flags keyboard, contrast, and semantics issues.',
+    changelog:'2.4.0 — WCAG 2.2 rules, focus-order tracing.',
+    prompt:`You are the Accessibility Auditor.\nNothing ships that locks people out.\n\n- Check WCAG 2.2 AA conformance on every UI artifact.\n- Trace keyboard focus order and flag contrast failures.\n- Block completion on any critical violation.\n- Read-only inspection plus an external axe ruleset.\n\nGuardrails (cannot be overridden): gate authority is advisory to the PM.`,
+    tools:[ {name:'read_files',sens:'read',desc:'Read markup and styles'}, {name:'read_artifacts',sens:'read',desc:'Inspect the rendered DOM tree'}, {name:'fetch_axe',sens:'network',desc:'Pull the latest axe-core ruleset'} ],
+    routing:[['Runs on ','FEATURE'],[', after the Coder, as a gate before completion, only when a UI artifact exists.']],
+    tiers:['FEATURE'] },
+
+  { id:'perf', name:'Performance Engineer', role:'Quality', prov:'community', rating:4.5, version:'1.9.2',
+    desc:'Profiles hot paths and enforces a latency and bundle-size budget.',
+    changelog:'1.9.2 — flamegraph diffing, regression thresholds.',
+    prompt:`You are the Performance Engineer.\nDefend the budget.\n\n- Profile hot paths with the project benchmark harness.\n- Enforce the agreed latency and bundle-size budget.\n- Flag regressions against the last green run.\n- You may run benchmarks in a sandboxed shell.\n\nGuardrails (cannot be overridden): shell is read/measure only, no writes.`,
+    tools:[ {name:'read_files',sens:'read',desc:'Read source and build output'}, {name:'run_bench',sens:'shell',desc:'Execute the benchmark harness in a sandbox'} ],
+    routing:[['Runs on ','FEATURE',' & ','REFACTOR'],[', after tests pass, before completion.']],
+    tiers:['FEATURE','REFACTOR'] },
+
+  { id:'db', name:'Database Specialist', role:'Backend', prov:'first', rating:4.8, version:'2.7.0',
+    desc:'Reviews schema, indexes, and query plans for correctness and cost.',
+    changelog:'2.7.0 — query-plan cost estimates, index advisor.',
+    prompt:`You are the Database Specialist.\nThe data layer is your responsibility.\n\n- Review schema changes, indexes, and query plans.\n- Run EXPLAIN on new or changed queries and estimate cost.\n- Author migrations only within the locked migrations path.\n- Flag N+1 patterns and missing indexes.\n\nGuardrails (cannot be overridden): writes confined to /migrations.`,
+    tools:[ {name:'read_files',sens:'read',desc:'Read schema and query source'}, {name:'run_explain',sens:'shell',desc:'Run EXPLAIN against a shadow database'}, {name:'write_migration',sens:'write',desc:'Author a migration file',locked:true,scope:'/migrations only'} ],
+    routing:[['Runs on ','FEATURE',' & ','REFACTOR'],[', after the Coder, whenever a migration or query changes.']],
+    tiers:['FEATURE','REFACTOR'] },
+
+  { id:'api', name:'API Designer', role:'Backend', prov:'community', rating:4.4, version:'1.5.0',
+    desc:'Designs endpoint contracts and keeps them backward compatible.',
+    changelog:'1.5.0 — breaking-change detector, OpenAPI 3.1.',
+    prompt:`You are the API Designer.\nContracts are promises.\n\n- Design endpoint contracts and request/response schemas.\n- Detect and block breaking changes to published endpoints.\n- Emit an OpenAPI spec into the locked contract path.\n- Coordinate with the Coder before implementation.\n\nGuardrails (cannot be overridden): writes confined to /openapi.`,
+    tools:[ {name:'read_files',sens:'read',desc:'Read existing route and handler source'}, {name:'write_openapi',sens:'write',desc:'Write the OpenAPI contract',locked:true,scope:'/openapi only'} ],
+    routing:[['Runs on ','GREENFIELD',' & ','FEATURE'],[', before the Coder, whenever an endpoint contract changes.']],
+    tiers:['GREENFIELD','FEATURE'] },
+
+  { id:'compliance', name:'Compliance Reviewer', role:'Security', prov:'first', rating:4.9, version:'3.2.0',
+    desc:'Maps changes to SOC2 / GDPR controls and flags gaps before they ship.',
+    changelog:'3.2.0 — GDPR data-flow mapping, control evidence links.',
+    prompt:`You are the Compliance Reviewer.\nMap every change to a control.\n\n- Trace data flows and tag any PII the change touches.\n- Map changes to SOC2 and GDPR controls; flag uncovered gaps.\n- Act as a gate alongside Security.\n- Pull the current control catalog from the policy service.\n\nGuardrails (cannot be overridden): read-only, gate is advisory.`,
+    tools:[ {name:'read_files',sens:'read',desc:'Read source and data-model definitions'}, {name:'fetch_policy',sens:'network',desc:'Fetch the control catalog from the policy service'} ],
+    routing:[['Runs on ','every tier'],[', alongside Security, as a gate before completion.']],
+    tiers:['GREENFIELD','FEATURE','BUGFIX','REFACTOR'] },
+
+  { id:'docs', name:'Documentation Writer', role:'Docs', prov:'community', rating:4.3, version:'1.4.1',
+    desc:'Writes and updates docs from the diff and the charter, in your voice.',
+    changelog:'1.4.1 — changelog generation, style-guide adherence.',
+    prompt:`You are the Documentation Writer.\nIf it is not documented, it is not done.\n\n- Update docs from the merged diff and the charter.\n- Generate changelog entries in the project's voice.\n- Write only within the locked docs path.\n- Never document behavior that is not in the diff.\n\nGuardrails (cannot be overridden): writes confined to /docs.`,
+    tools:[ {name:'read_files',sens:'read',desc:'Read the diff and existing docs'}, {name:'write_docs',sens:'write',desc:'Write and update documentation',locked:true,scope:'/docs only'} ],
+    routing:[['Runs on ','every tier'],[', after all gates pass, before the run closes.']],
+    tiers:['GREENFIELD','FEATURE','BUGFIX','REFACTOR'] },
+
+  { id:'refactor', name:'Refactoring Specialist', role:'Code', prov:'private', rating:4.2, version:'0.9.3',
+    desc:'Untangles complex modules without changing observable behavior.',
+    changelog:'0.9.3 — behavior-preserving codemods, char-test harness.',
+    prompt:`You are the Refactoring Specialist.\nChange the shape, never the behavior.\n\n- Untangle complex modules with behavior-preserving codemods.\n- Run characterization tests before and after every change.\n- Touch only files in the agreed refactor scope.\n- Abort if any test output changes.\n\nGuardrails (cannot be overridden): zero behavior change, scoped writes.`,
+    tools:[ {name:'read_files',sens:'read',desc:'Read modules in scope'}, {name:'run_codemod',sens:'shell',desc:'Run codemods in a sandbox'}, {name:'write_files',sens:'write',desc:'Apply refactors to scoped files',locked:true,scope:'refactor scope only'} ],
+    routing:[['Runs on ','REFACTOR'],[', after tests pass, never altering behavior.']],
+    tiers:['REFACTOR'] },
+];
+const AGENT_BY_ID = Object.fromEntries(MARKET_AGENTS.map((a,i) => [a.id, { ...a, color: ACOLORS[i % ACOLORS.length] }]));
+
+const ALL_TIERS = ['GREENFIELD','FEATURE','BUGFIX','REFACTOR'];
+
+const UX_UPGRADE = {
+  to:'1.3.0',
+  changelog:'1.3.0 — interaction issues can now block completion; cross-checks with the Accessibility Auditor.',
+  diff:[
+    { t:'ctx', s:'  Inspect rendered UI artifacts and the flows they expose.' },
+    { t:'del', s:'  Flag interaction issues as suggestions.' },
+    { t:'add', s:'  Flag interaction issues as CHANGES_REQUESTED when they block a core task.' },
+    { t:'add', s:'  Cross-check findings with the Accessibility Auditor before finalizing.' },
+    { t:'ctx', s:'  Append notes to the blackboard for the PM.' },
+  ],
+  newTool:{ name:'fetch_heuristics', sens:'network', desc:'Pull the usability heuristic set from the design knowledge base' },
+};
+
+const BUILTINS = [
+  { id:'pm', name:'Project Manager', role:'Referee', tools:[{sens:'read'}], tiers:['ALL'] },
+  { id:'coder', name:'Coder', role:'Implementation', tools:[{sens:'read'},{sens:'write'},{sens:'shell'}], tiers:['ALL'] },
+  { id:'tester', name:'Tester', role:'Verification', tools:[{sens:'read'},{sens:'shell'}], tiers:['ALL'] },
+  { id:'security', name:'Security', role:'Review', tools:[{sens:'read'},{sens:'network'}], tiers:['ALL'] },
+];
+
+function ProvBadge({ prov }){
+  return <span className={`prov ${prov}`}><span className="pdot"></span>{({first:'First-party',community:'Community',private:'Private'})[prov]}</span>;
+}
+
+function AgentCard({ a, onOpen, hired }){
+  return (
+    <div className="acard" onClick={() => onOpen(a)}>
+      <div className="acard-top">
+        <div className="acard-icon" style={{ color:a.color, background:rgba(a.color,0.1), borderColor:rgba(a.color,0.3) }}>{initials(a.name)}</div>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div className="acard-name">{a.name}</div>
+          <div className="acard-sub">
+            <span className="rolechip">{a.role}</span>
+            <ProvBadge prov={a.prov} />
+          </div>
+        </div>
+        {hired && <span className="lockbadge" style={{ color:'var(--green)' }}>✓ hired</span>}
+      </div>
+      <div className="acard-desc">{a.desc}</div>
+      <div className="acard-foot">
+        <span className="stars"><Star />{a.rating.toFixed(1)}</span>
+        <span className="toolrow">
+          {a.tools.map(t => <span key={t.name} className={`tool-i ${t.sens}`} title={`${t.name} · ${t.sens}`}><ToolGlyph sens={t.sens} size={12} /></span>)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function AgentDrawer({ a, onClose, onHire, hired }){
+  return (
+    <>
+      <div className="scrim" onClick={onClose}></div>
+      <div className="drawer">
+        <div className="drawer-head">
+          <div className="acard-icon" style={{ flex:'0 0 44px', width:44, height:44, fontSize:15, color:a.color, background:rgba(a.color,0.1), borderColor:rgba(a.color,0.3) }}>{initials(a.name)}</div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:17, fontWeight:600, letterSpacing:'-0.01em' }}>{a.name}</div>
+            <div className="acard-sub"><span className="rolechip">{a.role}</span><ProvBadge prov={a.prov} /><span className="stars" style={{ marginLeft:4 }}><Star />{a.rating.toFixed(1)}</span></div>
+          </div>
+          <button className="x-btn" onClick={onClose}><XIcon /></button>
+        </div>
+        <div className="drawer-body">
+          <div className="dsec">
+            <div className="meta-grid">
+              <div className="mg"><div className="k">Version</div><div className="v">{a.version}</div></div>
+              <div className="mg" style={{ flex:1 }}><div className="k">Changelog</div><div className="v" style={{ fontFamily:'var(--sans)', color:'var(--tx-1)' }}>{a.changelog}</div></div>
+            </div>
+          </div>
+
+          <div className="dsec">
+            <div className="dsec-label"><Lock size={11} /> Base prompt · read-only</div>
+            <div className="prompt-block">
+              <span className="prompt-lock"><Lock size={10} /> locked</span>
+              {a.prompt}
+            </div>
+          </div>
+
+          <div className="dsec">
+            <div className="dsec-label">Requested tools</div>
+            {a.tools.map(t => {
+              const caution = t.sens !== 'read';
+              return (
+                <div key={t.name} className={`toolitem ${caution?'caution':''} ${t.sens}`}>
+                  <span className={`tool-i ${t.sens}`} style={{ flex:'0 0 26px', width:26, height:26 }}><ToolGlyph sens={t.sens} size={13} /></span>
+                  <div style={{ flex:1 }}>
+                    <div className="ti-name">{t.name} {caution && <Warn size={12} />}</div>
+                    <div className="ti-desc">{t.desc}{t.locked && <span className="lockchip" style={{ marginLeft:8 }}><Lock size={9} /> scope: {t.scope} · locked</span>}</div>
+                  </div>
+                  <span className={`sens-tag ${t.sens}`}>{t.sens}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="dsec">
+            <div className="dsec-label">Routing contract</div>
+            <div className="routing">{a.routing.map((seg,i) => <span key={i}>{seg.map((x,j) => j%2===1 ? <b key={j}>{x}</b> : <span key={j}>{x}</span>)}</span>)}</div>
+          </div>
+        </div>
+        <div className="drawer-foot">
+          <div style={{ flex:1, fontSize:12, color:'var(--tx-2)' }}>{hired ? 'Already on your team.' : 'Review tools and permissions before hiring.'}</div>
+          <button className="btn primary" disabled={hired} onClick={() => onHire(a)}>{hired ? 'Hired' : 'Hire'} →</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Switch({ on, tone='', disabled, onToggle }){
+  return <div className={`switch ${on?'on':''} ${tone} ${disabled?'disabled':''}`} onClick={() => !disabled && onToggle()}></div>;
+}
+
+function HireModal({ a, onClose, onConfirm }){
+  const [grants, setGrants] = useState(() => Object.fromEntries(a.tools.map(t => [t.name, t.sens==='read'])));
+  const [acked, setAcked] = useState(() => new Set());
+  const [instructions, setInstructions] = useState('');
+  const [model, setModel] = useState('Balanced');
+  const [tiers, setTiers] = useState(a.tiers);
+
+  const sensitiveTools = a.tools.filter(t => t.sens!=='read' && !t.locked);
+  const allAcked = sensitiveTools.every(t => acked.has(t.name));
+  const grantedCount = a.tools.filter(t => grants[t.name]).length;
+
+  const toggle = (t) => {
+    if(t.locked) return;
+    setGrants(g => ({ ...g, [t.name]: !g[t.name] }));
+    if(t.sens!=='read') setAcked(s => new Set(s).add(t.name));
+  };
+  const toggleTier = (tier) => setTiers(ts => ts.includes(tier) ? ts.filter(x=>x!==tier) : [...ts, tier]);
+
+  return (
+    <>
+      <div className="scrim" onClick={onClose}></div>
+      <div className="modal">
+        <div className="modal-head">
+          <div className="acard-icon" style={{ flex:'0 0 34px', width:34, height:34, fontSize:12, color:a.color, background:rgba(a.color,0.1), borderColor:rgba(a.color,0.3) }}>{initials(a.name)}</div>
+          <div style={{ flex:1 }}>
+            <div className="modal-title">Hire {a.name}</div>
+            <div className="modal-sub">Grant tools one at a time — like permissions on your phone.</div>
+          </div>
+          <button className="x-btn" onClick={onClose}><XIcon /></button>
+        </div>
+
+        <div className="modal-body">
+          <div className="mfield">
+            <div className="mfield-label">Tool permissions</div>
+            {a.tools.map(t => {
+              const caution = t.sens!=='read';
+              const unack = caution && !t.locked && !acked.has(t.name);
+              return (
+                <div key={t.name} className={`grant ${caution?'sensitive':''} ${t.sens} ${t.locked?'locked':''} ${unack?'unack':''}`}>
+                  <span className={`tool-i ${t.sens}`} style={{ flex:'0 0 26px', width:26, height:26 }}><ToolGlyph sens={t.sens} size={13} /></span>
+                  <div className="grant-main">
+                    <div className="grant-name">{t.name} <span className={`sens-tag ${t.sens}`}>{t.sens}</span>{t.locked && <span className="lockchip"><Lock size={9} /> {t.scope} · locked</span>}</div>
+                    <div className="grant-desc">{t.desc}</div>
+                    {caution && !t.locked && <div className="grant-warn"><Warn size={11} /> {t.sens==='shell'?'Can run commands on your machine.':t.sens==='network'?'Can make outbound network calls.':'Can write to your filesystem.'} Off by default.</div>}
+                  </div>
+                  <Switch on={!!grants[t.name]} disabled={t.locked} tone={t.sens==='write'?'amber':t.sens==='shell'?'danger':t.sens==='network'?'orange':''} onToggle={() => toggle(t)} />
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mfield">
+            <div className="mfield-label">Additional instructions <span style={{ color:'var(--tx-3)', fontWeight:400, textTransform:'none', letterSpacing:0 }}>(overlay)</span></div>
+            <textarea className="ta" value={instructions} onChange={e=>setInstructions(e.target.value)} placeholder="e.g. Prioritise mobile breakpoints. Keep findings under three bullets."></textarea>
+            <div className="helper">Appended after the template's guardrails. Cannot override them.</div>
+          </div>
+
+          <div style={{ display:'flex', gap:24 }}>
+            <div className="mfield" style={{ flex:'0 0 auto' }}>
+              <div className="mfield-label">Model</div>
+              <select className="sel" value={model} onChange={e=>setModel(e.target.value)}>
+                <option>Balanced</option>
+                <option>Deep</option>
+              </select>
+            </div>
+            <div className="mfield" style={{ flex:1 }}>
+              <div className="mfield-label">Enabled tiers</div>
+              <div className="tier-multi">
+                {ALL_TIERS.map(tier => <button key={tier} className={`tier-opt ${tiers.includes(tier)?'on':''}`} onClick={()=>toggleTier(tier)}>{tier}</button>)}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="modal-foot">
+          <div style={{ flex:1 }}>
+            {!allAcked
+              ? <span className="ack-note"><Warn size={12} /> Review the {sensitiveTools.length} sensitive {sensitiveTools.length===1?'permission':'permissions'} to continue.</span>
+              : <span style={{ fontSize:12, color:'var(--tx-2)' }}>{grantedCount} of {a.tools.length} tools granted · {tiers.length} tiers</span>}
+          </div>
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn primary" disabled={!allAcked || tiers.length===0} onClick={() => onConfirm({ id:a.id, grantedTools:a.tools.filter(t=>grants[t.name]).map(t=>t.name), tiers, model, instructions, version:a.version })}>
+            Hire {a.name} with {grantedCount} {grantedCount===1?'tool':'tools'} granted
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function UpgradeModal({ onClose, onApply }){
+  return (
+    <>
+      <div className="scrim" onClick={onClose}></div>
+      <div className="modal" style={{ width:540 }}>
+        <div className="modal-head">
+          <div className="acard-icon" style={{ flex:'0 0 34px', width:34, height:34, fontSize:12, color:AGENT_BY_ID.ux.color, background:rgba(AGENT_BY_ID.ux.color,0.1), borderColor:rgba(AGENT_BY_ID.ux.color,0.3) }}>UX</div>
+          <div style={{ flex:1 }}>
+            <div className="modal-title">Upgrade UX Researcher</div>
+            <div className="modal-sub">1.2.0 → <span style={{ color:'var(--amber)', fontWeight:600 }}>{UX_UPGRADE.to}</span></div>
+          </div>
+          <button className="x-btn" onClick={onClose}><XIcon /></button>
+        </div>
+        <div className="modal-body">
+          <div className="mfield">
+            <div className="mfield-label">What changed</div>
+            <div style={{ fontSize:12.5, color:'var(--tx-1)', marginBottom:12 }}>{UX_UPGRADE.changelog}</div>
+          </div>
+          <div className="mfield">
+            <div className="mfield-label">Prompt diff</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+              {UX_UPGRADE.diff.map((l,i) => <div key={i} className={`diff-line ${l.t}`}>{l.t==='add'?'+':l.t==='del'?'-':' '}{l.s}</div>)}
+            </div>
+          </div>
+          <div className="mfield">
+            <div className="mfield-label">Newly requested tool</div>
+            <div className="newtool">
+              <span className={`tool-i ${UX_UPGRADE.newTool.sens}`} style={{ flex:'0 0 28px', width:28, height:28 }}><ToolGlyph sens={UX_UPGRADE.newTool.sens} size={14} /></span>
+              <div style={{ flex:1 }}>
+                <div style={{ fontFamily:'var(--mono)', fontWeight:600, fontSize:13, color:'var(--tx)', display:'flex', alignItems:'center', gap:8 }}>{UX_UPGRADE.newTool.name} <span className={`sens-tag ${UX_UPGRADE.newTool.sens}`}>{UX_UPGRADE.newTool.sens}</span></div>
+                <div style={{ fontSize:11.5, color:'var(--tx-1)', marginTop:3 }}>{UX_UPGRADE.newTool.desc}</div>
+              </div>
+              <span style={{ fontSize:11, fontWeight:700, color:'var(--amber)', fontFamily:'var(--mono)' }}>NEW</span>
+            </div>
+            <div className="helper"><Warn size={11} /> This version requests a network permission you haven't granted. You'll review it on upgrade.</div>
+          </div>
+        </div>
+        <div className="modal-foot">
+          <div style={{ flex:1 }}></div>
+          <button className="btn" onClick={onClose}>Not now</button>
+          <button className="btn primary" onClick={onApply}>Review &amp; apply upgrade</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function MyTeam({ team, onToggle, onRemove, onUpgrade }){
+  const EXTRA_TOOLS = { [UX_UPGRADE.newTool.name]: UX_UPGRADE.newTool };
+  return (
+    <div className="team-wrap">
+      <div className="team-group">
+        <div className="team-group-h"><Lock size={11} /> Built-ins · always on the roster</div>
+        {BUILTINS.map(b => (
+          <div className="trow" key={b.id}>
+            <div className="trow-icon" style={{ color:PERSONAS[b.id].color, background:rgba(PERSONAS[b.id].color,0.1), borderColor:rgba(PERSONAS[b.id].color,0.3) }}>{initials(b.name)}</div>
+            <div className="trow-main">
+              <div className="trow-name">{b.name} <span className="lockbadge"><Lock size={9} /> built-in</span></div>
+              <div className="trow-sub"><span className="rolechip">{b.role}</span><span>every tier</span></div>
+            </div>
+            <div className="trow-tools">
+              {b.tools.map((t,i) => <span key={i} className={`tool-i ${t.sens}`}><ToolGlyph sens={t.sens} size={12} /></span>)}
+            </div>
+            <div className="trow-actions"><span className="lockbadge">non-removable</span></div>
+          </div>
+        ))}
+      </div>
+
+      <div className="team-group">
+        <div className="team-group-h">Hired · {team.length}</div>
+        {team.length===0 && <div style={{ color:'var(--tx-3)', fontSize:12.5, fontFamily:'var(--mono)', padding:'10px 2px' }}>No hired agents yet. Browse the marketplace to add specialists.</div>}
+        {team.map(h => {
+          const a = AGENT_BY_ID[h.id];
+          return (
+            <div className="trow" key={h.id} style={{ opacity: h.enabled ? 1 : 0.6 }}>
+              <div className="trow-icon" style={{ color:a.color, background:rgba(a.color,0.1), borderColor:rgba(a.color,0.3) }}>{initials(a.name)}</div>
+              <div className="trow-main">
+                <div className="trow-name">
+                  {a.name}
+                  <span className="lockbadge">v{h.version}</span>
+                  {h.upgradeAvailable && <span className="upgrade-badge" onClick={()=>onUpgrade(h.id)}>↑ Upgrade to {UX_UPGRADE.to}</span>}
+                </div>
+                <div className="trow-sub">
+                  <span className="rolechip">{a.role}</span>
+                  <span className="mono" style={{ color:'var(--tx-3)' }}>{h.model}</span>
+                  {h.tiers.map(t => <span key={t} className="tierpill">{t}</span>)}
+                </div>
+              </div>
+              <div className="trow-tools">
+                {h.grantedTools.length===0 && <span style={{ fontSize:11, color:'var(--tx-3)', fontFamily:'var(--mono)' }}>no tools</span>}
+                {h.grantedTools.map(tn => { const tt = a.tools.find(x=>x.name===tn) || EXTRA_TOOLS[tn]; if(!tt) return null; return <span key={tn} className={`tool-i ${tt.sens}`} title={tn}><ToolGlyph sens={tt.sens} size={12} /></span>; })}
+              </div>
+              <div className="trow-actions">
+                <Switch on={h.enabled} onToggle={()=>onToggle(h.id)} />
+                <button className="icon-btn danger" onClick={()=>onRemove(h.id)} title="Remove"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MarketplaceSurface(){
+  const [tab, setTab] = useState('browse');
+  const [roleF, setRoleF] = useState('All');
+  const [provF, setProvF] = useState('all');
+  const [query, setQuery] = useState('');
+  const [drawer, setDrawer] = useState(null);
+  const [hiring, setHiring] = useState(null);
+  const [upgrading, setUpgrading] = useState(false);
+  const [team, setTeam] = useState([
+    { id:'ux', version:'1.2.0', enabled:true, grantedTools:['read_files','read_artifacts'], tiers:['FEATURE','GREENFIELD'], model:'Balanced', instructions:'', upgradeAvailable:true },
+  ]);
+
+  const roles = ['All', ...Array.from(new Set(MARKET_AGENTS.map(a=>a.role)))];
+  const hiredIds = new Set(team.map(t=>t.id));
+
+  const filtered = MARKET_AGENTS.filter(a =>
+    (roleF==='All' || a.role===roleF) &&
+    (provF==='all' || a.prov===provF) &&
+    (query==='' || (a.name+a.desc+a.role).toLowerCase().includes(query.toLowerCase()))
+  ).map(a => AGENT_BY_ID[a.id]);
+
+  const doHire = (cfg) => {
+    setTeam(t => {
+      const others = t.filter(x => x.id!==cfg.id);
+      return [...others, { ...cfg, enabled:true, upgradeAvailable:false }];
+    });
+    setHiring(null); setDrawer(null); setTab('team');
+  };
+  const applyUpgrade = () => {
+    setTeam(t => t.map(h => h.id==='ux' ? { ...h, version:UX_UPGRADE.to, upgradeAvailable:false, grantedTools:[...h.grantedTools, UX_UPGRADE.newTool.name] } : h));
+    setUpgrading(false);
+  };
+
+  return (
+    <div className="mkt">
+      <div className="mkt-tabs">
+        <button className={`mkt-tab ${tab==='browse'?'on':''}`} onClick={()=>setTab('browse')}>Browse <span className="cnt">{MARKET_AGENTS.length}</span></button>
+        <button className={`mkt-tab ${tab==='team'?'on':''}`} onClick={()=>setTab('team')}>My Team <span className="cnt">{BUILTINS.length + team.length}</span></button>
+      </div>
+
+      <div className="mkt-body">
+        {tab==='browse' && (
+          <>
+            <div className="filterbar">
+              <div className="chipgroup">
+                {roles.map(r => <button key={r} className={`fchip ${roleF===r?'on':''}`} onClick={()=>setRoleF(r)}>{r}</button>)}
+              </div>
+              <span className="filter-sep"></span>
+              <select className="prov-select" value={provF} onChange={e=>setProvF(e.target.value)}>
+                <option value="all">All provenance</option>
+                <option value="first">First-party</option>
+                <option value="community">Community</option>
+                <option value="private">Private</option>
+              </select>
+              <div className="search">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.7" y2="16.7"></line></svg>
+                <input placeholder="Search agents…" value={query} onChange={e=>setQuery(e.target.value)} />
+              </div>
+            </div>
+            <div className="grid">
+              {filtered.map(a => <AgentCard key={a.id} a={a} hired={hiredIds.has(a.id)} onOpen={setDrawer} />)}
+              {filtered.length===0 && <div style={{ color:'var(--tx-3)', fontFamily:'var(--mono)', fontSize:13, padding:'30px 2px' }}>No agents match those filters.</div>}
+            </div>
+          </>
+        )}
+        {tab==='team' && <MyTeam team={team} onToggle={id=>setTeam(t=>t.map(h=>h.id===id?{...h,enabled:!h.enabled}:h))} onRemove={id=>setTeam(t=>t.filter(h=>h.id!==id))} onUpgrade={()=>setUpgrading(true)} />}
+      </div>
+
+      {drawer && <AgentDrawer a={drawer} hired={hiredIds.has(drawer.id)} onClose={()=>setDrawer(null)} onHire={setHiring} />}
+      {hiring && <HireModal a={hiring} onClose={()=>setHiring(null)} onConfirm={doHire} />}
+      {upgrading && <UpgradeModal onClose={()=>setUpgrading(false)} onApply={applyUpgrade} />}
+    </div>
+  );
+}
+
+/* =====================================================================
+   APP
+   ===================================================================== */
+function App(){
+  const [surface, setSurface] = useState('planning');
+  const [planningExecutable, setPlanningExecutable] = useState(false);
+
+  // We lift "executable" so the topbar Execute button can reflect planning state.
+  const [charterReady, setCharterReady] = useState(false);
+
+  const goExecute = () => setSurface('running');
+
+  return (
+    <div className="app">
+      <div className="topbar">
+        <div className="brand">
+          <span className="glyph"><i></i><i></i><i></i></span>
+          Agent&nbsp;Swarm
+          <span className="sep">/</span>
+          <span className="proj">discord-rank-bot</span>
+        </div>
+        <div className="nav">
+          <button className={surface==='planning'?'on':''} onClick={()=>setSurface('planning')}>Planning</button>
+          <button className={surface==='running'?'on':''} onClick={()=>setSurface('running')}>Running</button>
+          <button className={surface==='marketplace'?'on':''} onClick={()=>setSurface('marketplace')}>Marketplace</button>
+        </div>
+        <div className="spacer"></div>
+        {surface==='planning' && <PlanningHeaderControls onExecute={goExecute} />}
+      </div>
+      <div className="surface">
+        {surface==='planning' && <Planning onExecute={goExecute} />}
+        {surface==='running' && <RunningSurface />}
+        {surface==='marketplace' && <MarketplaceSurface />}
+      </div>
+    </div>
+  );
+}
+
+// Header controls for planning live in topbar; need executable state from Planning.
+// Simplest: use a shared context via a module-level event emitter.
+const planBus = { executable:false, listeners:new Set(), set(v){ this.executable=v; this.listeners.forEach(l=>l(v)); } };
+
+function PlanningHeaderControls({ onExecute }){
+  const [exec, setExec] = useState(planBus.executable);
+  useEffect(() => {
+    const l = v => setExec(v);
+    planBus.listeners.add(l);
+    return () => planBus.listeners.delete(l);
+  }, []);
+  return (
+    <>
+      <span className="pill"><span className="dot" style={{ background:'var(--amber)' }}></span>PLANNING</span>
+      <button className="btn primary" disabled={!exec} onClick={onExecute}>
+        Execute
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg>
+      </button>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
