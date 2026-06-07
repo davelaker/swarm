@@ -26,20 +26,48 @@
 
 ## Phase map at a glance
 
-| Phase | Delivers | Realises | Cut line |
-| ----- | -------- | -------- | -------- |
-| **0** | Scaffolding + the four seams | DESIGN §8 | — |
-| **1** | Walking skeleton: PM loop + Coder (tweak tier) **+ eval harness** (+ crash recovery, cost-budget spine) | DESIGN §6 + §6.4, THREATS A4, CONTROLS C4 | **← usable for yourself starts here** |
-| **2** | Quality gates: Tester, Security, tiers, graph (+ fail-closed parsing, sensitive-path escalation) | DESIGN §6/§9, CATALOG, THREATS S2, CONTROLS C2 | **← MVP personal tool** |
-| **3** | Local dashboard (SSE) + PM chat (**+ loopback/token/Origin auth**) | UX §1–7, THREATS S3 | **← pleasant to use** |
-| **4** | Planning mode + Project Charter (+ charter provenance & scoped injection) | INCEPTION §5.1 | **← the full vision for one user** |
-| **4.5** | **Execution isolation (sandbox)** | THREATS S0, DESIGN §8 P2, CONTROLS C1/C3 | **← gate before any third-party code** |
-| **5** | Marketplace + Negotiator (+ structured conflict detection) | MARKETPLACE, NEGOTIATOR §3, CATALOG | **← the product** |
-| **6** | Productisation (multi-tenant, hosted, billing) | DESIGN §7.x, §8 | **← SaaS (only if users)** |
+| Phase | Delivers | Realises | Cut line | Status |
+| ----- | -------- | -------- | -------- | ------ |
+| **0** | Scaffolding + the four seams | DESIGN §8 | — | ✅ Complete |
+| **1** | Walking skeleton: PM loop + Coder (tweak tier) **+ eval harness** (+ crash recovery, cost-budget spine) | DESIGN §6 + §6.4, THREATS A4, CONTROLS C4 | **← usable for yourself starts here** | ✅ Complete |
+| **2** | Quality gates: Tester, Security, tiers, graph (+ fail-closed parsing, sensitive-path escalation) | DESIGN §6/§9, CATALOG, THREATS S2, CONTROLS C2 | **← MVP personal tool** | ✅ Complete |
+| **3** | Local dashboard (SSE) + PM chat (**+ loopback/token/Origin auth**) | UX §1–7, THREATS S3 | **← pleasant to use** | 🔄 Frontend complete; SSE wiring pending |
+| **4** | Planning mode + Project Charter (+ charter provenance & scoped injection) | INCEPTION §5.1 | **← the full vision for one user** | 🔄 UI built (mock PM); Claude API integration pending |
+| **4.5** | **Execution isolation (sandbox)** | THREATS S0, DESIGN §8 P2, CONTROLS C1/C3 | **← gate before any third-party code** | ⬜ Not started |
+| **5** | Marketplace + Negotiator (+ structured conflict detection) | MARKETPLACE, NEGOTIATOR §3, CATALOG | **← the product** | ⬜ Not started |
+| **6** | Productisation (multi-tenant, hosted, billing) | DESIGN §7.x, §8 | **← SaaS (only if users)** | ⬜ Not started |
 
 ---
 
-## Phase 0 — Foundations & seams
+## The dual-driver layer (added between Phase 2 and Phase 3)
+
+After Phase 2 was complete, research into the Claude Agent SDK billing model (see
+`DESIGN.md` §7.4) led to a new abstraction layer: `core/src/drivers/`. This is an
+extension of **Principle 2** (the narrow orchestrator↔worker boundary).
+
+The `AgentDriver` interface (`drivers/types.ts`) defines `runCoder()`, `runTester()`,
+`runSecurity()`. Two implementations sit behind it:
+
+- **`api-key` driver** — `@anthropic-ai/sdk` with manual tool loops. Requires
+  `ANTHROPIC_API_KEY`. Straightforward REST billing.
+- **`agent-sdk` driver** — `claude -p` subprocess. Requires the `claude` CLI
+  (authenticated via a Max plan subscription). Uses `--output-format json` (gives a
+  `cost_usd` field), `--json-schema` (validated structured output), `--allowedTools`
+  (physical enforcement of tool scope — not prompting), `--max-budget-usd` (per-dispatch
+  C4 cap), and `--no-session-persistence`. Draws from the separate Agent SDK billing pool.
+
+`drivers/index.ts` auto-detects: `SWARM_DRIVER=api-key` overrides; else
+`ANTHROPIC_API_KEY` → api-key; else `claude` CLI available → agent-sdk; else error.
+
+**Why this matters for Phase 3:** The `agent-sdk` driver runs agents as subprocesses,
+not in-process. The server cannot observe agent progress via in-process callbacks. The
+correct architecture — and the reason the Phase 0 event bus was designed to emit from
+day one — is a file-watcher on `state.json` and `findings/` feeding the SSE stream. The
+dual-driver layer confirms this is the right wiring strategy for Phase 3.
+
+---
+
+## Phase 0 — Foundations & seams ✅ COMPLETE
 
 Scaffolding plus the four interfaces, even though each is trivially backed today.
 
@@ -57,9 +85,12 @@ Scaffolding plus the four interfaces, even though each is trivially backed today
 **Exit criteria:** `swarm init` creates the workspace; a stub task round-trips through
 `dispatch()` and is persisted + retrieved via the state repository.
 
+> **Built:** `core/src/` contains the state repository, config boundary, dispatch
+> boundary, and event bus. `swarm init` and `swarm check` work.
+
 ---
 
-## Phase 1 — Walking skeleton: PM loop + Coder (the riskiest bet)
+## Phase 1 — Walking skeleton: PM loop + Coder (the riskiest bet) ✅ COMPLETE
 
 The smallest thing that does real work end-to-end. **Tweak tier only**, CLI output only
 (no dashboard yet).
@@ -85,9 +116,12 @@ the eval harness shows the loop is at least competitive with a single agent. *If
 quality is bad, or it loses to one well-prompted agent, stop and fix that before building
 anything else — the rest of the roadmap assumes this premise holds.*
 
+> **Built:** Real PM loop and Coder agent via Anthropic SDK. `swarm new "<goal>"` works
+> end-to-end. Eval harness built with 2 test cases.
+
 ---
 
-## Phase 2 — Quality gates: Tester, Security, tiers, the graph
+## Phase 2 — Quality gates: Tester, Security, tiers, the graph ✅ COMPLETE
 
 Make security and testing *structural*. This is the MVP personal-tool line.
 
@@ -109,9 +143,14 @@ Make security and testing *structural*. This is the MVP personal-tool line.
 deliberately injected vulnerability is caught, blocks `done`, and triggers an automatic
 remediation + re-review loop.
 
+> **Built:** Tier classifier, Tester agent (runs real test suites), Security Reviewer
+> (read-only), C2 gate validation, S2 sensitive-path escalation, and remediation spawning
+> are all implemented. Eval harness extended to 3 cases, including a deliberate SQL
+> injection that must be caught.
+
 ---
 
-## Phase 3 — The dashboard (control plane + UX)
+## Phase 3 — The dashboard (control plane + UX) 🔄 IN PROGRESS
 
 Now that the engine works, make it observable and controllable.
 
@@ -125,9 +164,20 @@ Now that the engine works, make it observable and controllable.
 **Exit criteria:** `swarm` opens the browser; you start a run and watch nodes recolour,
 the active agent's step line tick, and findings stream in live; pause/abort work.
 
+> **Status:** Frontend UI complete (`ui/` — React + TypeScript + Vite). The server
+> runs but does not yet watch `state.json` for changes — the SSE `/events` stream is
+> not yet wired to the event bus. Remaining work: connect the server-side file watcher
+> to the event bus so state changes flow to the UI.
+>
+> **Note on the agent-sdk driver and SSE wiring.** The `agent-sdk` driver runs `claude -p`
+> as a subprocess rather than in-process. This means the server cannot observe agent
+> progress via in-process callbacks — it must watch `state.json` (and `findings/`) on
+> disk, which is precisely what the Phase 0 event bus was designed for. The file-watcher
+> approach is correct and sufficient for both drivers.
+
 ---
 
-## Phase 4 — Planning mode & the charter (Inception)
+## Phase 4 — Planning mode & the charter (Inception) 🔄 IN PROGRESS
 
 The front half — brainstorm before execution.
 
@@ -149,6 +199,11 @@ The front half — brainstorm before execution.
 **Exit criteria:** launch → brainstorm a small project → the PM pushes back at least once
 and assembles a charter → you approve → it builds the graph and executes *using the charter
 as context*; mid-run, you can amend the charter and re-plan.
+
+> **Status:** Interactive PM conversation is built in the UI (keyword-matching mock PM).
+> Real Claude API integration for the planning PM conversation — the critical-partner
+> persona, consultative specialists, and Charter compilation — is the remaining work for
+> this phase.
 
 ---
 

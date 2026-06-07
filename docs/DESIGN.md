@@ -1,6 +1,7 @@
 # Agent Swarm — Design Document
 
-> **Status:** Design / investigation. Nothing built yet.
+> **Status:** Phases 0–2 built; Phase 3 dashboard frontend complete; SSE wiring and
+> planning-mode Claude integration pending.
 > **Audience:** The author (single developer), as a durable "revert point" to build from cold.
 > **Scope:** A standalone project. Unrelated to the Eclipse Discord bot in whose
 > repository this document currently lives.
@@ -172,6 +173,14 @@ prevents most multi-agent chaos.
 
 A **read-only reviewer cannot "helpfully fix" things** and therefore cannot pollute the
 diff — another reason write-scope is enforced, not advisory.
+
+> **Agent-sdk driver (partial S1 improvement).** When the `agent-sdk` driver is active, the
+> Security Reviewer is dispatched with `--allowedTools "Read,LS,Glob,Grep"`. This is
+> **code-level enforcement at the CLI**: the `claude -p` subprocess physically cannot invoke
+> write-scope tools regardless of what the agent's LLM output asks for. This closes the
+> prompt-convention gap for the agent-sdk driver. The `api-key` driver still relies on the
+> tool-grant layer and prompt convention — the Phase 4.5 sandbox is still required for full
+> isolation on both drivers.
 
 ---
 
@@ -414,7 +423,35 @@ so supporting all three tiers costs nothing extra.
 `state.json` + the orchestrator loop run identically whether on a laptop or a cloud
 container. The store does not care where it lives.
 
-### 7.4 Recovering "always-on" without changing the architecture
+### 7.4 Agent SDK billing model (verified June 2026)
+
+**The local-first decision is unchanged and still correct.** This subsection records what
+changed in the billing landscape and what it means for the dual-driver architecture.
+
+Starting June 15, 2026, Anthropic splits billing into **two separate pools that do not
+commingle**:
+
+| Pool | Covers | Billing |
+| ---- | ------ | ------- |
+| **Pool 1 — Interactive** | Claude.ai, Claude Code terminal, Cowork | Covered by subscription limits |
+| **Pool 2 — Agent SDK** | `claude -p`, Agent SDK usage, Claude Code GitHub Actions | Separate monthly credit, billed at API rates |
+
+The **agent-sdk driver draws from Pool 2**, not the interactive pool. Max plan monthly
+credits: $100/month at the 5× tier, $200/month at the 20× tier. The api-key driver
+draws directly from the Anthropic console billing account.
+
+**What this means for the dual-driver design:**
+
+- Both auth paths are viable for local single-tenant use; the auto-detection logic
+  (`drivers/index.ts`) picks the right one.
+- The `claude -p` subprocess IS the Claude Agent SDK — it wraps over stdio, not direct
+  REST calls. This is the correct programmatic interface for the agent-sdk driver.
+- The `--max-budget-usd` flag provides per-dispatch cost caps (control C4) at the CLI
+  level, complementing the global budget check in the PM loop.
+- OAuth tokens (`sk-ant-oat01-*`) are **not** a third auth path — using them for
+  programmatic REST calls violates Consumer ToS and is server-enforced rejected.
+
+### 7.5 Recovering "always-on" without changing the architecture
 
 The only real thing local costs is always-on / reach-from-phone. That is recoverable
 *without* a rewrite by running the *same single-tenant app* on a cheap always-on box the
@@ -466,6 +503,24 @@ with the worker. Then "wrap the worker in a sandbox" is a swap behind that inter
 not an excavation. (The same Agent SDK code runs as a local subprocess *or* in a
 sandboxed container — same code, different box.)
 
+> **This seam is built: `core/src/drivers/`.** The `AgentDriver` interface
+> (`drivers/types.ts`) is the narrow dispatch boundary — `runCoder()`, `runTester()`,
+> `runSecurity()`. Two implementations sit behind it:
+>
+> - **`api-key` driver** (`drivers/api-key.ts`): direct `@anthropic-ai/sdk` with manual
+>   tool loops. Requires `ANTHROPIC_API_KEY`.
+> - **`agent-sdk` driver** (`drivers/agent-sdk.ts`): invokes `claude -p` (the Claude Code
+>   CLI in non-interactive mode). Uses `--print`, `--dangerously-skip-permissions`,
+>   `--output-format json`, `--json-schema`, `--allowedTools`, `--max-budget-usd`,
+>   `--system-prompt`, and `--no-session-persistence`. Auth is via the user's Max plan
+>   subscription (OAuth, not an API key).
+> - **`drivers/index.ts`** auto-detects: `SWARM_DRIVER=api-key` → api-key; else
+>   `ANTHROPIC_API_KEY` set → api-key; else `claude` CLI available → agent-sdk; else
+>   helpful error listing both options.
+>
+> Swapping to a sandboxed container in Phase 4.5 is a change behind this interface,
+> not an excavation.
+
 ### Principle 3 — State access behind a repository interface
 
 A single `state.json` on disk is perfect for one user — do **not** over-engineer it. But
@@ -480,6 +535,19 @@ users" decision, not a now decision.)
 Route all secrets and API keys through one config/secrets boundary. Today: your env var.
 Tomorrow: per-user keys or managed billing. Never hardcode a key or assume a single
 global credential across call sites.
+
+> **Two auth paths, one boundary.** The config boundary now auto-detects which auth
+> path is available (see Principle 2 driver auto-detection above):
+> - **API key path** — `ANTHROPIC_API_KEY` from `console.anthropic.com`. The traditional
+>   path; direct REST billing.
+> - **Max plan subscription path** — the `claude` CLI authenticated via `claude.ai` login
+>   (OAuth). The agent-sdk driver uses this path. Note: OAuth tokens
+>   (prefixed `sk-ant-oat01-*`) are **prohibited for programmatic use** and are server-
+>   enforced rejected since Jan 9, 2026 — the `claude -p` subprocess is the correct
+>   interface, not direct REST calls with these tokens.
+>
+> The boundary abstracts which path is in use; nothing outside `drivers/index.ts` needs
+> to know.
 
 > **Scope clarification (threat review S5).** This boundary governs the **swarm's own
 > credentials** (the LLM API keys). It does **not** protect the **user's project secrets** —
@@ -543,10 +611,16 @@ template.
 
 ## 12. Open questions / future work
 
-- **UX form factor:** local web app (localhost dashboard + PM chat) is the assumed start.
-  Real-time mechanism **resolved** → **SSE** for the server→client state stream, plain
-  **POST** for actions; see `UX.md`. A worked, concrete render of a real run lives in
+- **UX form factor:** **resolved** — local web app (React + TypeScript + Vite in `ui/`).
+  Built through Phase 3 frontend. Real-time mechanism **resolved** → **SSE** (confirmed
+  correct; the Phase 0 event bus has been emitting since the start). Plain **POST** for
+  actions; see `UX.md`. A worked, concrete render of a real run lives in
   `examples/leaderboard-run/`.
+- **Planning mode UI:** Interactive PM conversation built in the UI (keyword-matching mock).
+  Real Claude API integration for the planning PM is the remaining Phase 4 item.
+- **Dual-driver auth question:** **resolved** — the `AgentDriver` interface in
+  `core/src/drivers/` abstracts both the API key path and the Max plan subscription
+  (agent-sdk) path. Auto-detection logic in `drivers/index.ts`. See §8 Principle 2 and §7.4.
 - **Negotiator** *(designed → `NEGOTIATOR.md`)*: triggers `on_conflict`; arbitrates
   *negotiable* trade-offs only and can never rule away a correctness/safety
   (`negotiable:false`) finding — it upholds or escalates. Worked example in
@@ -574,7 +648,7 @@ Technical terms and emerging industry vocabulary used in this document.
 | Term | Definition |
 | ---- | ---------- |
 | **Agent (LLM agent)** | An LLM instance given a goal, a system prompt, and tools, which acts in a loop (reason → act → observe) to accomplish a task. |
-| **Agent SDK (Claude Agent SDK)** | The programmatic SDK for building agents in code (vs. the interactive CLI). Lets you define personas, tool allowlists, and long-running orchestration loops. The intended implementation engine here. |
+| **Agent SDK (Claude Agent SDK)** | The programmatic SDK for building agents in code (vs. the interactive CLI). Lets you define personas, tool allowlists, and long-running orchestration loops. The intended implementation engine here. In practice, `claude -p` (the Claude Code CLI in non-interactive mode) IS the Claude Agent SDK — it wraps over stdio rather than making direct REST API calls. The `agent-sdk` driver uses this interface. |
 | **Artifact** | A concrete output of a task — a code file, a test file, a findings document — referenced from the blackboard. |
 | **Blackboard architecture** | A coordination pattern where independent specialist components share a structured store (the "blackboard") instead of talking directly; a controller decides who acts next based on the store's state. The backbone of this design. |
 | **Ceremony** | The amount of process applied to a task. High ceremony = full multi-stage pipeline; low ceremony = a single agent. "Right-sizing ceremony" = matching process to task risk/size. |

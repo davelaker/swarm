@@ -15,6 +15,15 @@ control here covers it. "Addressed (design)" means *designed*, not *built*.
 **Depends on:** the Phase 4.5 execution sandbox (`BUILD.md`) — these controls are enforced
 *by* the sandbox's network and filesystem layers, not by agent prompts.
 
+> **Partial implementation — agent-sdk driver.** The `agent-sdk` driver (see `DESIGN.md`
+> §8 Principle 2) dispatches the Security Reviewer with `--allowedTools "Read,LS,Glob,Grep"`.
+> The `claude -p` subprocess physically cannot invoke write-scope tools regardless of what
+> the LLM requests — this is **code-level enforcement at the CLI**, not a prompt convention.
+> This partially closes the write-scope gap (S1) for the agent-sdk driver before the Phase 4.5
+> sandbox exists. The `api-key` driver still relies on the tool-grant layer + prompt convention
+> until Phase 4.5. The egress (S7) and ingestion quarantine (S4) halves of C1 still require
+> the Phase 4.5 sandbox for both drivers.
+
 ### The threat in one line
 
 Agents read untrusted input (web, deps, repo, issue text) and some have network access, so

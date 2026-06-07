@@ -5,8 +5,10 @@ single-tenant multi-agent coding system** — a swarm of role-specialised AI age
 coordinated by a Project Manager agent through a shared blackboard, with a path to becoming
 a hosted product.
 
-> Status: **design / investigation.** Nothing built yet. This corpus is the durable
-> "revert point" to build from.
+> Status: **Phase 2 complete / Phase 3 in progress.** The engine works end-to-end.
+> Phases 0–2 are built; the dashboard frontend is built; SSE wiring and planning-mode
+> Claude integration are pending. This corpus is the durable design record — read it for
+> the *why*, not just the *what*.
 
 ## The lifecycle this design covers
 
@@ -29,6 +31,23 @@ launch  →  brainstorm (Planning)  →  Charter + approval gate  →  execute (
 | [`BUILD.md`](BUILD.md) | The phased implementation roadmap (risk-ordered), and where the four seams go in. |
 | [`THREATS.md`](THREATS.md) | Adversarial review: trust model, attack surfaces, and a finding register with severities — read alongside the docs it corrects. |
 | [`CONTROLS.md`](CONTROLS.md) | The designed security controls that close the threat findings: **C1** untrusted-content & egress, **C2** gate fail-closed, **C3** in-loop approval, **C4** spend control. (Architectural fixes for A1/A3/A5 live inline in the docs they correct.) |
+
+## Implementation status
+
+| Phase | Status | Notes |
+| ----- | ------ | ----- |
+| **0** Scaffolding | ✅ Complete | `core/src/` has state repo, config boundary, dispatch boundary, event bus. `swarm init` and `swarm check` work. |
+| **1** Walking skeleton | ✅ Complete | Real PM loop, Coder agent via Anthropic SDK, `swarm new "<goal>"` works end-to-end, eval harness with 2 test cases. |
+| **2** Quality gates | ✅ Complete | Tier classifier, Tester, Security Reviewer, C2 gate validation, S2 sensitive-path escalation, remediation spawning. Eval harness extended to 3 cases including a deliberate SQL injection that must be caught. |
+| **3** Dashboard | 🔄 In progress | Frontend UI complete (`ui/` — React + TypeScript + Vite). Backend SSE wiring to the UI not yet done — server runs but doesn't watch `state.json` for changes yet. |
+| **4** Planning mode | 🔄 In progress | Interactive PM conversation built in the UI (keyword-matching mock). Claude API integration for the planning PM not yet done. |
+| **4.5–6** | ⬜ Not started | — |
+
+A **dual-driver abstraction layer** was added in `core/src/drivers/` between Phases 2 and 3.
+It provides two implementations behind the `AgentDriver` interface: `api-key` (direct
+Anthropic SDK) and `agent-sdk` (`claude -p` CLI). See `DESIGN.md` §8 Principle 2 for details.
+
+---
 
 ## Worked examples
 
