@@ -1,7 +1,17 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  server: {
+    proxy: {
+      // Route all backend calls to the swarm server on :7000.
+      // The server must be running (`swarm dev` in core/).
+      // If the server is down, requests 404 and the UI falls back to mock mode.
+      '/state':  { target: 'http://localhost:7000', changeOrigin: true },
+      '/events': { target: 'http://localhost:7000', changeOrigin: true },
+      '/pm':     { target: 'http://localhost:7000', changeOrigin: true },
+      '/run':    { target: 'http://localhost:7000', changeOrigin: true },
+    },
+  },
 })

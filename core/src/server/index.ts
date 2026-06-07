@@ -1,16 +1,19 @@
 // Embedded HTTP server — GET /state, GET /events (SSE), POST /run/* + /pm/*
-// The UI connects here; the orchestrator loop emits events into the same process.
-// See UX.md §3 for the architecture diagram.
 //
-// Security note: this server binds to loopback only. Phase 3 adds per-session
-// token auth and Origin checks (UX.md §3, THREATS.md S3). Not done here.
+// Two event sources feed the SSE stream:
+//   1. In-process bus  — api-key driver: events emitted by the state repository
+//   2. File watcher    — agent-sdk driver: `claude -p` subprocess writes state.json
+//                        directly; we detect changes and diff to emit events
+//
+// Both feed the same `fanout()` function → all SSE clients.
+// See UX.md §3 for the architecture diagram.
 
 import http   from 'node:http';
 import path   from 'node:path';
 import fs     from 'node:fs';
 import { bus }      from '../state/events.js';
-import { getState } from '../state/repo.js';
-import type { SwarmEvent } from '../state/types.js';
+import { getState, swarmDir, stateFile } from '../state/repo.js';
+import type { SwarmEvent, SwarmState, Task } from '../state/types.js';
 
 type SseClient = http.ServerResponse;
 
@@ -18,6 +21,122 @@ const clients = new Set<SseClient>();
 
 function sendSse(res: SseClient, event: SwarmEvent): void {
   res.write(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+function fanout(event: SwarmEvent): void {
+  for (const client of clients) {
+    try { sendSse(client, event); } catch { clients.delete(client); }
+  }
+}
+
+// ─── File watcher ─────────────────────────────────────────────────────────────
+// Detects changes to state.json (written by either driver) and emits the right
+// SSE events by diffing old vs new state.
+
+function diffAndEmit(prev: SwarmState | null, next: SwarmState): void {
+  if (!prev) {
+    // First snapshot — emit current task graph so the UI can initialise
+    fanout({ type: 'run.classified', tier: next.tier, tasks: next.tasks as unknown as Task[] });
+    return;
+  }
+
+  const prevById = new Map(prev.tasks.map(t => [t.id, t]));
+
+  for (const task of next.tasks) {
+    const old = prevById.get(task.id);
+    if (!old) {
+      fanout({ type: 'task.created', task: task as unknown as Task });
+    } else if (old.status !== task.status) {
+      fanout({ type: 'task.status_changed', task_id: task.id, status: task.status });
+
+      // Synthesise agent lifecycle events from status transitions
+      if (task.status === 'in_progress') {
+        fanout({ type: 'agent.started', agent_id: task.assignee });
+      } else if (task.status === 'done' || task.status === 'failed' || task.status === 'blocked') {
+        fanout({ type: 'agent.finished', agent_id: task.assignee });
+      }
+    }
+
+    // New finding written
+    if (task.result_ref && task.result_ref !== old?.result_ref) {
+      fanout({ type: 'finding.written', task_id: task.id, path: task.result_ref });
+    }
+  }
+
+  // New log entries → forward as agent.progress (step line in agents panel)
+  const prevLen = prev.log.length;
+  for (const entry of next.log.slice(prevLen)) {
+    fanout({ type: 'log.appended', actor: entry.actor, event: entry.event });
+
+    // Synthesise agent.progress for the ticking step line
+    if (entry.actor !== 'pm' && entry.event.includes('dispatching') === false) {
+      const step = entry.event.replace(/^[^:]+:\s*/, '').slice(0, 80);
+      fanout({ type: 'agent.progress', agent_id: entry.actor, step });
+    }
+  }
+
+  // Run completed
+  if (next.tasks.length > 0 && next.tasks.every(t => t.status === 'done') &&
+      !prev.tasks.every(t => t.status === 'done')) {
+    fanout({ type: 'run.completed' });
+  }
+
+  // Run blocked / any failure
+  const nowBlocked = next.tasks.some(t => t.status === 'failed' || t.status === 'blocked');
+  const wasBlocked = prev.tasks.some(t => t.status === 'failed' || t.status === 'blocked');
+  if (nowBlocked && !wasBlocked) {
+    const reason = next.tasks.find(t => t.status === 'failed' || t.status === 'blocked')?.id ?? 'unknown';
+    fanout({ type: 'run.blocked', reason });
+  }
+}
+
+function startFileWatcher(): void {
+  let lastState: SwarmState | null = null;
+  let watcher:   ReturnType<typeof fs.watch> | null = null;
+
+  const tryRead = (): SwarmState | null => {
+    try { return JSON.parse(fs.readFileSync(stateFile(), 'utf8')); }
+    catch { return null; }
+  };
+
+  const attach = (): void => {
+    if (watcher) return;
+    const sf = stateFile();
+    if (!fs.existsSync(sf)) return;
+
+    lastState = tryRead();
+    console.log('  ▸ watching   → .swarm/state.json');
+
+    watcher = fs.watch(sf, () => {
+      // A rename (atomic write) closes the old inode — re-attach
+      watcher?.close(); watcher = null;
+      setTimeout(attach, 50);
+
+      const next = tryRead();
+      if (!next) return;
+      try { diffAndEmit(lastState, next); } catch { /* diff error — skip */ }
+      lastState = next;
+    });
+  };
+
+  // Also watch the .swarm/ directory in case state.json is created after the server starts
+  const dir = swarmDir();
+  if (fs.existsSync(dir)) {
+    attach();
+    fs.watch(dir, (_ev, name) => { if (name === 'state.json') attach(); });
+  } else {
+    // Watch parent until .swarm/ is created
+    const parent = path.dirname(dir);
+    if (fs.existsSync(parent)) {
+      const pw = fs.watch(parent, (_ev, name) => {
+        if (name === path.basename(dir) && fs.existsSync(dir)) {
+          pw.close();
+          attach();
+          fs.watch(dir, (_ev2, name2) => { if (name2 === 'state.json') attach(); });
+        }
+      });
+    }
+  }
 }
 
 function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
@@ -96,7 +215,6 @@ export function startServer(port: number): http.Server {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
 
-    // CORS preflight
     if (req.method === 'OPTIONS') {
       res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' });
       res.end(); return;
@@ -108,12 +226,11 @@ export function startServer(port: number): http.Server {
     res.writeHead(405); res.end();
   });
 
-  // Fan-out every bus event to all connected SSE clients.
-  bus.on('swarm', (event) => {
-    for (const client of clients) {
-      try { sendSse(client, event); } catch { clients.delete(client); }
-    }
-  });
+  // Source 1: in-process bus (api-key driver emits here via state repo)
+  bus.on('swarm', fanout);
+
+  // Source 2: file watcher (agent-sdk driver writes state.json as subprocess)
+  startFileWatcher();
 
   server.listen(port, '127.0.0.1', () => {
     console.log(`  ▸ server     → http://localhost:${port}`);

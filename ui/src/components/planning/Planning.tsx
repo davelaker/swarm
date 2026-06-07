@@ -11,13 +11,22 @@ interface PlanningProps {
 }
 
 export function Planning({ onExecutable }: PlanningProps) {
-  const session   = usePlanningSession(onExecutable);
-  const [input, setInput] = useState('');
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const session    = usePlanningSession(onExecutable);
+  const [input, setInput]           = useState('');
+  const [projectName, setProjectName] = useState<string | undefined>();
+  const scrollRef   = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Start the PM opening message on mount
   useEffect(() => { session.init(); }, []);
+
+  // Try to fetch the real project name from the backend
+  useEffect(() => {
+    fetch('/state')
+      .then(r => r.ok ? r.json() : null)
+      .then(s => { if (s?.project) setProjectName(s.project); })
+      .catch(() => {});
+  }, []);
 
   // Auto-scroll on new messages / typing indicator
   useEffect(() => {
@@ -51,7 +60,7 @@ export function Planning({ onExecutable }: PlanningProps) {
 
   return (
     <div className="plan">
-      <Charter charter={session.charter} team={session.team} />
+      <Charter charter={session.charter} team={session.team} projectName={projectName} />
       <div className="plan-right">
         <div className="panel-head">
           <span>PM Conversation</span>

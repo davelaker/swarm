@@ -62,6 +62,9 @@ export type SwarmEvent =
   | { type: 'run.classified';      tier: Tier; tasks: Task[] }
   | { type: 'task.created';        task: Task }
   | { type: 'task.status_changed'; task_id: string; status: TaskStatus }
+  | { type: 'agent.started';       agent_id: string }
+  | { type: 'agent.progress';      agent_id: string; step: string }
+  | { type: 'agent.finished';      agent_id: string }
   | { type: 'finding.written';     task_id: string; path: string }
   | { type: 'log.appended';        actor: string; event: string }
   | { type: 'run.blocked';         reason: string }

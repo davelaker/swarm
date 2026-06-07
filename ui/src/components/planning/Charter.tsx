@@ -11,11 +11,21 @@ function renderText(t: string) {
 }
 
 interface CharterProps {
-  charter: CharterData;
-  team: string[];
+  charter:     CharterData;
+  team:        string[];
+  projectName?: string; // from /state or derived from conversation
 }
 
-export function Charter({ charter, team }: CharterProps) {
+export function Charter({ charter, team, projectName }: CharterProps) {
+  // Derive a title from the goal (first clause before a comma/period, max 40 chars)
+  const title = charter.goal
+    ? charter.goal.replace(/[.,].*$/, '').trim().slice(0, 48)
+    : 'New project';
+
+  const subtitle = projectName
+    ? `${projectName} · charter draft`
+    : 'charter draft';
+
   return (
     <div className="plan-left">
       <div className="panel-head">
@@ -24,8 +34,8 @@ export function Charter({ charter, team }: CharterProps) {
         <span className="badge grey">DRAFT</span>
       </div>
       <div className="charter">
-        <h2>Leaderboard command</h2>
-        <div className="sub">discord-rank-bot · charter v0.1</div>
+        <h2>{title}</h2>
+        <div className="sub">{subtitle}</div>
 
         <div className="csec">
           <div className="csec-label"><span className="num">01</span> Goal</div>
