@@ -1,71 +1,90 @@
 // Principle 2 — narrow orchestrator↔worker boundary.
-// Phase 1: routes to the real Coder agent.
-// Phase 2: routes to Tester, Security, Negotiator by assignee.
-// Phase 6: workers move into sandboxed containers — swap happens here only.
+// Phase 2: Coder, Tester, Security all wired.
+// Phase 5: Negotiator. Phase 6: sandboxed containers.
 
 import type { Task, SwarmState } from '../state/types.js';
-import { runCoder, tokensToDollars } from '../agents/coder.js';
+import { runCoder }    from '../agents/coder.js';
+import { runTester }   from '../agents/tester.js';
+import { runSecurity } from '../agents/security.js';
 
 export interface TaskResult {
-  status:     'done' | 'failed';
-  summary:    string;
-  result_ref?: string;
+  status:      'done' | 'failed';
+  summary:     string;
   artifacts?:  string[];
-  finding?:    string;         // raw finding markdown — loop writes to disk
+  finding?:    string;   // raw markdown — loop writes to disk
   costUsd?:    number;
+  // Gate metadata returned by reviewer agents for the loop to act on
+  verdict?:    string;
+  blocksDone?: boolean;
 }
 
-// Idempotency key — (task_id, attempt) used to de-duplicate re-dispatches.
-// A re-run after a crash must not double-apply dangerous actions (C3).
 export function idempotencyKey(task: Task): string {
   return `${task.id}:${task.attempts}`;
 }
 
-// The one place the PM hands work to a worker.
 export async function dispatch(task: Task, state: SwarmState): Promise<TaskResult> {
   switch (task.assignee) {
     case 'coder': {
       try {
-        const result = await runCoder(task, state);
-        const finding = buildCoderFinding(task, result.summary, result.filesChanged);
+        const r = await runCoder(task, state);
         return {
           status:    'done',
-          summary:   result.summary,
-          artifacts: result.filesChanged,
-          finding,
-          costUsd:   result.costUsd,
+          summary:   r.summary,
+          artifacts: r.filesChanged,
+          finding:   buildCoderFinding(task, r.summary, r.filesChanged),
+          costUsd:   r.costUsd,
+          verdict:   'COMPLETE',
+          blocksDone: false,
         };
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return { status: 'failed', summary: msg };
+        return { status: 'failed', summary: (err as Error).message };
       }
     }
 
-    // Phase 2: tester, security, negotiator
-    case 'tester':
-    case 'security':
+    case 'tester': {
+      try {
+        const r = await runTester(task, state);
+        return {
+          status:    'done',
+          summary:   r.summary,
+          finding:   r.finding,
+          costUsd:   r.costUsd,
+          verdict:   r.verdict,
+          blocksDone: r.verdict === 'FAIL',
+        };
+      } catch (err) {
+        return { status: 'failed', summary: (err as Error).message };
+      }
+    }
+
+    case 'security': {
+      try {
+        const r = await runSecurity(task, state);
+        return {
+          status:    'done',
+          summary:   r.summary,
+          finding:   r.finding,
+          costUsd:   r.costUsd,
+          verdict:   r.verdict,
+          blocksDone: r.verdict === 'CHANGES_REQUESTED',
+        };
+      } catch (err) {
+        return { status: 'failed', summary: (err as Error).message };
+      }
+    }
+
     case 'negotiator':
-      return {
-        status:  'failed',
-        summary: `${task.assignee} agent not yet implemented (Phase 2).`,
-      };
+      return { status: 'failed', summary: 'Negotiator not yet implemented (Phase 5).' };
 
     default:
-      return {
-        status:  'failed',
-        summary: `Unknown assignee: ${task.assignee}`,
-      };
+      return { status: 'failed', summary: `Unknown assignee: ${task.assignee}` };
   }
 }
 
-// ─── Finding builder (lives here so loop.ts stays coordination-only) ─────────
-// Conforms to DESIGN.md §6.2a — builder finding schema (no gate fields).
-
 function buildCoderFinding(task: Task, summary: string, filesChanged: string[]): string {
-  const filesSection = filesChanged.length
+  const list = filesChanged.length
     ? filesChanged.map(f => `  - ${f}`).join('\n')
     : '  (none recorded)';
-
   return [
     '---',
     `task: ${task.id}`,
@@ -78,7 +97,7 @@ function buildCoderFinding(task: Task, summary: string, filesChanged: string[]):
     `## ${summary}`,
     '',
     '### Files changed',
-    filesSection,
+    list,
     '',
   ].join('\n');
 }

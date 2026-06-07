@@ -1,66 +1,95 @@
 import path from 'node:path';
 import fs   from 'node:fs';
 import { swarmDir, stateFile, initWorkspace, addTask, getState, appendLog } from '../state/repo.js';
+import { classify }  from '../agents/classifier.js';
 import { runLoop }   from '../loop.js';
 import { getConfig } from '../config.js';
-import type { Task } from '../state/types.js';
+import type { Task, Tier } from '../state/types.js';
+
+// Build the initial task graph for each tier (DESIGN.md §9).
+// The loop adds more tasks at runtime (e.g., S2 escalation, remediation).
+function buildTaskGraph(goal: string, tier: Tier, sensitive: boolean, cfg: ReturnType<typeof getConfig>): Task[] {
+  const base: Task = {
+    id: 't1', title: goal, status: 'pending',
+    owner: cfg.owner, assignee: 'coder',
+    depends_on: [], artifacts: [], result_ref: null, attempts: 0,
+  };
+
+  if (tier === 'tweak' && !sensitive) {
+    return [base];
+  }
+
+  // feature / greenfield / sensitive tweak
+  const tester: Task = {
+    id: 't2', title: `Test: ${goal}`, status: 'pending',
+    owner: cfg.owner, assignee: 'tester',
+    depends_on: ['t1'], artifacts: [], result_ref: null, attempts: 0,
+  };
+  const security: Task = {
+    id: 't3', title: `Security review: ${goal}`, status: 'pending',
+    owner: cfg.owner, assignee: 'security',
+    depends_on: ['t1'], artifacts: [], result_ref: null, attempts: 0,
+  };
+
+  return [base, tester, security];
+}
 
 export async function runNew(goal: string): Promise<void> {
-  const cfg = getConfig(); // throws early if no API key
+  const cfg = getConfig();
 
-  // Bootstrap workspace if not yet initialised
+  // ── Bootstrap workspace ────────────────────────────────────────────────────
   if (!fs.existsSync(stateFile())) {
     const project = path.basename(process.cwd());
     initWorkspace(project, goal);
     console.log(`  ✓ .swarm/ initialised for "${project}"\n`);
-  } else {
-    // Update the goal in existing state
-    const state = getState();
-    const updatedState = { ...state, goal, tier: 'tweak' as const };
-    // Re-use initWorkspace is not safe here — write directly via repo
-    // We just update the in-memory copy then write via a one-off path
-    const fs2 = await import('node:fs');
-    const tmp  = stateFile() + '.tmp';
-    fs2.default.writeFileSync(tmp, JSON.stringify({ ...updatedState, tasks: [], log: [] }, null, 2), 'utf8');
-    fs2.default.renameSync(tmp, stateFile());
   }
 
-  // Create the task graph — Phase 1: one task, tweak tier, no deps
-  const taskId = `t${Date.now().toString(36)}`; // unique across runs
-  const task: Task = {
-    id:         taskId,
-    title:      goal,
-    status:     'pending',
-    owner:      cfg.owner,
-    assignee:   'coder',
-    depends_on: [],
-    artifacts:  [],
-    result_ref: null,
-    attempts:   0,
-  };
+  // ── Tier classification (PM's first action — DESIGN.md §9) ────────────────
+  console.log('  ▸ classifying goal…');
+  const cls = await classify(goal);
+  console.log(`  ✓ tier: ${cls.tier.toUpperCase()}${cls.sensitive ? ' + sensitive path detected' : ''}`);
+  console.log(`    ${cls.reasoning}\n`);
 
-  addTask(task);
-  appendLog('pm', `task graph created: ${taskId} (tweak)`);
+  // Reset state (fresh run — keep workspace, clear previous tasks/log)
+  const freshState = {
+    ...getState(),
+    goal,
+    tier: cls.tier,
+    tasks: [],
+    log: [],
+  };
+  const fsFresh = await import('node:fs');
+  const tmp = stateFile() + '.tmp';
+  fsFresh.default.writeFileSync(tmp, JSON.stringify(freshState, null, 2), 'utf8');
+  fsFresh.default.renameSync(tmp, stateFile());
+
+  // ── Build task graph ───────────────────────────────────────────────────────
+  const tasks = buildTaskGraph(goal, cls.tier, cls.sensitive, cfg);
+  for (const t of tasks) addTask(t);
+  appendLog('pm', `graph: ${tasks.map(t => `${t.id}→${t.assignee}`).join(', ')} [${cls.tier}]`);
 
   console.log(`  project: ${getState().project}`);
   console.log(`  goal:    ${goal}`);
-  console.log(`  tier:    tweak`);
-  console.log(`  task:    ${taskId} → coder\n`);
+  console.log(`  tier:    ${cls.tier}`);
+  console.log(`  graph:   ${tasks.map(t => t.id + ':' + t.assignee).join(' → ')}\n`);
 
+  // ── Run the PM loop ────────────────────────────────────────────────────────
   const result = await runLoop();
 
-  // ── Report ──────────────────────────────────────────────────────────────────
+  // ── Report ─────────────────────────────────────────────────────────────────
   const icon = result.status === 'done' ? '✓' : '✗';
   console.log(`  ${icon} ${result.status.toUpperCase()} — ${result.message}`);
-  console.log(`  total cost: $${result.totalCostUsd.toFixed(4)}\n`);
-
-  if (result.status === 'done') {
-    const finalState = getState();
-    const doneTask   = finalState.tasks.find(t => t.id === taskId);
-    if (doneTask?.result_ref) {
-      console.log(`  findings: .swarm/${doneTask.result_ref}\n`);
-    }
+  if (result.totalCostUsd > 0) {
+    console.log(`  total cost: $${result.totalCostUsd.toFixed(4)}`);
   }
+
+  const finalState = getState();
+  const findings   = finalState.tasks.filter(t => t.result_ref).map(t => `  · ${t.id}: .swarm/${t.result_ref}`);
+  if (findings.length) {
+    console.log('\n  Findings:');
+    findings.forEach(f => console.log(f));
+  }
+  console.log('');
 
   process.exit(result.status === 'done' ? 0 : 1);
 }
