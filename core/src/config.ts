@@ -21,17 +21,30 @@ let _config: Config | null = null;
 export function getConfig(): Config {
   if (_config) return _config;
 
+  // In agent-sdk mode, the API key is not required — auth flows through
+  // the Max plan subscription. We only enforce the key when in api-key mode.
+  const mode   = process.env.SWARM_DRIVER?.toLowerCase();
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  const hasClaudeCli = (() => {
+    try { require('node:child_process').execSync('claude --version', { stdio: 'ignore' }); return true; }
+    catch { return false; }
+  })();
+
+  const usingAgentSdk = mode === 'agent-sdk' || (!apiKey && hasClaudeCli && mode !== 'api-key');
+
+  if (!usingAgentSdk && !apiKey) {
     throw new Error(
-      'ANTHROPIC_API_KEY is not set.\n' +
-      'Export it before running swarm:\n\n' +
+      'No authentication available.\n\n' +
+      'Option A — Claude Max plan (no API account needed):\n' +
+      '  Make sure the claude CLI is installed and signed in.\n' +
+      '  SWARM_DRIVER=agent-sdk  (or leave unset — auto-detected)\n\n' +
+      'Option B — Anthropic API key:\n' +
       '  export ANTHROPIC_API_KEY=sk-ant-…\n'
     );
   }
 
   _config = {
-    anthropicApiKey: apiKey,
+    anthropicApiKey: apiKey ?? '',
     port:            Number(process.env.SWARM_PORT          ?? 7000),
     owner:           process.env.SWARM_OWNER                ?? 'me',
     leaseSeconds:    Number(process.env.SWARM_LEASE_SECONDS ?? 300),
@@ -41,7 +54,7 @@ export function getConfig(): Config {
     maxAttempts:     Number(process.env.SWARM_MAX_ATTEMPTS  ?? 2),
   };
 
-  return _config;
+  return _config!;
 }
 
 // Called by commands that don't need the API key (init, check).

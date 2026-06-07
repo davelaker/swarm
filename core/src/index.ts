@@ -13,6 +13,7 @@ import { runNew }         from './commands/new.js';
 import { runEval }        from './eval/index.js';
 import { startServer }    from './server/index.js';
 import { getConfigOptional } from './config.js';
+import { driverBanner, getDriverMode } from './drivers/index.js';
 
 const [,, cmd = 'help', ...rest] = process.argv;
 
@@ -50,6 +51,7 @@ switch (cmd) {
     const cfg = getConfigOptional();
     console.log('\n  Agent Swarm\n');
     console.log('  ▸ orchestrator starting…');
+    console.log(driverBanner());
     startServer(cfg.port);
     const uiUrl = 'http://localhost:5173'; // Phase 3: cfg.port after ui build
     const { exec } = await import('node:child_process');
@@ -60,22 +62,29 @@ switch (cmd) {
   }
 
   default: {
+    const mode = getDriverMode();
     console.log(`
   Agent Swarm — local multi-agent coding system
+  Active driver: ${mode === 'agent-sdk' ? 'Claude Agent SDK (Max plan)' : 'API key'}
 
   Commands:
     swarm init              scaffold .swarm/ in the current directory
     swarm check             verify all four Phase 0 seams
     swarm new "<goal>"      run a task end-to-end
-    swarm eval [<cases>]    run the Phase 1 eval harness
+    swarm eval [<cases>]    run the eval harness
     swarm dev               start the dashboard server
 
-  Env vars:
-    ANTHROPIC_API_KEY       required
-    SWARM_CODER_MODEL       model for Coder agent (default: claude-opus-4-5-20251101)
-    SWARM_HARD_CAP_USD      abort if total cost exceeds this (default: 2.00)
-    SWARM_SOFT_CAP_USD      warn at this threshold (default: 1.00)
-    SWARM_PORT              dashboard server port (default: 7000)
+  Driver selection (SWARM_DRIVER):
+    agent-sdk   Use claude CLI — authenticates via Max plan subscription
+                Max 20x: $200/month Agent SDK credit included
+    api-key     Use Anthropic Client SDK — requires ANTHROPIC_API_KEY
+    auto        (default) API key if set, else claude CLI
+
+  Other env vars:
+    SWARM_CODER_MODEL       model override (api-key mode only)
+    SWARM_HARD_CAP_USD      cost abort threshold (default: 2.00)
+    SWARM_SOFT_CAP_USD      cost warn threshold (default: 1.00)
+    SWARM_PORT              dashboard port (default: 7000)
 `);
   }
 }
