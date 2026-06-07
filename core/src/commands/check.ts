@@ -87,20 +87,28 @@ export async function runCheck(): Promise<void> {
   }
 
   // ── Seam 3: Dispatch boundary (Principle 2) ──────────────────────────────────
+  // Phase 1: dispatch routes to real workers (API key required for coder).
+  // The seam check verifies the interface shape is correct, not that a live
+  // Claude call succeeds — that's what `swarm eval` is for.
   hdr('3. Dispatch boundary (Principle 2)');
   try {
     const stubTask: Task = {
       id: 't-stub', title: 'echo test', status: 'pending',
-      owner: 'me', assignee: 'coder', depends_on: [],
-      artifacts: [], result_ref: null, attempts: 0,
+      owner: 'me', assignee: 'tester', // tester is a known stub in Phase 1
+      depends_on: [], artifacts: [], result_ref: null, attempts: 0,
     };
     const stubState = {
       project: 'test', owner: 'me', goal: '', tier: 'tweak' as const,
       updated_at: new Date().toISOString(), tasks: [stubTask], log: [],
     };
     const result = await dispatch(stubTask, stubState);
-    if (result.status !== 'done') throw new Error(`unexpected status: ${result.status}`);
-    ok(`dispatch(stub) → "${result.summary}"`);
+    // Phase 1: tester returns 'failed' (not yet implemented) — that's correct.
+    // The seam test confirms dispatch() returns a TaskResult and doesn't throw.
+    if (typeof result.status !== 'string' || typeof result.summary !== 'string') {
+      throw new Error(`dispatch returned unexpected shape: ${JSON.stringify(result)}`);
+    }
+    ok(`dispatch(tester) → { status: "${result.status}", summary: "${result.summary.slice(0,60)}" }`);
+    ok('dispatch boundary: interface correct (live coder run requires ANTHROPIC_API_KEY + swarm eval)');
   } catch (e) {
     fail(`dispatch: ${(e as Error).message}`);
   }

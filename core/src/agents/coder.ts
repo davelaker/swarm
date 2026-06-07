@@ -1,0 +1,242 @@
+// The Coder agent — Phase 1 implementation.
+// Replaces the stub in dispatch/index.ts.
+// See DESIGN.md §5.3 for write-scope and tool allowlist.
+
+import Anthropic from '@anthropic-ai/sdk';
+import fs        from 'node:fs';
+import fsp       from 'node:fs/promises';
+import path      from 'node:path';
+import { getConfig }    from '../config.js';
+import { CODER_SYSTEM } from './prompts.js';
+import type { Task, SwarmState } from '../state/types.js';
+
+// ─── Cost metering ────────────────────────────────────────────────────────────
+// Pricing per million tokens. Update when model pricing changes.
+const PRICING: Record<string, { input: number; output: number }> = {
+  'claude-opus-4-5-20251101':    { input: 15,  output: 75  },
+  'claude-sonnet-4-5-20251101':  { input: 3,   output: 15  },
+  'claude-haiku-4-5-20251001':   { input: 0.8, output: 4   },
+  // Fallback for any unknown model
+  default:                        { input: 3,   output: 15  },
+};
+
+export function tokensToDollars(model: string, inputTokens: number, outputTokens: number): number {
+  const p = PRICING[model] ?? PRICING.default;
+  return (inputTokens * p.input + outputTokens * p.output) / 1_000_000;
+}
+
+// ─── Tool definitions ─────────────────────────────────────────────────────────
+
+const TOOLS: Anthropic.Tool[] = [
+  {
+    name:        'read_file',
+    description: 'Read the full contents of a file in the project.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path relative to the project root.' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name:        'write_file',
+    description: 'Write (or overwrite) a file in the project.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        path:    { type: 'string', description: 'Path relative to the project root.' },
+        content: { type: 'string', description: 'Full content to write.' },
+      },
+      required: ['path', 'content'],
+    },
+  },
+  {
+    name:        'list_files',
+    description: 'List files in a directory (non-recursive by default).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        dir:       { type: 'string', description: 'Directory relative to project root. Defaults to ".".' },
+        recursive: { type: 'boolean', description: 'List recursively. Defaults to false.' },
+      },
+    },
+  },
+  {
+    name:        'done',
+    description: 'Signal that all changes are complete. Call this once — and only once — when finished.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        summary:       { type: 'string', description: 'One-line summary of what was changed.' },
+        files_changed: {
+          type: 'array', items: { type: 'string' },
+          description: 'Relative paths of files that were created or modified.',
+        },
+      },
+      required: ['summary', 'files_changed'],
+    },
+  },
+];
+
+// ─── Tool execution ───────────────────────────────────────────────────────────
+
+const projectRoot = () => process.cwd();
+
+function safeJoin(rel: string): string {
+  const abs = path.resolve(projectRoot(), rel);
+  // Enforce read-only outside the project root
+  if (!abs.startsWith(projectRoot())) {
+    throw new Error(`Path ${rel} is outside the project directory.`);
+  }
+  return abs;
+}
+
+async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {
+  switch (name) {
+    case 'read_file': {
+      const abs = safeJoin(String(input.path));
+      if (!fs.existsSync(abs)) return `Error: file not found: ${input.path}`;
+      return await fsp.readFile(abs, 'utf8');
+    }
+    case 'write_file': {
+      const abs = safeJoin(String(input.path));
+      await fsp.mkdir(path.dirname(abs), { recursive: true });
+      await fsp.writeFile(abs, String(input.content), 'utf8');
+      return `Written: ${input.path}`;
+    }
+    case 'list_files': {
+      const dir     = safeJoin(String(input.dir ?? '.'));
+      const recurse = Boolean(input.recursive);
+      if (!fs.existsSync(dir)) return `Error: directory not found: ${input.dir}`;
+      if (recurse) {
+        const entries = await fsp.readdir(dir, { recursive: true });
+        return (entries as string[])
+          .filter(e => !e.includes('node_modules') && !e.includes('.git') && !e.startsWith('.swarm'))
+          .join('\n');
+      }
+      const entries = await fsp.readdir(dir, { withFileTypes: true });
+      return entries.map(e => e.name + (e.isDirectory() ? '/' : '')).join('\n');
+    }
+    case 'done':
+      return 'acknowledged';
+    default:
+      return `Error: unknown tool "${name}"`;
+  }
+}
+
+// ─── Coder result ─────────────────────────────────────────────────────────────
+
+export interface CoderResult {
+  summary:       string;
+  filesChanged:  string[];
+  inputTokens:   number;
+  outputTokens:  number;
+  costUsd:       number;
+  model:         string;
+}
+
+// ─── Main agent loop ──────────────────────────────────────────────────────────
+
+export async function runCoder(task: Task, state: SwarmState, verbose = true): Promise<CoderResult> {
+  const cfg    = getConfig();
+  const client = new Anthropic({ apiKey: cfg.anthropicApiKey });
+  const model  = cfg.coderModel;
+
+  const userPrompt = [
+    `Task: ${task.title}`,
+    `Project goal: ${state.goal || '(not set)'}`,
+    `Project: ${state.project}`,
+    '',
+    'Read whatever you need, make the change, then call `done`.',
+  ].join('\n');
+
+  const messages: Anthropic.MessageParam[] = [
+    { role: 'user', content: userPrompt },
+  ];
+
+  let totalInput  = 0;
+  let totalOutput = 0;
+  let summary     = '';
+  let filesChanged: string[] = [];
+  let iterations  = 0;
+  const MAX_ITER  = 20; // safety ceiling
+
+  if (verbose) {
+    console.log(`\n  [coder] dispatched: "${task.title}"`);
+    console.log(`  [coder] model: ${model}\n`);
+  }
+
+  while (iterations++ < MAX_ITER) {
+    // C4: per-dispatch token budget check
+    const runCost = tokensToDollars(model, totalInput, totalOutput);
+    if (runCost >= cfg.hardCapUsd) {
+      throw new Error(`Hard cost cap reached ($${cfg.hardCapUsd.toFixed(2)}) during coder run.`);
+    }
+
+    const response = await client.messages.create({
+      model,
+      max_tokens: 8192,
+      system:     CODER_SYSTEM,
+      tools:      TOOLS,
+      messages,
+    });
+
+    totalInput  += response.usage.input_tokens;
+    totalOutput += response.usage.output_tokens;
+
+    // Print any text the model produced
+    if (verbose) {
+      for (const block of response.content) {
+        if (block.type === 'text' && block.text.trim()) {
+          console.log('  ' + block.text.trim().split('\n').join('\n  '));
+        }
+      }
+    }
+
+    if (response.stop_reason === 'end_turn') break;
+
+    if (response.stop_reason === 'tool_use') {
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      let calledDone = false;
+
+      for (const block of response.content) {
+        if (block.type !== 'tool_use') continue;
+
+        if (verbose) {
+          const inp = JSON.stringify(block.input).slice(0, 120);
+          console.log(`  [coder] ${block.name}(${inp}${inp.length >= 120 ? '…' : ''})`);
+        }
+
+        const result = await executeTool(block.name, block.input as Record<string, unknown>);
+
+        if (block.name === 'done') {
+          const inp  = block.input as { summary: string; files_changed: string[] };
+          summary      = inp.summary;
+          filesChanged = inp.files_changed ?? [];
+          calledDone   = true;
+        }
+
+        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
+      }
+
+      messages.push({ role: 'assistant', content: response.content });
+      messages.push({ role: 'user', content: toolResults });
+
+      if (calledDone) break;
+      continue;
+    }
+
+    break;
+  }
+
+  if (!summary) summary = `Task "${task.title}" completed.`;
+
+  const costUsd = tokensToDollars(model, totalInput, totalOutput);
+  if (verbose) {
+    console.log(`\n  [coder] done — ${summary}`);
+    console.log(`  [coder] tokens: ${totalInput} in / ${totalOutput} out  cost: $${costUsd.toFixed(4)}\n`);
+  }
+
+  return { summary, filesChanged, inputTokens: totalInput, outputTokens: totalOutput, costUsd, model };
+}
