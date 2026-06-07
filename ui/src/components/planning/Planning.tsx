@@ -4,13 +4,15 @@ import { usePlanningSession } from '../../hooks/usePlanningSession';
 import { Charter } from './Charter';
 import { Message, TypingIndicator } from './Message';
 import { IconSend } from '../common/icons';
+import type { ServerStatus } from '../../App';
 
 interface PlanningProps {
   onExecute?: () => void;
   onExecutable: (v: boolean) => void;
+  serverStatus?: ServerStatus;
 }
 
-export function Planning({ onExecutable }: PlanningProps) {
+export function Planning({ onExecutable, serverStatus = 'probing' }: PlanningProps) {
   const session    = usePlanningSession(onExecutable);
   const [input, setInput]           = useState('');
   const [projectName, setProjectName] = useState<string | undefined>();
@@ -55,8 +57,23 @@ export function Planning({ onExecutable }: PlanningProps) {
     }
   };
 
-  const statusLabel = session.executable ? 'ready' : session.phase === 'start' ? 'initialising' : 'scoping';
-  const statusColor = session.executable ? 'var(--green)' : 'var(--green)';
+  // Conversation phase label
+  const phaseLabel = session.executable ? 'ready'
+                   : session.phase === 'start' ? 'initialising' : 'scoping';
+  const phaseDot   = session.executable ? 'var(--green)' : 'var(--amber)';
+
+  // Server-mode label shown in panel header
+  const modeLabel  = serverStatus === 'up'      ? null              // no label needed — server is up, just show phase
+                   : serverStatus === 'probing' ? 'connecting'
+                   : 'preview mode';
+  const modeDot    = serverStatus === 'up'      ? 'var(--green)'
+                   : serverStatus === 'probing' ? 'var(--tx-3)'
+                   : 'var(--tx-3)';
+
+  // Composer hint
+  const hint = serverStatus === 'down'
+    ? 'Planning works without a server — Enter to send · agents need `swarm dev` to execute'
+    : 'Enter to send · Shift+Enter for newline';
 
   return (
     <div className="plan">
@@ -65,9 +82,17 @@ export function Planning({ onExecutable }: PlanningProps) {
         <div className="panel-head">
           <span>PM Conversation</span>
           <span className="spacer" />
-          <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--tx-2)', fontSize: 11, textTransform: 'none', letterSpacing: 0, fontFamily: 'var(--mono)' }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor }} />
-            {statusLabel}
+          <span style={{ display: 'flex', alignItems: 'center', gap: 12, fontFamily: 'var(--mono)', fontSize: 11, textTransform: 'none', letterSpacing: 0 }}>
+            {modeLabel && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--tx-3)' }}>
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: modeDot }} />
+                {modeLabel}
+              </span>
+            )}
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: 'var(--tx-2)' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: phaseDot }} />
+              {phaseLabel}
+            </span>
           </span>
         </div>
         <div className="chat">
@@ -83,7 +108,7 @@ export function Planning({ onExecutable }: PlanningProps) {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={session.phase === 'start' ? 'Waiting for PM…' : session.typing ? 'PM is typing…' : 'Reply to the PM — Enter to send, Shift+Enter for newline'}
+                placeholder={session.phase === 'start' ? 'Waiting for PM…' : session.typing ? 'PM is typing…' : 'Reply to the PM — Enter to send'}
                 disabled={session.phase === 'start' || !!session.typing}
                 style={{ opacity: (session.phase === 'start' || !!session.typing) ? 0.5 : 1 }}
               />
@@ -95,7 +120,7 @@ export function Planning({ onExecutable }: PlanningProps) {
                 <IconSend />
               </button>
             </div>
-            <div className="hint">Enter to send · Shift+Enter for newline</div>
+            <div className="hint">{hint}</div>
           </div>
         </div>
       </div>
