@@ -16,7 +16,7 @@ interface SessionState {
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
-export function usePlanningSession(onExecutable: (v: boolean) => void) {
+export function usePlanningSession(onExecutable: (v: boolean, goal?: string) => void) {
   const [state, setState] = useState<SessionState>({
     messages:   [],
     charter:    { goal: '', constraints: [], nongoals: [], questions: [] },
@@ -128,7 +128,11 @@ export function usePlanningSession(onExecutable: (v: boolean) => void) {
       .then(r => { if (!r.ok) throw new Error(`server ${r.status}`); return r.json(); })
       .then(resp => {
         setState(prev => applyPmResponse(prev, resp));
-        if (resp.enableExecute) onExecutable(true);
+        if (resp.enableExecute) {
+          // Pass the goal so App can hand it to POST /run/execute on Execute click.
+          const goal = resp.charterUpdates?.goal ?? state.charter.goal ?? trimmed;
+          onExecutable(true, goal);
+        }
       })
       .catch((err: Error) => {
         const isTimeout = err.name === 'TimeoutError' || err.name === 'AbortError';

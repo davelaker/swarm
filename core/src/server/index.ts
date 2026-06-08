@@ -14,6 +14,7 @@ import fs     from 'node:fs';
 import { bus }      from '../state/events.js';
 import { getState, swarmDir, stateFile } from '../state/repo.js';
 import { runPmMessage } from '../pm/index.js';
+import { runNew }       from '../commands/new.js';
 import type { SwarmEvent, SwarmState, Task } from '../state/types.js';
 
 type SseClient = http.ServerResponse;
@@ -210,6 +211,20 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
           console.error('[pm/message] error:', (err as Error).message);
           res.writeHead(500); res.end(JSON.stringify({ error: (err as Error).message }));
         });
+      return;
+    }
+    if (route === '/run/execute') {
+      const { goal } = payload as { goal?: string };
+      if (!goal?.trim()) {
+        res.writeHead(400); res.end(JSON.stringify({ error: 'goal required' })); return;
+      }
+      // Respond immediately — the run is async; SSE stream carries all progress.
+      res.writeHead(200); res.end(JSON.stringify({ ok: true }));
+      console.log(`\n  ▸ execute: "${goal}"\n`);
+      // Fire-and-forget: state.json writes trigger SSE via the file watcher.
+      runNew(goal.trim()).catch(err =>
+        console.error('  ✗ execute error:', (err as Error).message)
+      );
       return;
     }
     if (route === '/run/pause')  { res.writeHead(200); res.end(JSON.stringify({ ok: true })); return; }

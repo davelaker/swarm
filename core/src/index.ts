@@ -37,6 +37,7 @@ switch (cmd) {
     }
     console.log(`\n  swarm new: "${goal}"\n`);
     await runNew(goal);
+    process.exit(0); // CLI only — server calls runNew() without exiting
     break;
   }
 

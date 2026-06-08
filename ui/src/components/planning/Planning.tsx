@@ -8,7 +8,7 @@ import type { ServerStatus } from '../../App';
 
 interface PlanningProps {
   onExecute?: () => void;
-  onExecutable: (v: boolean) => void;
+  onExecutable: (v: boolean, goal?: string) => void;
   serverStatus?: ServerStatus;
 }
 

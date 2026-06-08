@@ -10,6 +10,7 @@ export type ServerStatus = 'probing' | 'up' | 'down';
 export function App() {
   const [surface,      setSurface]      = useState<Surface>('planning');
   const [executable,   setExecutable]   = useState(false);
+  const [runGoal,      setRunGoal]      = useState('');
   const [serverStatus, setServerStatus] = useState<ServerStatus>('probing');
 
   // Single server probe shared by all surfaces — retries every 3s when down.
@@ -30,7 +31,23 @@ export function App() {
     return () => { mounted = false; if (timer) clearTimeout(timer); };
   }, []);
 
-  const goExecute = useCallback(() => setSurface('running'), []);
+  const handleExecutable = useCallback((v: boolean, goal?: string) => {
+    setExecutable(v);
+    if (goal) setRunGoal(goal);
+  }, []);
+
+  const goExecute = useCallback(() => {
+    // Fire POST /run/execute — backend starts the run async, SSE carries progress.
+    // The server must be running; if not, the Running surface shows instructions.
+    if (runGoal) {
+      fetch('/run/execute', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ goal: runGoal }),
+      }).catch(() => {}); // fire-and-forget; Running surface handles server-down state
+    }
+    setSurface('running');
+  }, [runGoal]);
 
   const serverDot = serverStatus === 'up'      ? 'var(--green)'
                   : serverStatus === 'probing' ? 'var(--tx-3)'
@@ -89,7 +106,7 @@ export function App() {
           height:   '100%',
           display:  surface === 'planning' ? 'block' : 'none',
         }}>
-          <Planning onExecute={goExecute} onExecutable={setExecutable} serverStatus={serverStatus} />
+          <Planning onExecute={goExecute} onExecutable={handleExecutable} serverStatus={serverStatus} />
         </div>
         {surface === 'running'     && <Running />}
         {surface === 'marketplace' && <Marketplace />}

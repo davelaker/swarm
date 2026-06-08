@@ -90,6 +90,7 @@ export async function runNew(goal: string): Promise<void> {
     findings.forEach(f => console.log(f));
   }
   console.log('');
-
-  process.exit(result.status === 'done' ? 0 : 1);
+  // Note: no process.exit() here — callers decide exit behaviour.
+  // The CLI wrapper in index.ts calls process.exit(); the server calls this
+  // fire-and-forget and doesn't need the process to end.
 }
