@@ -12,19 +12,23 @@ export function App() {
   const [executable,   setExecutable]   = useState(false);
   const [runGoal,      setRunGoal]      = useState('');
   const [serverStatus, setServerStatus] = useState<ServerStatus>('probing');
+  const [projectName,  setProjectName]  = useState<string | null>(null);
 
-  // Single server probe shared by all surfaces — retries every 3s when down.
+  // Single server probe — retries every 3s, also reads project name when up.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let mounted = true;
 
     const probe = () => {
       fetch('/state', { signal: AbortSignal.timeout(2000) })
-        .then(r => { if (mounted) setServerStatus(r.ok ? 'up' : 'down'); })
+        .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+        .then((s: { project?: string }) => {
+          if (!mounted) return;
+          setServerStatus('up');
+          if (s.project) setProjectName(s.project);
+        })
         .catch(() => { if (mounted) setServerStatus('down'); })
-        .finally(() => {
-          if (mounted) timer = setTimeout(probe, 3000);
-        });
+        .finally(() => { if (mounted) timer = setTimeout(probe, 3000); });
     };
 
     probe();
@@ -62,8 +66,12 @@ export function App() {
         <div className="brand">
           <span className="glyph"><i /><i /><i /></span>
           Agent&nbsp;Swarm
-          <span className="sep">/</span>
-          <span className="proj">discord-rank-bot</span>
+          {projectName && (
+            <>
+              <span className="sep">/</span>
+              <span className="proj">{projectName}</span>
+            </>
+          )}
         </div>
         <div className="nav">
           <button className={surface === 'planning'    ? 'on' : ''} onClick={() => setSurface('planning')}>Planning</button>
