@@ -13,6 +13,7 @@ import path   from 'node:path';
 import fs     from 'node:fs';
 import { bus }      from '../state/events.js';
 import { getState, swarmDir, stateFile } from '../state/repo.js';
+import { runPmMessage } from '../pm/index.js';
 import type { SwarmEvent, SwarmState, Task } from '../state/types.js';
 
 type SseClient = http.ServerResponse;
@@ -199,8 +200,16 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
     const route   = url.pathname;
 
     if (route === '/pm/message') {
-      console.log('[pm/message]', payload.text ?? '');
-      res.writeHead(200); res.end(JSON.stringify({ ok: true }));
+      const { text, history = [] } = payload as { text: string; history?: unknown[] };
+      if (!text) { res.writeHead(400); res.end(JSON.stringify({ error: 'text required' })); return; }
+      runPmMessage(text, history as any)
+        .then(result => {
+          res.writeHead(200); res.end(JSON.stringify(result));
+        })
+        .catch(err => {
+          console.error('[pm/message] error:', (err as Error).message);
+          res.writeHead(500); res.end(JSON.stringify({ error: (err as Error).message }));
+        });
       return;
     }
     if (route === '/run/pause')  { res.writeHead(200); res.end(JSON.stringify({ ok: true })); return; }

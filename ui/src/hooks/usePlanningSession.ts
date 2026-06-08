@@ -181,36 +181,89 @@ export function usePlanningSession(onExecutable: (v: boolean) => void) {
     });
   }, []);
 
-  const send = useCallback((text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
+  // ─── Apply a real PM API response to state ────────────────────────────────
 
+  const applyPmResponse = useCallback((prev: SessionState, resp: {
+    reply: string;
+    securityInterject?: string;
+    charterUpdates?: {
+      goal?: string;
+      newConstraints?: string[];
+      newNongoals?: string[];
+      newQuestions?: string[];
+      resolvedQuestion?: { index: number; answer: string };
+    };
+    teamAdd?: string[];
+    enableExecute?: boolean;
+  }): SessionState => {
+    const cu = resp.charterUpdates ?? {};
+    const newMessages = [
+      ...(resp.securityInterject
+        ? [{ from: 'security' as const, text: resp.securityInterject }]
+        : []),
+      { from: 'pm' as const, text: resp.reply },
+    ];
+
+    let questions = prev.charter.questions;
+    if (cu.resolvedQuestion !== undefined) {
+      questions = questions.map((q, i) =>
+        i === cu.resolvedQuestion!.index
+          ? { text: q.text + '  →  ' + cu.resolvedQuestion!.answer, resolved: true }
+          : q
+      );
+    }
+    if (cu.newQuestions?.length) {
+      questions = [...questions, ...cu.newQuestions.map(t => ({ text: t }))];
+    }
+
+    const newTeam = resp.teamAdd?.length
+      ? [...prev.team, ...resp.teamAdd.filter(t => !prev.team.includes(t))]
+      : prev.team;
+
+    const newPhase: Phase = resp.enableExecute ? 'ready'
+      : cu.goal && prev.phase === 'goal'         ? 'scope'
+      : cu.newConstraints?.length && prev.phase === 'scope' ? 'nongoals'
+      : cu.newQuestions?.length   && prev.phase === 'nongoals' ? 'questions'
+      : prev.phase;
+
+    return {
+      ...prev,
+      typing:  null,
+      phase:   newPhase,
+      messages: [...prev.messages, ...newMessages],
+      executable: resp.enableExecute || prev.executable,
+      team: newTeam,
+      charter: {
+        ...prev.charter,
+        goal: cu.goal ?? prev.charter.goal,
+        constraints: cu.newConstraints?.length
+          ? [...prev.charter.constraints, ...cu.newConstraints.filter(c => !prev.charter.constraints.find(x => x.text === c)).map(t => ({ text: t }))]
+          : prev.charter.constraints,
+        nongoals: cu.newNongoals?.length
+          ? [...prev.charter.nongoals, ...cu.newNongoals.filter(c => !prev.charter.nongoals.find(x => x.text === c)).map(t => ({ text: t }))]
+          : prev.charter.nongoals,
+        questions,
+      },
+    };
+  }, []);
+
+  // ─── Mock send (fallback when server is unavailable) ──────────────────────
+
+  const sendMock = useCallback((trimmed: string) => {
     const kw = detectKeywords(trimmed);
-    // Merge into accumulated keywords
     Object.keys(kw).forEach(k => {
       if ((kw as any)[k]) (kwAccum.current as any)[k] = true;
     });
     const allKw = kwAccum.current;
     const seed  = msgCount.current++;
+    const phase = state.phase;
 
-    // 1. Add user message immediately
-    setState(prev => ({
-      ...prev,
-      messages: [...prev.messages, { from: 'you', text: trimmed }],
-    }));
-
-    const phase = state.phase; // snapshot before any async
-
-    // 2. Build the response sequence based on phase
     if (phase === 'start' || phase === 'goal') {
       const projectSummary = toGoal(trimmed);
       const needsSecurity  = kw.hasAuth || kw.hasPayment || kw.hasSql || (kw.hasDb && kw.hasInput);
       const pmQ            = pmOpeningResponse(kw, projectSummary, seed);
-
       const steps: Array<{ delay: number; fn: (p: SessionState) => SessionState }> = [
-        // typing
-        { delay: 400, fn: p => ({ ...p, typing: 'pm' }) },
-        // charter: set goal
+        { delay: 400,  fn: p => ({ ...p, typing: 'pm' }) },
         { delay: 1200, fn: p => ({
             ...p, typing: null,
             messages: [...p.messages, { from: 'pm', text: pmQ }],
@@ -219,9 +272,7 @@ export function usePlanningSession(onExecutable: (v: boolean) => void) {
           }),
         },
       ];
-
       if (needsSecurity) {
-        // Security interjects before PM finishes
         steps.splice(1, 0,
           { delay: 300, fn: p => ({ ...p, typing: 'security' }) },
           { delay: 900, fn: p => ({
@@ -230,94 +281,50 @@ export function usePlanningSession(onExecutable: (v: boolean) => void) {
             }),
           }
         );
-        // shift the PM delay
         steps[steps.length - 1].delay = 700;
       }
-
       schedule(steps);
-
     } else if (phase === 'scope') {
       const constraints = deriveConstraints(trimmed, allKw);
       const nongoals    = proposeNonGoals(allKw);
-      const pmText      = pmScopeResponse(allKw, seed);
-
       schedule([
-        { delay: 400, fn: p => ({ ...p, typing: 'pm' }) },
+        { delay: 400,  fn: p => ({ ...p, typing: 'pm' }) },
         { delay: 1300, fn: p => ({
             ...p, typing: null,
-            messages: [...p.messages, {
-              from: 'pm',
-              text: `${pmText}\n${nongoals.map(ng => `• ${ng}`).join('\n')}`,
-            }],
+            messages: [...p.messages, { from: 'pm', text: `${pmScopeResponse(allKw, seed)}\n${nongoals.map(ng => `• ${ng}`).join('\n')}` }],
             charter: {
               ...p.charter,
-              constraints: [
-                ...p.charter.constraints,
-                ...constraints
-                  .filter(c => !p.charter.constraints.find(x => x.text === c))
-                  .map(c => ({ text: c })),
-              ],
+              constraints: [...p.charter.constraints, ...constraints.filter(c => !p.charter.constraints.find(x => x.text === c)).map(c => ({ text: c }))],
               nongoals: nongoals.map(ng => ({ text: ng })),
             },
             phase: 'nongoals' as Phase,
           }),
         },
       ]);
-
     } else if (phase === 'nongoals') {
       const question = pmQuestionFor(allKw, state.charter, seed);
-      const pmIntro  = pmNongoalResponse(seed);
-
       schedule([
-        { delay: 400, fn: p => ({ ...p, typing: 'pm' }) },
+        { delay: 400,  fn: p => ({ ...p, typing: 'pm' }) },
         { delay: 1100, fn: p => ({
             ...p, typing: null,
-            messages: [...p.messages, { from: 'pm', text: `${pmIntro}\n\n${question}` }],
-            charter: {
-              ...p.charter,
-              questions: [{ text: question }],
-            },
+            messages: [...p.messages, { from: 'pm', text: `${pmNongoalResponse(seed)}\n\n${question}` }],
+            charter: { ...p.charter, questions: [{ text: question }] },
             phase: 'questions' as Phase,
           }),
         },
       ]);
-
     } else if (phase === 'questions') {
       const resolvedAnswer = trimmed.charAt(0).toUpperCase() + trimmed.slice(1).replace(/\.?$/, '.');
-      const team           = recommendTeam(allKw);
-      const pmText         = pmTeamResponse(team);
-
+      const team = recommendTeam(allKw);
       schedule([
-        // resolve question
-        { delay: 200, fn: p => ({
-            ...p,
-            charter: {
-              ...p.charter,
-              questions: p.charter.questions.map((q, i) =>
-                i === 0 ? { text: q.text + '  →  ' + resolvedAnswer, resolved: true } : q
-              ),
-            },
-          }),
-        },
-        // PM types
+        { delay: 200, fn: p => ({ ...p, charter: { ...p.charter, questions: p.charter.questions.map((q, i) => i === 0 ? { text: q.text + '  →  ' + resolvedAnswer, resolved: true } : q) } }) },
         { delay: 500, fn: p => ({ ...p, typing: 'pm' }) },
-        // team chips appear one by one, then PM message
         { delay: 500, fn: p => ({ ...p, team: [team[0]], typing: 'pm' }) },
         { delay: 700, fn: p => ({ ...p, team: team.slice(0, 2), typing: 'pm' }) },
-        { delay: 900, fn: p => ({
-            ...p, typing: null,
-            team,
-            messages: [...p.messages, { from: 'pm', text: pmText }],
-            phase: 'ready' as Phase,
-            executable: true,
-          }),
-        },
+        { delay: 900, fn: p => ({ ...p, typing: null, team, messages: [...p.messages, { from: 'pm', text: pmTeamResponse(team) }], phase: 'ready' as Phase, executable: true }) },
       ]);
-      // signal App that Execute can be enabled
       setTimeout(() => onExecutable(true), 2400);
-
     } else {
-      // ready phase — PM acknowledges any further messages
       const acks = [
         "Noted. We can refine that once the run starts — use PM Chat to redirect mid-build.",
         "Good point. I'll include that in the charter context when I dispatch the team.",
@@ -325,14 +332,47 @@ export function usePlanningSession(onExecutable: (v: boolean) => void) {
       ];
       schedule([
         { delay: 300, fn: p => ({ ...p, typing: 'pm' }) },
-        { delay: 900, fn: p => ({
-            ...p, typing: null,
-            messages: [...p.messages, { from: 'pm', text: pick(acks, seed) }],
-          }),
-        },
+        { delay: 900, fn: p => ({ ...p, typing: null, messages: [...p.messages, { from: 'pm', text: pick(acks, seed) }] }) },
       ]);
     }
   }, [state.phase, state.charter, schedule, onExecutable]);
+
+  // ─── send: real backend → mock fallback ──────────────────────────────────
+
+  const send = useCallback((text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    msgCount.current++;
+
+    // Add user message + show typing immediately
+    setState(prev => ({
+      ...prev,
+      messages: [...prev.messages, { from: 'you', text: trimmed }],
+      typing: 'pm',
+    }));
+
+    // Snapshot history BEFORE the user message was added (the backend gets old history + new text)
+    const historySnapshot = state.messages;
+
+    // Try real backend PM
+    fetch('/pm/message', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ text: trimmed, history: historySnapshot }),
+      signal:  AbortSignal.timeout(45_000),
+    })
+      .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); })
+      .then(resp => {
+        setState(prev => applyPmResponse(prev, resp));
+        if (resp.enableExecute) onExecutable(true);
+      })
+      .catch(() => {
+        // Server unavailable — remove typing indicator and fall back to mock
+        setState(prev => ({ ...prev, typing: null }));
+        sendMock(trimmed);
+      });
+  }, [state.messages, state.phase, state.charter, applyPmResponse, sendMock, onExecutable]);
 
   // Kick off the opening message on first use
   const started = useRef(false);
