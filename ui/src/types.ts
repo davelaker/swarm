@@ -39,7 +39,7 @@ export interface Finding {
 }
 
 export interface ChatMessage {
-  from: string;
+  from: 'pm' | 'you' | 'security' | 'system';
   text: string;
   time?: string;
 }

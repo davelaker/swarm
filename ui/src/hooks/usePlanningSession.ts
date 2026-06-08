@@ -14,148 +14,6 @@ interface SessionState {
   phase: Phase;
 }
 
-// ─── Keyword extraction ───────────────────────────────────────────────────────
-
-function detectKeywords(text: string) {
-  const t = text.toLowerCase();
-  return {
-    hasDb:       /postgres|mysql|sqlite|mongodb|database|db\b|sql|supabase/.test(t),
-    hasAuth:     /auth|login|password|jwt|oauth|session|user account|sign.?in/.test(t),
-    hasPayment:  /payment|stripe|billing|subscription|money|charge/.test(t),
-    hasApi:      /api|endpoint|rest|graphql|webhook/.test(t),
-    hasBot:      /discord|slack|telegram|bot\b/.test(t),
-    hasUi:       /react|vue|svelte|frontend|ui\b|dashboard|page|screen|interface/.test(t),
-    hasCli:      /cli|command.?line|terminal|bash|script/.test(t),
-    hasScale:    /thousand|million|scale|concurrent|high.?traffic|many users/.test(t),
-    hasExisting: /existing|current|already have|legacy|we have/.test(t),
-    hasWrite:    /create|insert|update|delete|write|post|put\b|add\b/.test(t),
-    hasInput:    /user input|filter|search|query param|form|request param/.test(t),
-    hasSql:      /sql|query|select|where|join|inject/.test(t),
-  };
-}
-
-function toGoal(text: string): string {
-  // Trim and normalise the user's first message into a goal line.
-  let t = text.trim().replace(/\.+$/, '');
-  // Strip common openers
-  t = t.replace(/^(i want to|i need to|we need to|can you|please|build|create|make|implement)\s+/i, '');
-  t = t.charAt(0).toUpperCase() + t.slice(1);
-  if (!t.endsWith('.')) t += '.';
-  return t;
-}
-
-// ─── PM response bank ────────────────────────────────────────────────────────
-
-// pick(arr) picks a random element — but we seed by message count so it's
-// deterministic per conversation (avoids Date.now() in render paths).
-function pick<T>(arr: T[], seed: number): T {
-  return arr[seed % arr.length];
-}
-
-function pmOpeningResponse(kw: ReturnType<typeof detectKeywords>, project: string, seed: number): string {
-  if (kw.hasDb && kw.hasInput) return `${project} — and it's touching user-controlled input into a query. I'm bringing Security in now, before we set a single constraint.`;
-  if (kw.hasDb)   return pick([
-    `${project} — good. Where does the data live, and is this read-only or are we writing back?`,
-    `${project} — I see a database in scope. Existing schema or greenfield? That changes the blast radius.`,
-  ], seed);
-  if (kw.hasAuth) return `${project} — auth is in scope. Who are the users: internal team, registered accounts, or anonymous public?`;
-  if (kw.hasBot)  return pick([
-    `${project}. What's the data source — something the bot already has access to, or a new integration?`,
-    `${project} — is this reading from an existing store, or are we persisting new data?`,
-  ], seed);
-  if (kw.hasUi)   return `${project}. Who are the primary users — power users who live in dashboards, or first-timers? It changes everything about the interaction model.`;
-  if (kw.hasCli)  return `${project}. What's the input source — files, stdin, a service? And how big can the data get?`;
-  return pick([
-    `${project}. A few things I need before I can scope this: who are the users, and does this touch any existing data or services?`,
-    `${project} — makes sense. Give me more on the data layer: existing store, or greenfield?`,
-    `Got it. Who's using this, and roughly what scale are we targeting for v1?`,
-  ], seed);
-}
-
-function pmScopeResponse(_kw: ReturnType<typeof detectKeywords>, seed: number): string {
-  const opts = [
-    "Good. For v1, I'd call these out of scope — tell me if you disagree:",
-    "That gives me enough to set constraints. I'd park the following for later — push back if I'm wrong:",
-    "Noted. My instinct for v1 is to cut these — agree or override?",
-  ];
-  return pick(opts, seed);
-}
-
-function pmNongoalResponse(seed: number): string {
-  const opts = [
-    "One open question before I staff this:",
-    "Almost there. One thing I want a call on before we build:",
-    "Good. One decision I'd rather make now than during the build:",
-  ];
-  return pick(opts, seed);
-}
-
-function pmTeamResponse(agents: string[]): string {
-  const names = agents.map(id => ({ coder: 'a Coder', tester: 'a Tester', security: 'a Security reviewer', negotiator: 'a Negotiator' }[id] ?? id));
-  const list = names.length <= 2 ? names.join(' and ') : names.slice(0, -1).join(', ') + ', and ' + names[names.length - 1];
-  return `Charter's ready. I'd staff this with ${list}. Hit Execute when you want the swarm to start.`;
-}
-
-function pmQuestionFor(kw: ReturnType<typeof detectKeywords>, charter: CharterData, seed: number): string {
-  if (kw.hasDb && charter.constraints.length > 0) {
-    const dbConstraint = charter.constraints.find(c => /match|record|row|table/.test(c.text.toLowerCase()));
-    if (dbConstraint) return "Should tied records share a rank, or does the first one by insertion order win?";
-  }
-  if (kw.hasUi) return "Mobile layout in v1, or desktop-first and defer mobile?";
-  if (kw.hasApi) return "Versioning on the API surface from day one, or defer until you have a second consumer?";
-  if (kw.hasCli) return "Streaming output for large inputs, or buffer and print at the end?";
-  return pick([
-    "What does 'done' look like — is there a specific success metric, or is shipped the bar?",
-    "Is there a hard deadline, or are we optimising for quality over speed?",
-    "Any existing tests or CI that the new code needs to stay green on?",
-  ], seed);
-}
-
-function securityInterjectionFor(kw: ReturnType<typeof detectKeywords>, _seed: number): string {
-  if (kw.hasSql || (kw.hasDb && kw.hasInput)) return "[Security consulted] Any user-controlled value going into a query needs to be parameterized — string interpolation into SQL is a gate condition, not a suggestion.";
-  if (kw.hasAuth)    return "[Security consulted] Auth flows — especially session handling and credential storage — are on my checklist. Don't skip the security pass here.";
-  if (kw.hasPayment) return "[Security consulted] Payments mean PCI scope. I'll need to see how credentials and card data are handled before this can reach done.";
-  if (kw.hasDb)      return "[Security consulted] Any raw query paths in scope? I want to flag injection vectors before Coder writes them in.";
-  return "[Security consulted] I see user-controlled input in scope — worth a dedicated security pass before this ships.";
-}
-
-// ─── Constraint / non-goal generators ────────────────────────────────────────
-
-function deriveConstraints(text: string, kw: ReturnType<typeof detectKeywords>): string[] {
-  const items: string[] = [];
-  const t = text.toLowerCase();
-  if (kw.hasExisting && kw.hasDb) items.push("Reads from the existing database — no schema changes in v1");
-  else if (kw.hasDb && !kw.hasWrite) items.push("Database access is read-only");
-  if (kw.hasScale || /hundred|thousand|million/.test(t)) items.push("Must handle concurrent requests — pagination required");
-  if (/paginate|page|limit|top \d+/.test(t)) items.push("Results capped and paginated");
-  if (kw.hasInput && kw.hasDb) items.push("All user-supplied query parameters must be parameterized — no string interpolation");
-  if (kw.hasAuth) items.push("Auth is required — unauthenticated requests must be rejected");
-  if (kw.hasExisting && !kw.hasDb) items.push("Integrates with the existing codebase — no new dependencies without approval");
-  // If nothing extracted yet, add a generic scope constraint
-  if (items.length === 0) items.push("v1 scope: core feature only, no admin tooling");
-  return items;
-}
-
-function proposeNonGoals(kw: ReturnType<typeof detectKeywords>): string[] {
-  const items: string[] = [];
-  if (kw.hasUi)   { items.push("No mobile-optimised layout in v1"); items.push("No theming or dark mode in v1"); }
-  if (kw.hasBot)  { items.push("No write access — read-only commands only"); }
-  if (kw.hasApi)  { items.push("No API versioning in v1"); }
-  if (kw.hasCli)  { items.push("No interactive TUI — plain output only"); }
-  if (kw.hasAuth) { items.push("No password-reset or account-management flows in v1"); }
-  if (items.length === 0) {
-    items.push("No admin dashboard in v1");
-    items.push("No email or notification layer in v1");
-  }
-  return items.slice(0, 2);
-}
-
-function recommendTeam(kw: ReturnType<typeof detectKeywords>): string[] {
-  const team = ['coder', 'tester'];
-  if (kw.hasDb || kw.hasAuth || kw.hasPayment || kw.hasInput || kw.hasSql) team.push('security');
-  return team;
-}
-
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
 export function usePlanningSession(onExecutable: (v: boolean) => void) {
@@ -168,11 +26,7 @@ export function usePlanningSession(onExecutable: (v: boolean) => void) {
     phase:      'start',
   });
 
-  // Track accumulated keywords across the whole conversation
-  const kwAccum  = useRef<ReturnType<typeof detectKeywords>>({ hasDb: false, hasAuth: false, hasPayment: false, hasApi: false, hasBot: false, hasUi: false, hasCli: false, hasScale: false, hasExisting: false, hasWrite: false, hasInput: false, hasSql: false });
-  const msgCount = useRef(0);
-
-  // Schedule a sequence of state mutations with delays
+  // Schedule a sequence of state mutations with delays — used only for init()
   const schedule = useCallback((steps: Array<{ delay: number; fn: (prev: SessionState) => SessionState }>) => {
     let offset = 0;
     steps.forEach(({ delay, fn }) => {
@@ -247,103 +101,13 @@ export function usePlanningSession(onExecutable: (v: boolean) => void) {
     };
   }, []);
 
-  // ─── Mock send (fallback when server is unavailable) ──────────────────────
 
-  const sendMock = useCallback((trimmed: string) => {
-    const kw = detectKeywords(trimmed);
-    Object.keys(kw).forEach(k => {
-      if ((kw as any)[k]) (kwAccum.current as any)[k] = true;
-    });
-    const allKw = kwAccum.current;
-    const seed  = msgCount.current++;
-    const phase = state.phase;
 
-    if (phase === 'start' || phase === 'goal') {
-      const projectSummary = toGoal(trimmed);
-      const needsSecurity  = kw.hasAuth || kw.hasPayment || kw.hasSql || (kw.hasDb && kw.hasInput);
-      const pmQ            = pmOpeningResponse(kw, projectSummary, seed);
-      const steps: Array<{ delay: number; fn: (p: SessionState) => SessionState }> = [
-        { delay: 400,  fn: p => ({ ...p, typing: 'pm' }) },
-        { delay: 1200, fn: p => ({
-            ...p, typing: null,
-            messages: [...p.messages, { from: 'pm', text: pmQ }],
-            charter: { ...p.charter, goal: projectSummary },
-            phase: 'scope' as Phase,
-          }),
-        },
-      ];
-      if (needsSecurity) {
-        steps.splice(1, 0,
-          { delay: 300, fn: p => ({ ...p, typing: 'security' }) },
-          { delay: 900, fn: p => ({
-              ...p, typing: null,
-              messages: [...p.messages, { from: 'security', text: securityInterjectionFor(allKw, seed) }],
-            }),
-          }
-        );
-        steps[steps.length - 1].delay = 700;
-      }
-      schedule(steps);
-    } else if (phase === 'scope') {
-      const constraints = deriveConstraints(trimmed, allKw);
-      const nongoals    = proposeNonGoals(allKw);
-      schedule([
-        { delay: 400,  fn: p => ({ ...p, typing: 'pm' }) },
-        { delay: 1300, fn: p => ({
-            ...p, typing: null,
-            messages: [...p.messages, { from: 'pm', text: `${pmScopeResponse(allKw, seed)}\n${nongoals.map(ng => `• ${ng}`).join('\n')}` }],
-            charter: {
-              ...p.charter,
-              constraints: [...p.charter.constraints, ...constraints.filter(c => !p.charter.constraints.find(x => x.text === c)).map(c => ({ text: c }))],
-              nongoals: nongoals.map(ng => ({ text: ng })),
-            },
-            phase: 'nongoals' as Phase,
-          }),
-        },
-      ]);
-    } else if (phase === 'nongoals') {
-      const question = pmQuestionFor(allKw, state.charter, seed);
-      schedule([
-        { delay: 400,  fn: p => ({ ...p, typing: 'pm' }) },
-        { delay: 1100, fn: p => ({
-            ...p, typing: null,
-            messages: [...p.messages, { from: 'pm', text: `${pmNongoalResponse(seed)}\n\n${question}` }],
-            charter: { ...p.charter, questions: [{ text: question }] },
-            phase: 'questions' as Phase,
-          }),
-        },
-      ]);
-    } else if (phase === 'questions') {
-      const resolvedAnswer = trimmed.charAt(0).toUpperCase() + trimmed.slice(1).replace(/\.?$/, '.');
-      const team = recommendTeam(allKw);
-      schedule([
-        { delay: 200, fn: p => ({ ...p, charter: { ...p.charter, questions: p.charter.questions.map((q, i) => i === 0 ? { text: q.text + '  →  ' + resolvedAnswer, resolved: true } : q) } }) },
-        { delay: 500, fn: p => ({ ...p, typing: 'pm' }) },
-        { delay: 500, fn: p => ({ ...p, team: [team[0]], typing: 'pm' }) },
-        { delay: 700, fn: p => ({ ...p, team: team.slice(0, 2), typing: 'pm' }) },
-        { delay: 900, fn: p => ({ ...p, typing: null, team, messages: [...p.messages, { from: 'pm', text: pmTeamResponse(team) }], phase: 'ready' as Phase, executable: true }) },
-      ]);
-      setTimeout(() => onExecutable(true), 2400);
-    } else {
-      const acks = [
-        "Noted. We can refine that once the run starts — use PM Chat to redirect mid-build.",
-        "Good point. I'll include that in the charter context when I dispatch the team.",
-        "Got it. Charter's already marked ready — hit Execute when you are.",
-      ];
-      schedule([
-        { delay: 300, fn: p => ({ ...p, typing: 'pm' }) },
-        { delay: 900, fn: p => ({ ...p, typing: null, messages: [...p.messages, { from: 'pm', text: pick(acks, seed) }] }) },
-      ]);
-    }
-  }, [state.phase, state.charter, schedule, onExecutable]);
-
-  // ─── send: real backend → mock fallback ──────────────────────────────────
+  // ─── send: real backend only — tells the user if it fails ───────────────
 
   const send = useCallback((text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
-
-    msgCount.current++;
 
     // Add user message + show typing immediately
     setState(prev => ({
@@ -352,27 +116,32 @@ export function usePlanningSession(onExecutable: (v: boolean) => void) {
       typing: 'pm',
     }));
 
-    // Snapshot history BEFORE the user message was added (the backend gets old history + new text)
+    // Snapshot history BEFORE the user message was added
     const historySnapshot = state.messages;
 
-    // Try real backend PM
     fetch('/pm/message', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ text: trimmed, history: historySnapshot }),
       signal:  AbortSignal.timeout(45_000),
     })
-      .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.json(); })
+      .then(r => { if (!r.ok) throw new Error(`server ${r.status}`); return r.json(); })
       .then(resp => {
         setState(prev => applyPmResponse(prev, resp));
         if (resp.enableExecute) onExecutable(true);
       })
-      .catch(() => {
-        // Server unavailable — remove typing indicator and fall back to mock
-        setState(prev => ({ ...prev, typing: null }));
-        sendMock(trimmed);
+      .catch((err: Error) => {
+        const isTimeout = err.name === 'TimeoutError' || err.name === 'AbortError';
+        const notice = isTimeout
+          ? 'PM took too long to respond (>45s). Try again or check the server logs.'
+          : 'PM server not reachable. Run `swarm dev` in the core/ directory, then resend.';
+        setState(prev => ({
+          ...prev,
+          typing: null,
+          messages: [...prev.messages, { from: 'system', text: notice }],
+        }));
       });
-  }, [state.messages, state.phase, state.charter, applyPmResponse, sendMock, onExecutable]);
+  }, [state.messages, applyPmResponse, onExecutable]);
 
   // Kick off the opening message on first use
   const started = useRef(false);
