@@ -15,7 +15,8 @@
     "eval:p1":    "tsx src/index.ts eval simple-rename add-comment",
     "eval:p2":    "tsx src/index.ts eval add-feature-with-tests vulnerability-caught",
     "build":      "tsc",
-    "typecheck":  "tsc --noEmit"
+    "typecheck":  "tsc --noEmit",
+    "test":       "tsc --noEmit"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.51.0"
