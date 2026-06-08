@@ -25,9 +25,13 @@ export interface Task {
 }
 
 export interface AgentState {
-  active: boolean;
-  step: string;
-  verdict: Verdict | null;
+  active:       boolean;
+  step:         string;
+  verdict:      Verdict | null;
+  inputTokens:  number | null;
+  outputTokens: number | null;
+  costUsd:      number | null;
+  contextPct:   number | null;   // % of context window used — api-key only
 }
 
 export interface Finding {

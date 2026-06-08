@@ -1,29 +1,32 @@
 import { useState, useRef, useCallback } from 'react';
 import type { CharterData, ChatMessage } from '../types';
+import type { RunCharter } from '../App';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type Phase = 'start' | 'goal' | 'scope' | 'nongoals' | 'questions' | 'team' | 'ready';
 
 interface SessionState {
-  messages: ChatMessage[];
-  charter: CharterData;
-  team: string[];
-  typing: string | null;
-  executable: boolean;
-  phase: Phase;
+  messages:      ChatMessage[];
+  charter:       CharterData;
+  team:          string[];
+  typing:        string | null;
+  executable:    boolean;
+  phase:         Phase;
+  suggestCompact: boolean;
 }
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
-export function usePlanningSession(onExecutable: (v: boolean, goal?: string) => void) {
+export function usePlanningSession(onExecutable: (v: boolean, goal?: string, charter?: RunCharter, team?: string[]) => void) {
   const [state, setState] = useState<SessionState>({
-    messages:   [],
-    charter:    { goal: '', constraints: [], nongoals: [], questions: [] },
-    team:       [],
-    typing:     null,
-    executable: false,
-    phase:      'start',
+    messages:       [],
+    charter:        { goal: '', constraints: [], nongoals: [], questions: [] },
+    team:           [],
+    typing:         null,
+    executable:     false,
+    phase:          'start',
+    suggestCompact: false,
   });
 
   // Schedule a sequence of state mutations with delays — used only for init()
@@ -122,16 +125,52 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string) => 
     fetch('/pm/message', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ text: trimmed, history: historySnapshot }),
+      body:    JSON.stringify({
+        text:    trimmed,
+        history: historySnapshot,
+        // Send structured charter on every message so the PM works from
+        // authoritative state rather than reconstructing it from history.
+        charter: {
+          goal:        state.charter.goal || undefined,
+          constraints: state.charter.constraints.map(c => c.text),
+          nongoals:    state.charter.nongoals.map(n => n.text),
+          questions:   state.charter.questions.map(q => q.text),
+        },
+        team: state.team,
+      }),
       signal:  AbortSignal.timeout(45_000),
     })
       .then(r => { if (!r.ok) throw new Error(`server ${r.status}`); return r.json(); })
       .then(resp => {
-        setState(prev => applyPmResponse(prev, resp));
+        setState(prev => {
+          const next = applyPmResponse(prev, resp);
+          const withExtras = resp.deploymentInfo
+            ? { ...next, messages: [...next.messages, { from: 'system' as const, text: 'Deployment method saved to .swarm/PROJECT.md' }] }
+            : next;
+          return resp.suggestCompact
+            ? { ...withExtras, suggestCompact: true }
+            : withExtras;
+        });
         if (resp.enableExecute) {
-          // Pass the goal so App can hand it to POST /run/execute on Execute click.
-          const goal = resp.charterUpdates?.goal ?? state.charter.goal ?? trimmed;
-          onExecutable(true, goal);
+          const cu   = resp.charterUpdates ?? {};
+          const goal = cu.goal ?? state.charter.goal ?? trimmed;
+          // Build the full charter from current state + this response's updates
+          const charter: RunCharter = {
+            constraints: [
+              ...state.charter.constraints.map(c => c.text),
+              ...(cu.newConstraints ?? []),
+            ],
+            nongoals: [
+              ...state.charter.nongoals.map(n => n.text),
+              ...(cu.newNongoals ?? []),
+            ],
+            questions: [
+              ...state.charter.questions.map(q => q.text),
+              ...(cu.newQuestions ?? []),
+            ],
+          };
+          const team = [...state.team, ...(resp.teamAdd?.filter(t => !state.team.includes(t)) ?? [])];
+          onExecutable(true, goal, charter, team);
         }
       })
       .catch((err: Error) => {
@@ -146,6 +185,45 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string) => 
         }));
       });
   }, [state.messages, applyPmResponse, onExecutable]);
+
+  // ─── compact: ask PM to summarise and replace history ────────────────────
+  const compact = useCallback(() => {
+    setState(prev => ({ ...prev, typing: 'pm', suggestCompact: false }));
+
+    const history = state.messages.filter(m => m.from !== 'system');
+    const request = 'Please provide a concise summary of our planning discussion in one short paragraph — covering the goal, key constraints, non-goals, and any open questions. Keep it under 100 words. This will replace our conversation history to save context.';
+
+    fetch('/pm/message', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        text:    request,
+        history,
+        charter: {
+          goal:        state.charter.goal || undefined,
+          constraints: state.charter.constraints.map(c => c.text),
+          nongoals:    state.charter.nongoals.map(n => n.text),
+          questions:   state.charter.questions.map(q => q.text),
+        },
+        team: state.team,
+      }),
+      signal:  AbortSignal.timeout(45_000),
+    })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`${r.status}`)))
+      .then(resp => {
+        setState(prev => ({
+          ...prev,
+          typing: null,
+          messages: [
+            { from: 'pm' as const, text: resp.reply },
+            { from: 'system' as const, text: 'Conversation compacted — earlier messages cleared to save context.' },
+          ],
+        }));
+      })
+      .catch(() => {
+        setState(prev => ({ ...prev, typing: null }));
+      });
+  }, [state.messages]);
 
   // Kick off the opening message on first use
   const started = useRef(false);
@@ -164,5 +242,5 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string) => 
     ]);
   }, [schedule]);
 
-  return { ...state, send, init };
+  return { ...state, send, init, compact };
 }

@@ -13,18 +13,30 @@ export interface SecurityFinding {
   fix:      string;
 }
 
+export interface ReviewerFinding {
+  id:       string;   // REV-N
+  severity: 'HIGH' | 'MEDIUM' | 'LOW';
+  category: 'correctness' | 'robustness' | 'design' | 'testability' | 'clarity';
+  location: string;
+  fix:      string;
+}
+
 export interface DriverResult {
   verdict:          string;   // COMPLETE | PASS | FAIL | APPROVED | CHANGES_REQUESTED
   summary:          string;
   filesChanged:     string[];
   securityFindings: SecurityFinding[];
+  reviewerFindings: ReviewerFinding[];
   findingMarkdown:  string;   // ready to write to disk
   costUsd?:         number;   // undefined = covered by subscription
+  inputTokens?:     number;   // api-key driver only — not available from claude -p
+  outputTokens?:    number;
 }
 
 export interface AgentDriver {
-  name:        string;
+  name:         string;
   runCoder    (task: Task, state: SwarmState): Promise<DriverResult>;
   runTester   (task: Task, state: SwarmState): Promise<DriverResult>;
   runSecurity (task: Task, state: SwarmState): Promise<DriverResult>;
+  runReviewer (task: Task, state: SwarmState): Promise<DriverResult>;
 }

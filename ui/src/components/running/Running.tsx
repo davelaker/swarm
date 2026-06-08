@@ -207,6 +207,10 @@ export function Running() {
     return <ServerDown />;
   }
 
+  const pause = () => fetch('/run/pause',  { method: 'POST' }).catch(() => {});
+  const abort = () => fetch('/run/abort',  { method: 'POST' }).catch(() => {});
+  const resume = () => fetch('/run/resume', { method: 'POST' }).catch(() => {});
+
   return (
     <RunView
       project   = {state.project}
@@ -215,10 +219,12 @@ export function Running() {
       agents    = {state.agents}
       findings  = {state.findings}
       pmMsgs    = {state.pmMsgs}
-      spend     = {0}
-      spendCap  = {5}
+      spend     = {state.spend}
+      spendCap  = {state.spendCap}
       status    = {state.status}
       connected = {state.connected}
+      onPause   = {state.status === 'paused' ? resume : pause}
+      onAbort   = {abort}
     />
   );
 }

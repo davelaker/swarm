@@ -1,5 +1,7 @@
 import type { CharterData } from '../../types';
+import type { ContextFile } from '../../hooks/useContextFiles';
 import { PERSONAS } from '../../data/personas';
+import { ContextFiles } from './ContextFiles';
 
 function renderText(t: string) {
   const parts = t.split(/(`[^`]+`)/g);
@@ -11,13 +13,15 @@ function renderText(t: string) {
 }
 
 interface CharterProps {
-  charter:     CharterData;
-  team:        string[];
-  projectName?: string; // from /state or derived from conversation
+  charter:      CharterData;
+  team:         string[];
+  projectName?: string;
+  projectMd:    ContextFile | null;
+  contextFiles: ContextFile[];
+  onAskPm:      (message: string) => void;
 }
 
-export function Charter({ charter, team, projectName }: CharterProps) {
-  // Derive a title from the goal (first clause before a comma/period, max 40 chars)
+export function Charter({ charter, team, projectName, projectMd, contextFiles, onAskPm }: CharterProps) {
   const title = charter.goal
     ? charter.goal.replace(/[.,].*$/, '').trim().slice(0, 48)
     : 'New project';
@@ -44,9 +48,9 @@ export function Charter({ charter, team, projectName }: CharterProps) {
             : <div className="empty">Listening…</div>}
         </div>
 
-        <Section num="02" label="Constraints" items={charter.constraints} kind="con" mk="▸" />
-        <Section num="03" label="Non-goals"   items={charter.nongoals}    kind="non" mk="✕" />
-        <Section num="04" label="Open questions" items={charter.questions} kind="q"   mk="?" />
+        <Section num="02" label="Constraints"    items={charter.constraints} kind="con" mk="▸" />
+        <Section num="03" label="Non-goals"      items={charter.nongoals}    kind="non" mk="✕" />
+        <Section num="04" label="Open questions" items={charter.questions}   kind="q"   mk="?" />
 
         <div className="csec">
           <div className="csec-label"><span className="num">05</span> Recommended team</div>
@@ -55,12 +59,18 @@ export function Charter({ charter, team, projectName }: CharterProps) {
                 {team.map(id => (
                   <span key={id} className="agent-chip anim-in">
                     <span className="pdot" style={{ background: PERSONAS[id]?.color }} />
-                    {PERSONAS[id]?.name}
+                    {PERSONAS[id]?.name ?? id}
                   </span>
                 ))}
               </div>
             : <div className="empty">Listening…</div>}
         </div>
+
+        <ContextFiles
+          projectMd={projectMd}
+          contextFiles={contextFiles}
+          onAskPm={onAskPm}
+        />
       </div>
     </div>
   );

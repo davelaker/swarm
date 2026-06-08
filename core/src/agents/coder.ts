@@ -6,16 +6,20 @@ import Anthropic from '@anthropic-ai/sdk';
 import fs        from 'node:fs';
 import fsp       from 'node:fs/promises';
 import path      from 'node:path';
-import { getConfig }    from '../config.js';
-import { CODER_SYSTEM } from './prompts.js';
+import { getConfig }             from '../config.js';
+import { CODER_SYSTEM }          from './prompts.js';
+import { buildCachedSystem, logCacheStats, CACHE_BETA } from './cache.js';
 import type { Task, SwarmState } from '../state/types.js';
 
 // ─── Cost metering ────────────────────────────────────────────────────────────
 // Pricing per million tokens. Update when model pricing changes.
 const PRICING: Record<string, { input: number; output: number }> = {
+  'claude-opus-4-8':             { input: 15,  output: 75  },
+  'claude-sonnet-4-6':           { input: 3,   output: 15  },
+  'claude-haiku-4-5-20251001':   { input: 0.8, output: 4   },
+  // Legacy model IDs kept for compatibility
   'claude-opus-4-5-20251101':    { input: 15,  output: 75  },
   'claude-sonnet-4-5-20251101':  { input: 3,   output: 15  },
-  'claude-haiku-4-5-20251001':   { input: 0.8, output: 4   },
   // Fallback for any unknown model
   default:                        { input: 3,   output: 15  },
 };
@@ -143,13 +147,16 @@ export async function runCoder(task: Task, state: SwarmState, verbose = true): P
   const client = new Anthropic({ apiKey: cfg.anthropicApiKey });
   const model  = cfg.coderModel;
 
+  const charter    = state.charter;
   const userPrompt = [
     `Task: ${task.title}`,
-    `Project goal: ${state.goal || '(not set)'}`,
-    `Project: ${state.project}`,
-    '',
-    'Read whatever you need, make the change, then call `done`.',
-  ].join('\n');
+    state.goal ? `Goal: ${state.goal}` : '',
+    ...(charter?.constraints?.length ? [`Constraints: ${charter.constraints.join(' | ')}`] : []),
+    ...(charter?.nongoals?.length    ? [`Non-goals: ${charter.nongoals.join(' | ')}`] : []),
+  ].filter(Boolean).join('\n');
+
+  // System blocks: cached system prompt + PROJECT.md (8 KB cap)
+  const systemBlocks = buildCachedSystem(CODER_SYSTEM, 8192);
 
   const messages: Anthropic.MessageParam[] = [
     { role: 'user', content: userPrompt },
@@ -157,10 +164,11 @@ export async function runCoder(task: Task, state: SwarmState, verbose = true): P
 
   let totalInput  = 0;
   let totalOutput = 0;
+  let totalCost   = 0;   // tracks cache-adjusted cost inline
   let summary     = '';
   let filesChanged: string[] = [];
   let iterations  = 0;
-  const MAX_ITER  = 20; // safety ceiling
+  const MAX_ITER  = 20;
 
   if (verbose) {
     console.log(`\n  [coder] dispatched: "${task.title}"`);
@@ -174,16 +182,18 @@ export async function runCoder(task: Task, state: SwarmState, verbose = true): P
       throw new Error(`Hard cost cap reached ($${cfg.hardCapUsd.toFixed(2)}) during coder run.`);
     }
 
-    const response = await client.messages.create({
+    const response = await client.beta.messages.create({
       model,
       max_tokens: 8192,
-      system:     CODER_SYSTEM,
-      tools:      TOOLS,
-      messages,
+      system:     systemBlocks,
+      tools:      TOOLS as Parameters<typeof client.beta.messages.create>[0]['tools'],
+      messages:   messages as Parameters<typeof client.beta.messages.create>[0]['messages'],
+      betas:      [CACHE_BETA],
     });
 
     totalInput  += response.usage.input_tokens;
     totalOutput += response.usage.output_tokens;
+    totalCost   += logCacheStats('coder', response.usage, PRICING[model]?.input ?? 3);
 
     // Print any text the model produced
     if (verbose) {
@@ -232,7 +242,8 @@ export async function runCoder(task: Task, state: SwarmState, verbose = true): P
 
   if (!summary) summary = `Task "${task.title}" completed.`;
 
-  const costUsd = tokensToDollars(model, totalInput, totalOutput);
+  // totalCost already accumulates cache costs from each iteration
+  const costUsd = tokensToDollars(model, totalInput, totalOutput) + totalCost;
   if (verbose) {
     console.log(`\n  [coder] done — ${summary}`);
     console.log(`  [coder] tokens: ${totalInput} in / ${totalOutput} out  cost: $${costUsd.toFixed(4)}\n`);

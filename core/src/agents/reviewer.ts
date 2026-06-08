@@ -1,32 +1,36 @@
+// The Reviewer agent — api-key driver implementation.
+// Read-only. Reviews changed code for correctness, robustness, and design quality.
+// See DESIGN.md §5.3 for write-scope and tool allowlist.
+
 import Anthropic         from '@anthropic-ai/sdk';
 import fs                from 'node:fs';
 import fsp               from 'node:fs/promises';
 import path              from 'node:path';
 import { getConfig }          from '../config.js';
-import { SECURITY_SYSTEM }    from './prompts.js';
+import { REVIEWER_SYSTEM }    from './prompts.js';
 import { buildCachedSystem, logCacheStats, CACHE_BETA } from './cache.js';
 import { tokensToDollars }    from './coder.js';
 import type { Task, SwarmState } from '../state/types.js';
 
-export interface SecurityFindingItem {
-  id:         string; // SEC-N
-  severity:   'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
-  type:       string;
-  location:   string;
-  fix:        string;
+export interface ReviewerFindingItem {
+  id:       string;   // REV-N
+  severity: 'HIGH' | 'MEDIUM' | 'LOW';
+  category: 'correctness' | 'robustness' | 'design' | 'testability' | 'clarity';
+  location: string;
+  fix:      string;
 }
 
-export interface SecurityResult {
+export interface ReviewerResult {
   verdict:      'APPROVED' | 'CHANGES_REQUESTED';
   summary:      string;
-  findings:     SecurityFindingItem[];
-  finding:      string; // raw markdown for disk
+  findings:     ReviewerFindingItem[];
+  finding:      string;   // raw markdown for disk
   inputTokens:  number;
   outputTokens: number;
   costUsd:      number;
 }
 
-// ─── Tools — READ-ONLY (DESIGN §5.3) ─────────────────────────────────────────
+// ─── Tools — READ-ONLY ────────────────────────────────────────────────────────
 
 const TOOLS: Anthropic.Tool[] = [
   {
@@ -56,12 +60,12 @@ const TOOLS: Anthropic.Tool[] = [
             type:       'object',
             properties: {
               id:       { type: 'string' },
-              severity: { type: 'string', enum: ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] },
-              type:     { type: 'string' },
+              severity: { type: 'string', enum: ['HIGH', 'MEDIUM', 'LOW'] },
+              category: { type: 'string', enum: ['correctness', 'robustness', 'design', 'testability', 'clarity'] },
               location: { type: 'string' },
               fix:      { type: 'string' },
             },
-            required: ['id', 'severity', 'type', 'location', 'fix'],
+            required: ['id', 'severity', 'category', 'location', 'fix'],
           },
         },
       },
@@ -101,20 +105,19 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
 }
 
 // ─── Finding markdown ─────────────────────────────────────────────────────────
-// Conforms to DESIGN.md §6.2a security-finding schema.
 
-function buildFinding(task: Task, verdict: string, summary: string, items: SecurityFindingItem[]): string {
+function buildFinding(task: Task, verdict: string, summary: string, items: ReviewerFindingItem[]): string {
   const findingsList = items.length
     ? items.map(f =>
-        `  - id: ${f.id}\n    severity: ${f.severity}\n    type: ${f.type}\n    location: ${f.location}`
+        `  - id: ${f.id}\n    severity: ${f.severity}\n    category: ${f.category}\n    location: ${f.location}`
       ).join('\n')
     : '';
 
   const header = [
     '---',
     `task: ${task.id}`,
-    `agent: security`,
-    `schema: security-finding`,
+    `agent: reviewer`,
+    `schema: reviewer-finding`,
     `verdict: ${verdict}`,
     `summary: "${summary.replace(/"/g, '\\"')}"`,
     ...(findingsList ? ['findings:', findingsList] : []),
@@ -124,13 +127,13 @@ function buildFinding(task: Task, verdict: string, summary: string, items: Secur
 
   const body = items.length
     ? items.map(f => [
-        `### ${f.id} — ${f.severity}: ${f.type}`,
+        `### ${f.id} — ${f.severity}: ${f.category}`,
         `**Location:** \`${f.location}\``,
-        `**Remediation:** ${f.fix}`,
+        `**Fix:** ${f.fix}`,
         '',
       ].join('\n')).join('\n')
     : verdict === 'APPROVED'
-      ? 'No security issues found in the changed code.\n'
+      ? 'No significant issues found in the changed code.\n'
       : '';
 
   return header + `## ${verdict}: ${summary}\n\n` + body;
@@ -138,15 +141,14 @@ function buildFinding(task: Task, verdict: string, summary: string, items: Secur
 
 // ─── Main agent ───────────────────────────────────────────────────────────────
 
-export async function runSecurity(task: Task, state: SwarmState, verbose = true): Promise<SecurityResult> {
+export async function runReviewer(task: Task, state: SwarmState, verbose = true): Promise<ReviewerResult> {
   const cfg    = getConfig();
   const client = new Anthropic({ apiKey: cfg.anthropicApiKey });
-  const model  = cfg.securityModel;
+  const model  = cfg.reviewerModel;
 
-  // Find what the Coder produced so the reviewer knows where to look
   const coderTask = state.tasks.find(t => t.assignee === 'coder' && t.status === 'done');
   const coderCtx  = coderTask?.result_ref
-    ? `Coder completed "${coderTask.title}". Findings file: ${coderTask.result_ref}. Changed files are listed there.`
+    ? `Coder completed "${coderTask.title}". Findings file: .swarm/${coderTask.result_ref}`
     : `Coder completed "${coderTask?.title ?? 'unknown'}" — read the project files to find recent changes.`;
 
   const charter = state.charter;
@@ -156,17 +158,17 @@ export async function runSecurity(task: Task, state: SwarmState, verbose = true)
       `Task: ${task.title}`,
       coderCtx,
       ...(charter?.constraints?.length ? [`Constraints: ${charter.constraints.join(' | ')}`] : []),
-      'Read the Coder\'s findings and changed files. Give your security verdict.',
+      'Read the Coder\'s findings and changed files. Give your code review verdict.',
     ].filter(Boolean).join('\n'),
   }];
 
   let totalInput = 0, totalOutput = 0, cacheCost = 0;
   let verdict    = 'CHANGES_REQUESTED';
-  let summary    = 'Security review incomplete';
-  let items: SecurityFindingItem[] = [];
-  const systemBlocks = buildCachedSystem(SECURITY_SYSTEM, 8192);
+  let summary    = 'Code review incomplete';
+  let items: ReviewerFindingItem[] = [];
+  const systemBlocks = buildCachedSystem(REVIEWER_SYSTEM, 8192);
 
-  if (verbose) console.log(`\n  [security] dispatched: "${task.title}"\n`);
+  if (verbose) console.log(`\n  [reviewer] dispatched: "${task.title}"\n`);
 
   for (let i = 0; i < 15; i++) {
     const resp = await client.beta.messages.create({
@@ -179,7 +181,7 @@ export async function runSecurity(task: Task, state: SwarmState, verbose = true)
 
     totalInput  += resp.usage.input_tokens;
     totalOutput += resp.usage.output_tokens;
-    cacheCost   += logCacheStats('security', resp.usage, 0.8);
+    cacheCost   += logCacheStats('reviewer', resp.usage, 3);
 
     if (verbose) {
       for (const b of resp.content) {
@@ -195,15 +197,15 @@ export async function runSecurity(task: Task, state: SwarmState, verbose = true)
 
       for (const b of resp.content) {
         if (b.type !== 'tool_use') continue;
-        if (verbose) console.log(`  [security] ${b.name}(${JSON.stringify(b.input).slice(0, 100)})`);
+        if (verbose) console.log(`  [reviewer] ${b.name}(${JSON.stringify(b.input).slice(0, 100)})`);
 
         const result = await executeTool(b.name, b.input as Record<string, unknown>);
 
         if (b.name === 'done') {
-          const inp = b.input as { verdict: string; summary: string; findings?: SecurityFindingItem[] };
-          verdict   = inp.verdict ?? verdict;
-          summary   = inp.summary ?? summary;
-          items     = inp.findings ?? [];
+          const inp = b.input as { verdict: string; summary: string; findings?: ReviewerFindingItem[] };
+          verdict    = inp.verdict ?? verdict;
+          summary    = inp.summary ?? summary;
+          items      = inp.findings ?? [];
           calledDone = true;
         }
 
@@ -219,9 +221,9 @@ export async function runSecurity(task: Task, state: SwarmState, verbose = true)
   const costUsd = tokensToDollars(model, totalInput, totalOutput) + cacheCost;
   if (verbose) {
     const icon = verdict === 'APPROVED' ? '✓' : '⚠';
-    console.log(`\n  [security] ${icon} ${verdict}: ${summary}  cost: $${costUsd.toFixed(4)}\n`);
+    console.log(`\n  [reviewer] ${icon} ${verdict}: ${summary}  cost: $${costUsd.toFixed(4)}\n`);
     if (items.length) {
-      items.forEach(f => console.log(`     ${f.id} [${f.severity}] ${f.type} @ ${f.location}`));
+      items.forEach(f => console.log(`     ${f.id} [${f.severity}/${f.category}] @ ${f.location}`));
       console.log('');
     }
   }

@@ -14,6 +14,7 @@ export type AgentId =
   | 'coder'
   | 'tester'
   | 'security'
+  | 'reviewer'
   | 'negotiator';
 
 // A lease is acquired when a task moves to in_progress.
@@ -45,11 +46,18 @@ export interface LogEntry {
   event: string;
 }
 
+export interface RunCharter {
+  constraints: string[];
+  nongoals:    string[];
+  questions:   string[];
+}
+
 export interface SwarmState {
   project:    string;
   owner:      string; // Principle 1
   goal:       string;
   tier:       Tier;
+  charter?:   RunCharter;
   updated_at: string;
   tasks:      Task[];
   log:        LogEntry[];
@@ -68,4 +76,8 @@ export type SwarmEvent =
   | { type: 'finding.written';     task_id: string; path: string }
   | { type: 'log.appended';        actor: string; event: string }
   | { type: 'run.blocked';         reason: string }
-  | { type: 'run.completed' };
+  | { type: 'run.completed' }
+  | { type: 'run.cost_updated';   spent: number; cap: number }
+  | { type: 'run.paused' }
+  | { type: 'run.aborted' }
+  | { type: 'task.metrics'; task_id: string; agent_id: string; input_tokens: number | null; output_tokens: number | null; cost_usd: number; context_pct: number | null };

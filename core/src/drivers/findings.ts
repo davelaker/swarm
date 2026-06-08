@@ -2,7 +2,7 @@
 // Conforms to DESIGN.md §6.2a finding gate contract.
 
 import type { Task } from '../state/types.js';
-import type { SecurityFinding } from './types.js';
+import type { SecurityFinding, ReviewerFinding } from './types.js';
 
 export function coderFinding(task: Task, summary: string, files: string[]): string {
   const list = files.length ? files.map(f => `  - ${f}`).join('\n') : '  (none recorded)';
@@ -37,6 +37,39 @@ export function testerFinding(task: Task, verdict: string, summary: string, deta
     '',
     ...(detail ? [detail, ''] : []),
   ].join('\n');
+}
+
+export function reviewerFinding(task: Task, verdict: string, summary: string, items: ReviewerFinding[]): string {
+  const findingsList = items.length
+    ? items.map(f =>
+        `  - id: ${f.id}\n    severity: ${f.severity}\n    category: ${f.category}\n    location: ${f.location}`
+      ).join('\n')
+    : '';
+
+  const header = [
+    '---',
+    `task: ${task.id}`,
+    `agent: reviewer`,
+    `schema: reviewer-finding`,
+    `verdict: ${verdict}`,
+    `summary: "${summary.replace(/"/g, '\\"')}"`,
+    ...(findingsList ? ['findings:', findingsList] : []),
+    '---',
+    '',
+  ].join('\n');
+
+  const body = items.length
+    ? items.map(f => [
+        `### ${f.id} — ${f.severity}: ${f.category}`,
+        `**Location:** \`${f.location}\``,
+        `**Fix:** ${f.fix}`,
+        '',
+      ].join('\n')).join('\n')
+    : verdict === 'APPROVED'
+      ? 'No significant issues found in the changed code.\n'
+      : '';
+
+  return header + `## ${verdict}: ${summary}\n\n` + body;
 }
 
 export function securityFinding(task: Task, verdict: string, summary: string, items: SecurityFinding[]): string {

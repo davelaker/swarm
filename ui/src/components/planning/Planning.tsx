@@ -1,19 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react';
 import { usePlanningSession } from '../../hooks/usePlanningSession';
-import { Charter } from './Charter';
+import { useContextFiles }    from '../../hooks/useContextFiles';
+import { Charter }            from './Charter';
 import { Message, TypingIndicator } from './Message';
-import { IconSend } from '../common/icons';
-import type { ServerStatus } from '../../App';
+import { IconSend }           from '../common/icons';
+import type { ServerStatus, RunCharter } from '../../App';
 
 interface PlanningProps {
   onExecute?: () => void;
-  onExecutable: (v: boolean, goal?: string) => void;
+  onExecutable: (v: boolean, goal?: string, charter?: RunCharter, team?: string[]) => void;
   serverStatus?: ServerStatus;
 }
 
 export function Planning({ onExecutable, serverStatus = 'probing' }: PlanningProps) {
   const session    = usePlanningSession(onExecutable);
+  const context    = useContextFiles();
   const [input, setInput]           = useState('');
   const [projectName, setProjectName] = useState<string | undefined>();
   const scrollRef   = useRef<HTMLDivElement>(null);
@@ -57,13 +59,22 @@ export function Planning({ onExecutable, serverStatus = 'probing' }: PlanningPro
     }
   };
 
+  // Pre-fill the textarea and focus it — used by "ask PM" on context files
+  const handleAskPm = (message: string) => {
+    setInput(message);
+    setTimeout(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(message.length, message.length);
+    }, 0);
+  };
+
   // Conversation phase label
   const phaseLabel = session.executable ? 'ready'
                    : session.phase === 'start' ? 'initialising' : 'scoping';
   const phaseDot   = session.executable ? 'var(--green)' : 'var(--amber)';
 
   // Server-mode label shown in panel header
-  const modeLabel  = serverStatus === 'up'      ? null              // no label needed — server is up, just show phase
+  const modeLabel  = serverStatus === 'up'      ? null
                    : serverStatus === 'probing' ? 'connecting'
                    : 'preview mode';
   const modeDot    = serverStatus === 'up'      ? 'var(--green)'
@@ -77,7 +88,14 @@ export function Planning({ onExecutable, serverStatus = 'probing' }: PlanningPro
 
   return (
     <div className="plan">
-      <Charter charter={session.charter} team={session.team} projectName={projectName} />
+      <Charter
+        charter={session.charter}
+        team={session.team}
+        projectName={projectName}
+        projectMd={context.projectMd}
+        contextFiles={context.contextFiles}
+        onAskPm={handleAskPm}
+      />
       <div className="plan-right">
         <div className="panel-head">
           <span>PM Conversation</span>
@@ -100,6 +118,15 @@ export function Planning({ onExecutable, serverStatus = 'probing' }: PlanningPro
             {session.messages.map((m, i) => <Message key={i} m={m} />)}
             {session.typing && <TypingIndicator from={session.typing} />}
           </div>
+          {session.suggestCompact && (
+            <div className="compact-banner">
+              <span className="compact-icon">⚠</span>
+              <span className="compact-text">This conversation is getting long — compact it to save context.</span>
+              <button className="compact-btn" onClick={session.compact} disabled={!!session.typing}>
+                Compact
+              </button>
+            </div>
+          )}
           <div className="composer">
             <div className="composer-row">
               <textarea

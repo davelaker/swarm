@@ -3,9 +3,10 @@ import { spawn }       from 'node:child_process';
 import fs              from 'node:fs';
 import fsp             from 'node:fs/promises';
 import path            from 'node:path';
-import { getConfig }   from '../config.js';
-import { TESTER_SYSTEM } from './prompts.js';
-import { tokensToDollars } from './coder.js';
+import { getConfig }         from '../config.js';
+import { TESTER_SYSTEM }     from './prompts.js';
+import { buildCachedSystem, logCacheStats, CACHE_BETA } from './cache.js';
+import { tokensToDollars }   from './coder.js';
 import type { Task, SwarmState } from '../state/types.js';
 
 export interface TesterResult {
@@ -155,7 +156,7 @@ function buildFinding(task: Task, verdict: string, summary: string, detail?: str
 export async function runTester(task: Task, state: SwarmState, verbose = true): Promise<TesterResult> {
   const cfg    = getConfig();
   const client = new Anthropic({ apiKey: cfg.anthropicApiKey });
-  const model  = cfg.coderModel; // Tester uses same model tier as Coder
+  const model  = cfg.testerModel;
 
   // Give the Tester context about what the Coder changed
   const coderTask    = state.tasks.find(t => t.assignee === 'coder' && t.status === 'done');
@@ -167,25 +168,29 @@ export async function runTester(task: Task, state: SwarmState, verbose = true): 
     role: 'user',
     content: [
       `Task: ${task.title}`,
-      `Project: ${state.project}`,
       coderContext,
-      '',
-      'Read the Coder\'s findings, find the tests, run them, and report your verdict.',
+      'Find and run the test suite. Report your verdict.',
     ].join('\n'),
   }];
 
-  let totalInput = 0, totalOutput = 0;
+  let totalInput = 0, totalOutput = 0, cacheCost = 0;
   let verdict = 'FAIL', summary = 'Tests not run', detail = '';
+  const systemBlocks = buildCachedSystem(TESTER_SYSTEM, 2048); // lean ctx for tester
 
   if (verbose) console.log(`\n  [tester] dispatched: "${task.title}"\n`);
 
   for (let i = 0; i < 15; i++) {
-    const resp = await client.messages.create({
-      model, max_tokens: 4096, system: TESTER_SYSTEM, tools: TOOLS, messages,
+    const resp = await client.beta.messages.create({
+      model, max_tokens: 4096,
+      system:   systemBlocks,
+      tools:    TOOLS as Parameters<typeof client.beta.messages.create>[0]['tools'],
+      messages: messages as Parameters<typeof client.beta.messages.create>[0]['messages'],
+      betas:    [CACHE_BETA],
     });
 
     totalInput  += resp.usage.input_tokens;
     totalOutput += resp.usage.output_tokens;
+    cacheCost   += logCacheStats('tester', resp.usage, 0.8);
 
     if (verbose) {
       for (const b of resp.content) {
@@ -222,7 +227,7 @@ export async function runTester(task: Task, state: SwarmState, verbose = true): 
     }
   }
 
-  const costUsd = tokensToDollars(model, totalInput, totalOutput);
+  const costUsd = tokensToDollars(model, totalInput, totalOutput) + cacheCost;
   if (verbose) console.log(`\n  [tester] ${verdict}: ${summary}  cost: $${costUsd.toFixed(4)}\n`);
 
   return {

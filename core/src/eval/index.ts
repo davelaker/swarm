@@ -149,8 +149,9 @@ async function runCase(tc: TestCase, verbose: boolean): Promise<Result> {
       if (tc.tier === 'tweak') return [base];
       return [
         base,
-        { id: 't2', title: `Test: ${tc.goal}`, status: 'pending', owner: cfg.owner, assignee: 'tester', depends_on: ['t1'], artifacts: [], result_ref: null, attempts: 0 },
+        { id: 't2', title: `Test: ${tc.goal}`,            status: 'pending', owner: cfg.owner, assignee: 'tester',   depends_on: ['t1'], artifacts: [], result_ref: null, attempts: 0 },
         { id: 't3', title: `Security review: ${tc.goal}`, status: 'pending', owner: cfg.owner, assignee: 'security', depends_on: ['t1'], artifacts: [], result_ref: null, attempts: 0 },
+        { id: 't4', title: `Code review: ${tc.goal}`,     status: 'pending', owner: cfg.owner, assignee: 'reviewer', depends_on: ['t1'], artifacts: [], result_ref: null, attempts: 0 },
       ];
     })();
     for (const t of tasks) addTask(t);

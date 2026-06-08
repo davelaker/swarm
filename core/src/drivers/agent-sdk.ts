@@ -12,9 +12,10 @@
 
 import { spawn }        from 'node:child_process';
 import { getConfig }    from '../config.js';
-import { CODER_SYSTEM, TESTER_SYSTEM, SECURITY_SYSTEM } from '../agents/prompts.js';
-import { coderFinding, testerFinding, securityFinding } from './findings.js';
-import type { AgentDriver, DriverResult, SecurityFinding } from './types.js';
+import { CODER_SYSTEM, TESTER_SYSTEM, SECURITY_SYSTEM, REVIEWER_SYSTEM } from '../agents/prompts.js';
+import { coderFinding, testerFinding, securityFinding, reviewerFinding } from './findings.js';
+import { loadProjectContextBounded } from '../state/repo.js';
+import type { AgentDriver, DriverResult, SecurityFinding, ReviewerFinding } from './types.js';
 import type { Task, SwarmState } from '../state/types.js';
 
 // ─── JSON schema for structured output ───────────────────────────────────────
@@ -36,6 +37,29 @@ const TESTER_SCHEMA = JSON.stringify({
     verdict: { type: 'string', enum: ['PASS', 'FAIL'] },
     summary: { type: 'string' },
     detail:  { type: 'string' },
+  },
+  required: ['verdict', 'summary'],
+});
+
+const REVIEWER_SCHEMA = JSON.stringify({
+  type: 'object',
+  properties: {
+    verdict:  { type: 'string', enum: ['APPROVED', 'CHANGES_REQUESTED'] },
+    summary:  { type: 'string' },
+    findings: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          id:       { type: 'string' },
+          severity: { type: 'string', enum: ['HIGH', 'MEDIUM', 'LOW'] },
+          category: { type: 'string', enum: ['correctness', 'robustness', 'design', 'testability', 'clarity'] },
+          location: { type: 'string' },
+          fix:      { type: 'string' },
+        },
+        required: ['id', 'severity', 'category', 'location', 'fix'],
+      },
+    },
   },
   required: ['verdict', 'summary'],
 });
@@ -78,7 +102,8 @@ async function runClaude(opts: {
   systemPrompt: string;
   userPrompt:   string;
   schema:       string;
-  allowedTools: string[];     // Claude Code tool names
+  allowedTools: string[];
+  model?:       string;       // overrides session default; e.g. haiku for tester/security
   maxBudgetUsd?: number;
   verbose?: boolean;
 }): Promise<{ data: Record<string, unknown>; costUsd: number }> {
@@ -92,6 +117,10 @@ async function runClaude(opts: {
     '--allowedTools', opts.allowedTools.join(','),
     '--no-session-persistence',
   ];
+
+  if (opts.model) {
+    args.push('--model', opts.model);
+  }
 
   if (opts.maxBudgetUsd ?? cfg.hardCapUsd) {
     args.push('--max-budget-usd', String(opts.maxBudgetUsd ?? cfg.hardCapUsd));
@@ -155,45 +184,72 @@ async function runClaude(opts: {
 
 // ─── Prompt builders ──────────────────────────────────────────────────────────
 
+// Full context (coder, security, reviewer) — 8 KB cap
+function projectCtxBlock(): string {
+  const ctx = loadProjectContextBounded(8192);
+  return ctx ? `Project context (.swarm/PROJECT.md):\n${ctx}\n` : '';
+}
+
+// Lean context (tester) — 2 KB; enough for tech stack and test-runner info
+function projectCtxLean(): string {
+  const ctx = loadProjectContextBounded(2048);
+  return ctx ? `Project context (.swarm/PROJECT.md):\n${ctx}\n` : '';
+}
+
+function charterBlock(state: SwarmState): string {
+  const c = state.charter;
+  if (!c) return '';
+  const parts: string[] = [];
+  if (c.constraints?.length) parts.push(`Constraints: ${c.constraints.join(' | ')}`);
+  if (c.nongoals?.length)    parts.push(`Non-goals: ${c.nongoals.join(' | ')}`);
+  return parts.join('\n');
+}
+
 function coderPrompt(task: Task, state: SwarmState): string {
   return [
+    projectCtxBlock(),
     `Task: ${task.title}`,
-    `Project: ${state.project}`,
     state.goal ? `Goal: ${state.goal}` : '',
-    '',
-    'Implement exactly what the task requires — no more.',
-    'Read the relevant files, make the change, then respond with the JSON result.',
+    charterBlock(state),
   ].filter(Boolean).join('\n');
 }
 
 function testerPrompt(task: Task, state: SwarmState): string {
   const coderTask = state.tasks.find(t => t.assignee === 'coder' && t.status === 'done');
-  const ctx = coderTask
-    ? `The Coder completed: "${coderTask.title}"`
-    : 'A Coder task has completed.';
+  const ctx = coderTask ? `Coder completed: "${coderTask.title}"` : 'A Coder task has completed.';
   return [
+    projectCtxLean(),                                            // lean: only test-runner info needed
     `Task: ${task.title}`,
     ctx,
     coderTask?.result_ref ? `Coder findings: .swarm/${coderTask.result_ref}` : '',
-    '',
-    'Find and run the test suite (use Bash). Report PASS or FAIL with a summary.',
+    'Find and run the test suite (use Bash). Report PASS or FAIL.',
   ].filter(Boolean).join('\n');
 }
 
 function securityPrompt(task: Task, state: SwarmState): string {
   const coderTask = state.tasks.find(t => t.assignee === 'coder' && t.status === 'done');
-  const ctx = coderTask
-    ? `The Coder changed: "${coderTask.title}"`
-    : 'Code changes have been made.';
-  const ref = coderTask?.result_ref ? `\nCoder findings: .swarm/${coderTask.result_ref}` : '';
+  const ctx = coderTask ? `Coder changed: "${coderTask.title}"` : 'Code changes have been made.';
+  const ref = coderTask?.result_ref ? ` Findings: .swarm/${coderTask.result_ref}` : '';
   return [
+    projectCtxBlock(),
     `Task: ${task.title}`,
     ctx + ref,
-    '',
-    'READ-ONLY review. Read the changed files. Check for injection, auth issues,',
-    'insecure crypto, missing input validation, hardcoded secrets.',
-    'Report APPROVED (no issues) or CHANGES_REQUESTED (with findings).',
-  ].join('\n');
+    charterBlock(state),
+    'READ-ONLY. Review changed files. Report APPROVED or CHANGES_REQUESTED with structured findings.',
+  ].filter(Boolean).join('\n');
+}
+
+function reviewerPrompt(task: Task, state: SwarmState): string {
+  const coderTask = state.tasks.find(t => t.assignee === 'coder' && t.status === 'done');
+  const ctx = coderTask ? `Coder changed: "${coderTask.title}"` : 'Code changes have been made.';
+  const ref = coderTask?.result_ref ? ` Findings: .swarm/${coderTask.result_ref}` : '';
+  return [
+    projectCtxBlock(),
+    `Task: ${task.title}`,
+    ctx + ref,
+    charterBlock(state),
+    'READ-ONLY. Review for correctness, robustness, design, and testability. Do NOT flag security issues.',
+  ].filter(Boolean).join('\n');
 }
 
 // ─── Driver ───────────────────────────────────────────────────────────────────
@@ -202,11 +258,13 @@ export const agentSdkDriver: AgentDriver = {
   name: 'agent-sdk',
 
   async runCoder(task, state): Promise<DriverResult> {
+    const cfg = getConfig();
     const { data, costUsd } = await runClaude({
       systemPrompt: CODER_SYSTEM,
       userPrompt:   coderPrompt(task, state),
       schema:       CODER_SCHEMA,
       allowedTools: ['Read', 'Edit', 'Write', 'LS', 'Glob', 'Grep', 'Bash'],
+      model:        cfg.coderModel,
       verbose:      true,
     });
 
@@ -218,19 +276,20 @@ export const agentSdkDriver: AgentDriver = {
     if (costUsd) console.log(`  [coder] cost: $${costUsd.toFixed(4)}`);
 
     return {
-      verdict, summary, filesChanged, securityFindings: [],
+      verdict, summary, filesChanged, securityFindings: [], reviewerFindings: [],
       findingMarkdown: coderFinding(task, summary, filesChanged),
       costUsd,
     };
   },
 
   async runTester(task, state): Promise<DriverResult> {
+    const cfg = getConfig();
     const { data, costUsd } = await runClaude({
       systemPrompt: TESTER_SYSTEM,
       userPrompt:   testerPrompt(task, state),
       schema:       TESTER_SCHEMA,
-      // Tester needs Bash to run the test suite
       allowedTools: ['Read', 'LS', 'Glob', 'Grep', 'Bash'],
+      model:        cfg.testerModel,     // haiku — structured pass/fail, no judgment needed
       verbose:      true,
     });
 
@@ -242,19 +301,20 @@ export const agentSdkDriver: AgentDriver = {
     if (costUsd) console.log(`  [tester] cost: $${costUsd.toFixed(4)}`);
 
     return {
-      verdict, summary, filesChanged: [], securityFindings: [],
+      verdict, summary, filesChanged: [], securityFindings: [], reviewerFindings: [],
       findingMarkdown: testerFinding(task, verdict, summary, detail),
       costUsd,
     };
   },
 
   async runSecurity(task, state): Promise<DriverResult> {
+    const cfg = getConfig();
     const { data, costUsd } = await runClaude({
       systemPrompt: SECURITY_SYSTEM,
       userPrompt:   securityPrompt(task, state),
       schema:       SECURITY_SCHEMA,
-      // Security is READ-ONLY — no Write, no Bash
       allowedTools: ['Read', 'LS', 'Glob', 'Grep'],
+      model:        cfg.securityModel,   // haiku — structured read-only checklist
       verbose:      true,
     });
 
@@ -268,8 +328,35 @@ export const agentSdkDriver: AgentDriver = {
     if (costUsd) console.log(`  [security] cost: $${costUsd.toFixed(4)}`);
 
     return {
-      verdict, summary, filesChanged: [], securityFindings: findings,
+      verdict, summary, filesChanged: [], securityFindings: findings, reviewerFindings: [],
       findingMarkdown: securityFinding(task, verdict, summary, findings),
+      costUsd,
+    };
+  },
+
+  async runReviewer(task, state): Promise<DriverResult> {
+    const cfg = getConfig();
+    const { data, costUsd } = await runClaude({
+      systemPrompt: REVIEWER_SYSTEM,
+      userPrompt:   reviewerPrompt(task, state),
+      schema:       REVIEWER_SCHEMA,
+      allowedTools: ['Read', 'LS', 'Glob', 'Grep'],
+      model:        cfg.reviewerModel,   // sonnet — needs judgment about code quality
+      verbose:      true,
+    });
+
+    const verdict  = String(data.verdict  ?? 'CHANGES_REQUESTED').toUpperCase();
+    const summary  = String(data.summary  ?? 'No summary');
+    const findings = (data.findings as ReviewerFinding[] | undefined) ?? [];
+
+    const icon = verdict === 'APPROVED' ? '✓' : '⚠';
+    console.log(`  [reviewer] ${icon} ${verdict}: ${summary}`);
+    findings.forEach(f => console.log(`     ${f.id} [${f.severity}/${f.category}] @ ${f.location}`));
+    if (costUsd) console.log(`  [reviewer] cost: $${costUsd.toFixed(4)}`);
+
+    return {
+      verdict, summary, filesChanged: [], securityFindings: [], reviewerFindings: findings,
+      findingMarkdown: reviewerFinding(task, verdict, summary, findings),
       costUsd,
     };
   },

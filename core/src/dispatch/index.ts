@@ -7,13 +7,15 @@ import type { Task, SwarmState } from '../state/types.js';
 import { getDriver } from '../drivers/index.js';
 
 export interface TaskResult {
-  status:      'done' | 'failed';
-  summary:     string;
-  artifacts?:  string[];
-  finding?:    string;   // raw markdown — loop writes to disk
-  costUsd?:    number;
-  verdict?:    string;
-  blocksDone?: boolean;
+  status:       'done' | 'failed';
+  summary:      string;
+  artifacts?:   string[];
+  finding?:     string;   // raw markdown — loop writes to disk
+  costUsd?:     number;
+  inputTokens?: number;   // api-key driver only
+  outputTokens?:number;
+  verdict?:     string;
+  blocksDone?:  boolean;
 }
 
 export function idempotencyKey(task: Task): string {
@@ -31,37 +33,57 @@ export async function dispatch(task: Task, state: SwarmState): Promise<TaskResul
       case 'coder': {
         const r = await driver.runCoder(task, state);
         return {
-          status:     r.verdict === 'FAILED' ? 'failed' : 'done',
-          summary:    r.summary,
-          artifacts:  r.filesChanged,
-          finding:    r.findingMarkdown,
-          costUsd:    r.costUsd,
-          verdict:    r.verdict,
-          blocksDone: false,
+          status:       r.verdict === 'FAILED' ? 'failed' : 'done',
+          summary:      r.summary,
+          artifacts:    r.filesChanged,
+          finding:      r.findingMarkdown,
+          costUsd:      r.costUsd,
+          inputTokens:  r.inputTokens,
+          outputTokens: r.outputTokens,
+          verdict:      r.verdict,
+          blocksDone:   false,
         };
       }
 
       case 'tester': {
         const r = await driver.runTester(task, state);
         return {
-          status:     'done',
-          summary:    r.summary,
-          finding:    r.findingMarkdown,
-          costUsd:    r.costUsd,
-          verdict:    r.verdict,
-          blocksDone: BLOCKS_VERDICTS.has(r.verdict),
+          status:       'done',
+          summary:      r.summary,
+          finding:      r.findingMarkdown,
+          costUsd:      r.costUsd,
+          inputTokens:  r.inputTokens,
+          outputTokens: r.outputTokens,
+          verdict:      r.verdict,
+          blocksDone:   BLOCKS_VERDICTS.has(r.verdict),
         };
       }
 
       case 'security': {
         const r = await driver.runSecurity(task, state);
         return {
-          status:     'done',
-          summary:    r.summary,
-          finding:    r.findingMarkdown,
-          costUsd:    r.costUsd,
-          verdict:    r.verdict,
-          blocksDone: BLOCKS_VERDICTS.has(r.verdict),
+          status:       'done',
+          summary:      r.summary,
+          finding:      r.findingMarkdown,
+          costUsd:      r.costUsd,
+          inputTokens:  r.inputTokens,
+          outputTokens: r.outputTokens,
+          verdict:      r.verdict,
+          blocksDone:   BLOCKS_VERDICTS.has(r.verdict),
+        };
+      }
+
+      case 'reviewer': {
+        const r = await driver.runReviewer(task, state);
+        return {
+          status:       'done',
+          summary:      r.summary,
+          finding:      r.findingMarkdown,
+          costUsd:      r.costUsd,
+          inputTokens:  r.inputTokens,
+          outputTokens: r.outputTokens,
+          verdict:      r.verdict,
+          blocksDone:   BLOCKS_VERDICTS.has(r.verdict),
         };
       }
 

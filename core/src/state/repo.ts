@@ -20,6 +20,70 @@ export function findingsDir(): string {
   return path.join(swarmDir(), 'findings');
 }
 
+export function projectContextFile(): string {
+  return path.join(swarmDir(), 'PROJECT.md');
+}
+
+// Returns the content of .swarm/PROJECT.md, or null if it doesn't exist yet.
+export function loadProjectContext(): string | null {
+  const file = projectContextFile();
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+}
+
+// Bounded loader — caps output to maxChars to prevent large PROJECT.md files
+// from ballooning every agent call. Appends a truncation notice when cut.
+export function loadProjectContextBounded(maxChars = 8192): string | null {
+  const full = loadProjectContext();
+  if (!full) return null;
+  if (full.length <= maxChars) return full;
+  return full.slice(0, maxChars) +
+    `\n\n[PROJECT.md truncated at ${maxChars} chars — edit .swarm/PROJECT.md to trim it]`;
+}
+
+// Write or update the ## Deployment section in .swarm/PROJECT.md.
+// Creates the file if it doesn't exist yet.
+export function writeDeploymentInfo(info: string): void {
+  const file = projectContextFile();
+
+  if (!fs.existsSync(file)) {
+    const project = path.basename(process.cwd());
+    const content = [
+      '<!-- swarm:context — read this file at the start of every task, update it when architecture or conventions change -->',
+      `# Project: ${project}`,
+      '',
+      '## Deployment',
+      info,
+      '',
+    ].join('\n');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, content, 'utf8');
+    return;
+  }
+
+  const lines = fs.readFileSync(file, 'utf8').split('\n');
+  const deployIdx = lines.findIndex(l => l.trim() === '## Deployment');
+
+  if (deployIdx === -1) {
+    // Insert before ## Features section, or append
+    const featIdx = lines.findIndex(l => l.startsWith('## Features'));
+    const insert  = ['## Deployment', info, ''];
+    if (featIdx !== -1) {
+      lines.splice(featIdx, 0, ...insert, '');
+    } else {
+      lines.push('', ...insert);
+    }
+  } else {
+    // Replace everything from deployIdx+1 until the next ## heading (or EOF)
+    const endIdx = lines.findIndex((l, i) => i > deployIdx && l.startsWith('## '));
+    const end    = endIdx === -1 ? lines.length : endIdx;
+    lines.splice(deployIdx + 1, end - deployIdx - 1, info, '');
+  }
+
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, lines.join('\n'), 'utf8');
+  fs.renameSync(tmp, file);
+}
+
 // ─── Read ─────────────────────────────────────────────────────────────────────
 
 export function getState(): SwarmState {

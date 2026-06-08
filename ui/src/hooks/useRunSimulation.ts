@@ -2,13 +2,16 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Task, AgentState, Finding, ChatMessage, RunStatus } from '../types';
 import { INIT_TASKS, LATE_TASKS, RUN_SCRIPT, RUN_TOTAL, SPEND_CAP, SPEND_END } from '../data/runScript';
 
+const BLANK: AgentState = { active: false, step: '', verdict: null, inputTokens: null, outputTokens: null, costUsd: null, contextPct: null };
+
 function makeInitAgents(): Record<string, AgentState> {
   return {
-    pm:         { active: false, step: '', verdict: null },
-    coder:      { active: false, step: '', verdict: null },
-    tester:     { active: false, step: '', verdict: null },
-    security:   { active: false, step: '', verdict: null },
-    negotiator: { active: false, step: '', verdict: null },
+    pm:         { ...BLANK },
+    coder:      { ...BLANK },
+    tester:     { ...BLANK },
+    security:   { ...BLANK },
+    reviewer:   { ...BLANK },
+    negotiator: { ...BLANK },
   };
 }
 

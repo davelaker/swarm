@@ -12,9 +12,12 @@ import http   from 'node:http';
 import path   from 'node:path';
 import fs     from 'node:fs';
 import { bus }      from '../state/events.js';
-import { getState, swarmDir, stateFile } from '../state/repo.js';
+import { getState, swarmDir, stateFile, projectContextFile, writeDeploymentInfo } from '../state/repo.js';
 import { runPmMessage } from '../pm/index.js';
 import { runNew }       from '../commands/new.js';
+import { pauseRun, resumeRun, abortRun } from '../loop-control.js';
+import { getConfigOptional } from '../config.js';
+import { getDriverMode }     from '../drivers/index.js';
 import type { SwarmEvent, SwarmState, Task } from '../state/types.js';
 
 type SseClient = http.ServerResponse;
@@ -144,13 +147,50 @@ function startFileWatcher(): void {
 function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
   if (url.pathname === '/state') {
     try {
-      const state = getState();
+      const state  = getState();
+      const driver = getDriverMode();
+      const cfg    = getConfigOptional();
+      // model: for agent-sdk the session model is chosen by the claude CLI, not us;
+      // for api-key we know the exact model ID from config.
+      const model  = driver === 'agent-sdk' ? null : cfg.coderModel;
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify(state));
+      res.end(JSON.stringify({ ...state, driver, model }));
     } catch {
       res.writeHead(503, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'No .swarm/state.json — run `swarm init` first.' }));
     }
+    return;
+  }
+
+  if (url.pathname === '/context') {
+    const SKIP = new Set(['node_modules', '.git', '.swarm', 'dist', '.next', 'build', 'coverage', '__pycache__', '.venv']);
+    const contextFiles: Array<{ relPath: string; content: string }> = [];
+
+    const scan = (dir: string, depth: number): void => {
+      if (depth > 6) return;
+      let entries: fs.Dirent[];
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const e of entries) {
+        if (e.isDirectory() && !SKIP.has(e.name) && !e.name.startsWith('.')) {
+          scan(path.join(dir, e.name), depth + 1);
+        } else if (e.isFile() && e.name === 'CONTEXT.md') {
+          try {
+            const abs = path.join(dir, e.name);
+            contextFiles.push({ relPath: path.relative(process.cwd(), abs), content: fs.readFileSync(abs, 'utf8') });
+          } catch { /* skip unreadable */ }
+        }
+      }
+    };
+    scan(process.cwd(), 0);
+    contextFiles.sort((a, b) => a.relPath.localeCompare(b.relPath));
+
+    const pcf  = projectContextFile();
+    const projectMd = fs.existsSync(pcf)
+      ? { relPath: '.swarm/PROJECT.md', content: fs.readFileSync(pcf, 'utf8') }
+      : null;
+
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({ projectMd, contextFiles }));
     return;
   }
 
@@ -201,10 +241,18 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
     const route   = url.pathname;
 
     if (route === '/pm/message') {
-      const { text, history = [] } = payload as { text: string; history?: unknown[] };
+      const { text, history = [], charter, team } = payload as {
+        text:     string;
+        history?: unknown[];
+        charter?: { goal?: string; constraints?: string[]; nongoals?: string[]; questions?: string[] };
+        team?:    string[];
+      };
       if (!text) { res.writeHead(400); res.end(JSON.stringify({ error: 'text required' })); return; }
-      runPmMessage(text, history as any)
+      runPmMessage(text, history as any, charter, team)
         .then(result => {
+          if (result.deploymentInfo) {
+            try { writeDeploymentInfo(result.deploymentInfo); } catch { /* non-fatal */ }
+          }
           res.writeHead(200); res.end(JSON.stringify(result));
         })
         .catch(err => {
@@ -214,22 +262,36 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
       return;
     }
     if (route === '/run/execute') {
-      const { goal } = payload as { goal?: string };
+      const { goal, charter, team } = payload as {
+        goal?:    string;
+        charter?: { constraints: string[]; nongoals: string[]; questions: string[] };
+        team?:    string[];
+      };
       if (!goal?.trim()) {
         res.writeHead(400); res.end(JSON.stringify({ error: 'goal required' })); return;
       }
-      // Respond immediately — the run is async; SSE stream carries all progress.
       res.writeHead(200); res.end(JSON.stringify({ ok: true }));
       console.log(`\n  ▸ execute: "${goal}"\n`);
-      // Fire-and-forget: state.json writes trigger SSE via the file watcher.
-      runNew(goal.trim()).catch(err =>
+      runNew(goal.trim(), charter, team).catch(err =>
         console.error('  ✗ execute error:', (err as Error).message)
       );
       return;
     }
-    if (route === '/run/pause')  { res.writeHead(200); res.end(JSON.stringify({ ok: true })); return; }
-    if (route === '/run/resume') { res.writeHead(200); res.end(JSON.stringify({ ok: true })); return; }
-    if (route === '/run/abort')  { res.writeHead(200); res.end(JSON.stringify({ ok: true })); return; }
+    if (route === '/run/pause') {
+      pauseRun();
+      fanout({ type: 'run.paused' });
+      res.writeHead(200); res.end(JSON.stringify({ ok: true })); return;
+    }
+    if (route === '/run/resume') {
+      resumeRun();
+      fanout({ type: 'run.classified', tier: 'feature', tasks: [] }); // nudge UI back to running
+      res.writeHead(200); res.end(JSON.stringify({ ok: true })); return;
+    }
+    if (route === '/run/abort') {
+      abortRun();
+      fanout({ type: 'run.aborted' });
+      res.writeHead(200); res.end(JSON.stringify({ ok: true })); return;
+    }
 
     res.writeHead(404); res.end(JSON.stringify({ error: 'unknown route' }));
   });
