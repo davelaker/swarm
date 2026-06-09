@@ -164,13 +164,18 @@ export async function runTester(task: Task, state: SwarmState, verbose = true): 
     ? `The Coder completed task "${coderTask.title}". Findings at: ${coderTask.result_ref}`
     : `The Coder completed task "${coderTask?.title ?? 'unknown'}" (no finding file available).`;
 
+  const charter = state.charter;
   const messages: Anthropic.MessageParam[] = [{
     role: 'user',
     content: [
       `Task: ${task.title}`,
+      state.goal ? `Goal: ${state.goal}` : '',
       coderContext,
+      ...(charter?.constraints?.length ? [`Constraints: ${charter.constraints.join(' | ')}`] : []),
+      ...(charter?.nongoals?.length    ? [`Non-goals: ${charter.nongoals.join(' | ')}`] : []),
+      ...(charter?.questions?.length   ? [`Clarifications: ${charter.questions.join(' | ')}`] : []),
       'Find and run the test suite. Report your verdict.',
-    ].join('\n'),
+    ].filter(Boolean).join('\n'),
   }];
 
   let totalInput = 0, totalOutput = 0, cacheCost = 0;

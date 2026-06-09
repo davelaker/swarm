@@ -154,8 +154,11 @@ export async function runSecurity(task: Task, state: SwarmState, verbose = true)
     role: 'user',
     content: [
       `Task: ${task.title}`,
+      state.goal ? `Goal: ${state.goal}` : '',
       coderCtx,
       ...(charter?.constraints?.length ? [`Constraints: ${charter.constraints.join(' | ')}`] : []),
+      ...(charter?.nongoals?.length    ? [`Non-goals: ${charter.nongoals.join(' | ')}`] : []),
+      ...(charter?.questions?.length   ? [`Clarifications: ${charter.questions.join(' | ')}`] : []),
       'Read the Coder\'s findings and changed files. Give your security verdict.',
     ].filter(Boolean).join('\n'),
   }];

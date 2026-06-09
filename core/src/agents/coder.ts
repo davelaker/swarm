@@ -153,6 +153,7 @@ export async function runCoder(task: Task, state: SwarmState, verbose = true): P
     state.goal ? `Goal: ${state.goal}` : '',
     ...(charter?.constraints?.length ? [`Constraints: ${charter.constraints.join(' | ')}`] : []),
     ...(charter?.nongoals?.length    ? [`Non-goals: ${charter.nongoals.join(' | ')}`] : []),
+    ...(charter?.questions?.length   ? [`Clarifications: ${charter.questions.join(' | ')}`] : []),
   ].filter(Boolean).join('\n');
 
   // System blocks: cached system prompt + PROJECT.md (8 KB cap)
