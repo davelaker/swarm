@@ -12,7 +12,8 @@ export default defineConfig({
       '/events':  { target: 'http://127.0.0.1:7000', changeOrigin: true },
       '/pm':      { target: 'http://127.0.0.1:7000', changeOrigin: true },
       '/run':     { target: 'http://127.0.0.1:7000', changeOrigin: true },
-      '/context': { target: 'http://127.0.0.1:7000', changeOrigin: true },
+      '/context':  { target: 'http://127.0.0.1:7000', changeOrigin: true },
+      '/findings': { target: 'http://127.0.0.1:7000', changeOrigin: true },
     },
   },
 })
