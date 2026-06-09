@@ -244,35 +244,67 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
 
   if (url.pathname === '/run/diff') {
     const cwd = path.dirname(swarmDir());
-    // Try strategies in order — return first non-empty result.
-    // 1. Uncommitted working-tree changes (coder wrote files, not yet committed)
-    // 2. Committed changes ahead of main (coder committed before push)
-    // 3. Committed changes ahead of master (alt branch name)
-    // 4. Last commit (fallback for any repo state)
-    const strategies: string[][] = [
-      ['diff', 'HEAD'],
-      ['diff', 'main...HEAD'],
-      ['diff', 'master...HEAD'],
-      ['diff', 'HEAD~1'],
-    ];
-    const tryNext = (i: number): void => {
-      if (i >= strategies.length) {
+
+    // Build a unified diff that covers:
+    //   A) modifications to tracked files  → git diff HEAD
+    //   B) new untracked files             → git diff --no-index /dev/null <file>
+    //      (git diff always exits 1 when files differ; catch stderr and use stdout)
+    // If both are empty, fall back to committed changes ahead of main/master/HEAD~1.
+
+    Promise.all([
+      // A — tracked modifications
+      execFileAsync('git', ['diff', 'HEAD'], { cwd }).then(r => r.stdout).catch(() => ''),
+      // Get untracked files (excluding gitignored)
+      execFileAsync('git', ['status', '--porcelain'], { cwd }).then(r => r.stdout).catch(() => ''),
+    ])
+      .then(async ([trackedDiff, statusOut]) => {
+        const untrackedFiles = statusOut.split('\n')
+          .filter(l => l.startsWith('??'))
+          .map(l => l.slice(3).trim())
+          .filter(f => f && !f.endsWith('/'));
+
+        // B — new files: git diff --no-index always exits 1, so extract stdout from the error
+        const newFileDiffs = await Promise.all(
+          untrackedFiles.map(f =>
+            execFileAsync('git', ['diff', '--no-index', '--', '/dev/null', f], { cwd })
+              .then(r => r.stdout)
+              .catch((err: { stdout?: Buffer }) => err.stdout?.toString() ?? '')
+          )
+        );
+
+        const combined = [trackedDiff, ...newFileDiffs].filter(s => s.trim()).join('\n');
+
+        if (combined.trim()) {
+          res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+          res.end(combined);
+          return;
+        }
+
+        // Fallback: committed changes ahead of main / master / last commit
+        const fallbacks = [
+          ['diff', 'main...HEAD'],
+          ['diff', 'master...HEAD'],
+          ['diff', 'HEAD~1'],
+        ];
+        for (const args of fallbacks) {
+          try {
+            const { stdout } = await execFileAsync('git', args, { cwd });
+            if (stdout.trim()) {
+              res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+              res.end(stdout);
+              return;
+            }
+          } catch { /* try next */ }
+        }
+
+        // Genuinely nothing to show
         res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
         res.end('');
-        return;
-      }
-      execFileAsync('git', strategies[i], { cwd })
-        .then(({ stdout }) => {
-          if (stdout.trim()) {
-            res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
-            res.end(stdout);
-          } else {
-            tryNext(i + 1);
-          }
-        })
-        .catch(() => tryNext(i + 1));
-    };
-    tryNext(0);
+      })
+      .catch(() => {
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+        res.end('');
+      });
     return;
   }
 

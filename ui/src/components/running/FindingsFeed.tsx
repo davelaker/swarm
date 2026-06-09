@@ -138,7 +138,7 @@ function FindingCard({ f, tasks }: { f: Finding; tasks: Task[] }) {
       {sum && <div className="finding-summary">{sum}</div>}
       {open && (
         <div className="finding-body anim-in">
-          <div className="fb-inner" style={{ padding: '10px 14px' }}>
+          <div className="fb-inner">
             {loading && (
               <span style={{ color: 'var(--tx-3)', fontFamily: 'var(--mono)', fontSize: 11 }}>
                 loading…

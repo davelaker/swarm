@@ -327,9 +327,23 @@ export const agentSdkDriver: AgentDriver = {
       verbose:      true,
     });
 
-    const verdict      = String(data.verdict  ?? 'FAILED');
-    const summary      = String(data.summary  ?? 'No summary');
-    const filesChanged = (data.files_changed as string[] | undefined) ?? [];
+    const verdict             = String(data.verdict  ?? 'FAILED');
+    const summary             = String(data.summary  ?? 'No summary');
+    let   filesChanged        = (data.files_changed as string[] | undefined) ?? [];
+
+    // If the agent forgot to populate files_changed, auto-detect from git status.
+    // New (untracked) files show as "?? path", modified as " M path" etc.
+    if (filesChanged.length === 0) {
+      try {
+        const { execFileSync } = await import('node:child_process');
+        const raw = execFileSync('git', ['status', '--porcelain'], { cwd: process.cwd(), encoding: 'utf8' });
+        const detected = raw.split('\n')
+          .filter(l => l.trim() && !l.startsWith('!!'))  // ignore gitignored entries
+          .map(l => l.slice(3).trim().replace(/ -> .+$/, ''))  // strip rename targets
+          .filter(f => f && !f.endsWith('/'));
+        if (detected.length) filesChanged = detected;
+      } catch { /* non-fatal — git not available or not a repo */ }
+    }
 
     console.log(`  [coder] ${verdict}: ${summary}`);
     if (costUsd) console.log(`  [coder] cost: $${costUsd.toFixed(4)}`);
