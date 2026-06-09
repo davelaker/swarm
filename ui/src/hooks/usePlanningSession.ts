@@ -24,11 +24,21 @@ interface SessionState {
 // ─── localStorage persistence ─────────────────────────────────────────────────
 // Survives HMR reloads and accidental browser refreshes. Cleared by newSession().
 //
-// Security notes (localhost dev tool):
-//   - Data is plaintext; don't paste credentials or secrets into the PM chat.
+// ⚠️  SECURITY HAZARD — localhost only.
+// This stores planning session data (goal, charter, conversation history) in
+// plaintext localStorage with no encryption or access control. That is
+// acceptable for a single-user localhost dev tool. It is NOT acceptable if
+// this app is ever served beyond localhost.
+//
+// Before any non-localhost deployment, this must be replaced with either:
+//   a) Server-side session storage backed by a proper auth layer, or
+//   b) Client-side encryption (e.g. Web Crypto API) keyed to a user credential.
+// See project_state.md "Security debt" section for the full list of issues.
+//
+// Other notes:
+//   - Don't paste credentials or secrets into the PM chat.
 //   - Sessions are scoped per-project so different projects don't share state.
-//   - TTL of SESSION_TTL_MS: stale planning data is cleared automatically.
-//     Keeps the browser clean even if you forget to click "New session".
+//   - TTL of SESSION_TTL_MS: stale data is cleared automatically on next load.
 
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
