@@ -1,9 +1,42 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import type { Components } from 'react-markdown';
 import type { Finding } from '../../types';
 import { PERSONAS } from '../../data/personas';
 import { VerdictChip } from '../common/VerdictChip';
 import { IconChevron } from '../common/icons';
+
+// ─── Custom markdown renderers ────────────────────────────────────────────────
+
+const VERDICT_RE = /^(COMPLETE|PASS|APPROVED|FAILED?|FAIL|CHANGES_REQUESTED)\s*[:—]/i;
+const SEVERITY_RE = /\b(CRITICAL|HIGH|MEDIUM|LOW)\b/i;
+
+const mdComponents: Components = {
+  // h2 = verdict headline — colour by outcome
+  h2({ children }) {
+    const text = String(children ?? '');
+    const isPass = /^(COMPLETE|PASS|APPROVED)/i.test(text);
+    const isBad  = /^(FAILED?|FAIL|CHANGES_REQUESTED)/i.test(text);
+    const color  = isPass ? 'var(--green)' : isBad ? 'var(--amber)' : 'var(--tx)';
+    return <h2 style={{ color }}>{children}</h2>;
+  },
+  // h3 = per-finding row — colour by severity keyword
+  h3({ children }) {
+    const text  = String(children ?? '');
+    const match = text.match(SEVERITY_RE);
+    const sev   = match ? match[1].toUpperCase() : null;
+    const color = sev === 'CRITICAL' ? 'var(--red)'
+                : sev === 'HIGH'     ? 'var(--amber)'
+                : sev === 'MEDIUM'   ? 'var(--orange)'
+                : sev === 'LOW'      ? 'var(--tx-2)'
+                : 'var(--tx-1)';
+    return <h3 style={{ color }}>{children}</h3>;
+  },
+  // inline code — styled via CSS (.finding-md code)
+  code({ children }) {
+    return <code>{children}</code>;
+  },
+};
 
 function FindingCard({ f }: { f: Finding }) {
   const [open,    setOpen]    = useState(false);
@@ -50,7 +83,7 @@ function FindingCard({ f }: { f: Finding }) {
             )}
             {!loading && content && (
               <div className="finding-md">
-                <ReactMarkdown>{content}</ReactMarkdown>
+                <ReactMarkdown components={mdComponents}>{content}</ReactMarkdown>
               </div>
             )}
           </div>
