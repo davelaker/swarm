@@ -179,14 +179,37 @@ async function runClaude(opts: {
       }
 
       // result may be a JSON string (if --json-schema forces it) or already parsed
-      let data: Record<string, unknown>;
+      let data: Record<string, unknown> = {};
+      let parseOk = false;
       try {
         data = typeof envelope.result === 'string'
           ? JSON.parse(envelope.result) as Record<string, unknown>
           : envelope.result as Record<string, unknown>;
-      } catch {
-        reject(new Error(`Could not parse claude result as JSON: ${String(envelope.result).slice(0, 200)}`));
-        return;
+        parseOk = true;
+      } catch { /* handled below */ }
+
+      if (!parseOk) {
+        // --json-schema didn't enforce structured output — claude returned prose.
+        // Try to extract a JSON object embedded in the text, then fall back to
+        // keyword inference so a completed task isn't wrongly marked failed.
+        const text = String(envelope.result);
+
+        const m = text.match(/\{[\s\S]*\}/);
+        if (m) {
+          try { data = JSON.parse(m[0]) as Record<string, unknown>; parseOk = true; } catch { /* fall through */ }
+        }
+
+        if (!parseOk) {
+          const lower = text.toLowerCase();
+          const failed = /\b(fail|error|unable|cannot|could not|did not complete)\b/.test(lower);
+          data = {
+            verdict:       failed ? 'FAILED'   : 'COMPLETE',
+            summary:       text.replace(/[*`#]/g, '').split('\n')[0].trim().slice(0, 200) || 'Completed',
+            files_changed: [],
+            findings: [],
+          };
+          console.warn(`  [agent-sdk] WARNING: --json-schema bypassed; inferred verdict=${data.verdict} from prose`);
+        }
       }
 
       resolve({ data, costUsd: envelope.cost_usd ?? 0 });

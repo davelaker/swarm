@@ -175,6 +175,9 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
     }
 
     case 'task.created': {
+      // Guard: both the in-process bus (repo.ts addTask) AND the file watcher
+      // (diffAndEmit) emit task.created for the same task, so deduplicate here.
+      if (prev.tasks.some(t => t.id === ev.task.id)) return prev;
       const lanes = computeLanes([...prev.tasks.map(t => ({
         id: t.id, title: t.title, assignee: t.assignee,
         depends_on: t.deps, status: t.status, result_ref: null, attempts: 0,
