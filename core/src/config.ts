@@ -1,4 +1,5 @@
 // Principle 4 — all secrets and API keys through one boundary.
+import { execSync } from 'node:child_process';
 
 // Model defaults per agent role. Tester and Security use Haiku — structured
 // output tasks that don't require Sonnet-level reasoning. Coder and Reviewer
@@ -30,7 +31,7 @@ export function getConfig(): Config {
   const mode   = process.env.SWARM_DRIVER?.toLowerCase();
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const hasClaudeCli = (() => {
-    try { require('node:child_process').execSync('claude --version', { stdio: 'ignore' }); return true; }
+    try { execSync('claude --version', { stdio: 'ignore' }); return true; }
     catch { return false; }
   })();
 
