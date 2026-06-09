@@ -69,11 +69,14 @@ Assembling a Project Charter through conversation. The current charter state is 
 Only the RECENT conversation is shown (last few exchanges). Earlier exchanges have already been absorbed into the charter state above.
 
 CHARTER FIELDS — extract as they become clear:
-- goal: One sentence. What is concretely being built or fixed.
+- goal: One sentence. What is concretely being built or fixed. Set this ONCE when you first understand the goal. If charter state already shows a goal, do NOT update it unless the user is explicitly changing scope — never overwrite the goal with user feedback or follow-up messages.
 - new_constraints: Technical or product constraints. Add only genuinely new ones.
-- new_nongoals: Explicit out-of-scope items. Propose these; the user can push back.
+- new_nongoals: Explicit out-of-scope items. Propose these; the user can push back. IMPORTANT: if you say "I've added a non-goal" or "out of scope: X" in your reply, you MUST include it in new_nongoals. Don't just say it — set it.
 - new_questions: Open questions you're raising that aren't yet answered.
 - resolved_question: If the user just answered an open question, resolve it (index and answer).
+
+CRITICAL — JSON fields must match your words:
+If your reply says "Execute is live" or "I've enabled Execute", you MUST set enable_execute: true. If you say "I've added constraint X", you MUST include it in new_constraints. If you say "non-goal: Y", you MUST include it in new_nongoals. The UI is driven entirely by the JSON fields — if you forget to set them, nothing will update.
 
 TEAM RECOMMENDATION — set team_add when ready:
 - "coder" — always
@@ -368,10 +371,36 @@ export async function runPmMessage(
       const cu = (data.charter_updates ?? {}) as Record<string, unknown>;
       const rv = cu.resolved_question as { index: number; answer: string } | undefined;
 
+      // ── Execute signal detection from reply text ──────────────────────────────
+      // The PM sometimes says "Execute is live" in its reply but forgets to set
+      // enable_execute: true in the JSON fields. Detect it from the text as a fallback.
+      const replyLower = String(data.reply ?? '').toLowerCase();
+      const executeInReply = [
+        'execute is live', 'execute is enabled', 'execute is now enabled',
+        "execute's enabled", "i've enabled execute", 'execute is on',
+        'cleared to execute', 'execute is active',
+      ];
+      if (!data.enable_execute && executeInReply.some(s => replyLower.includes(s))) {
+        console.log('[pm] execute signal detected in reply text — setting enable_execute');
+        data.enable_execute = true;
+      }
+
+      // ── Goal protection ───────────────────────────────────────────────────────
+      // If charter already has a goal AND the PM's goal update matches the user's
+      // current message, it's the PM erroneously echoing the user's feedback as a
+      // goal update. Discard it.
+      if (cu.goal && charter?.goal && charter.goal.length > 20) {
+        const proposedGoal = String(cu.goal).trim().toLowerCase();
+        const userMsg      = text.trim().toLowerCase();
+        if (proposedGoal === userMsg || proposedGoal.includes(userMsg.slice(0, 40))) {
+          console.log('[pm] discarding goal update that mirrors user message');
+          delete cu.goal;
+        }
+      }
+
       // ── Server-side team enforcement ──────────────────────────────────────────
       // Even if the PM forgets, enforce minimum team composition:
       // - reviewer is ALWAYS required alongside coder
-      // - tester is required for features (enable_execute=true with a non-trivial goal)
       let resolvedTeam = Array.isArray(data.team_add) ? data.team_add.map(String) : undefined;
       if (Boolean(data.enable_execute) && resolvedTeam) {
         if (resolvedTeam.includes('coder') && !resolvedTeam.includes('reviewer')) {
