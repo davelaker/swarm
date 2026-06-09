@@ -1,14 +1,12 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
-import type { Finding } from '../../types';
+import type { Finding, Task } from '../../types';
 import { PERSONAS } from '../../data/personas';
-import { VerdictChip } from '../common/VerdictChip';
 import { IconChevron } from '../common/icons';
 
 // ─── Custom markdown renderers ────────────────────────────────────────────────
 
-const VERDICT_RE = /^(COMPLETE|PASS|APPROVED|FAILED?|FAIL|CHANGES_REQUESTED)\s*[:—]/i;
 const SEVERITY_RE = /\b(CRITICAL|HIGH|MEDIUM|LOW)\b/i;
 
 const mdComponents: Components = {
@@ -32,17 +30,62 @@ const mdComponents: Components = {
                 : 'var(--tx-1)';
     return <h3 style={{ color }}>{children}</h3>;
   },
-  // inline code — styled via CSS (.finding-md code)
   code({ children }) {
     return <code>{children}</code>;
   },
 };
 
-function FindingCard({ f }: { f: Finding }) {
+// ─── Derived chip ─────────────────────────────────────────────────────────────
+// The task graph is the ground truth. We use task.status to override the
+// agent's self-reported verdict so both panels always agree.
+
+type ChipState = { label: string; cls: string };
+
+function deriveChip(f: Finding, tasks: Task[]): ChipState {
+  const task = tasks.find(t => t.id === f.task);
+
+  if (task?.status === 'blocked') {
+    return { label: 'BLOCKED', cls: 'changes' };
+  }
+
+  // A t_fix_* task that is pending/in_progress means the coder is addressing
+  // issues found in this task's review — surface that rather than 'COMPLETE'.
+  const fixing = tasks.find(
+    t => t.id === `t_fix_${f.task}` &&
+         (t.status === 'pending' || t.status === 'in_progress'),
+  );
+  if (fixing) return { label: 'FIXING…', cls: 'changes' };
+
+  // Normal path — show the agent's verdict
+  const MAP: Record<string, ChipState> = {
+    complete: { label: 'COMPLETE',          cls: 'complete' },
+    pass:     { label: 'PASS',              cls: 'pass'     },
+    changes:  { label: 'CHANGES',           cls: 'changes'  },
+    fail:     { label: 'FAIL',              cls: 'fail'     },
+  };
+  return MAP[f.verdict] ?? { label: f.verdict.toUpperCase(), cls: f.verdict };
+}
+
+// ─── Summary sanitisation ─────────────────────────────────────────────────────
+// If enrichment hasn't run yet the summary falls back to the file path.
+// Show a cleaner placeholder in that case.
+
+function cleanSummary(summary: string): string {
+  if (!summary) return '';
+  // Looks like a path (absolute or relative ending in .md)
+  if (summary.endsWith('.md') || summary.startsWith('/')) return '';
+  return summary;
+}
+
+// ─── Card ─────────────────────────────────────────────────────────────────────
+
+function FindingCard({ f, tasks }: { f: Finding; tasks: Task[] }) {
   const [open,    setOpen]    = useState(false);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const p = PERSONAS[f.agent];
+  const p    = PERSONAS[f.agent];
+  const chip = deriveChip(f, tasks);
+  const sum  = cleanSummary(f.summary);
 
   const toggle = () => {
     const next = !open;
@@ -70,9 +113,9 @@ function FindingCard({ f }: { f: Finding }) {
           {p?.name}
         </span>
         <span className="finding-tid">{f.task}</span>
-        <VerdictChip verdict={f.verdict} />
+        <span className={`vchip ${chip.cls}`}>{chip.label}</span>
       </div>
-      <div className="finding-summary">{f.summary}</div>
+      {sum && <div className="finding-summary">{sum}</div>}
       {open && (
         <div className="finding-body anim-in">
           <div className="fb-inner" style={{ padding: '10px 14px' }}>
@@ -93,17 +136,21 @@ function FindingCard({ f }: { f: Finding }) {
   );
 }
 
-export function FindingsFeed({ findings }: { findings: Finding[] }) {
+// ─── Feed ─────────────────────────────────────────────────────────────────────
+
+export function FindingsFeed({ findings, tasks }: { findings: Finding[]; tasks: Task[] }) {
   return (
     <div className="run-findings">
       <div className="panel-head">
         <span>Findings</span>
         <span className="spacer" />
-        <span className="mono" style={{ fontSize: 11, color: 'var(--tx-3)', textTransform: 'none', letterSpacing: 0 }}>{findings.length} logged</span>
+        <span className="mono" style={{ fontSize: 11, color: 'var(--tx-3)', textTransform: 'none', letterSpacing: 0 }}>
+          {findings.length} logged
+        </span>
       </div>
       <div className="feed-scroll">
         {findings.length === 0 && <div className="feed-empty">waiting for the first finding…</div>}
-        {findings.map(f => <FindingCard key={f.key} f={f} />)}
+        {findings.map(f => <FindingCard key={f.key} f={f} tasks={tasks} />)}
       </div>
     </div>
   );

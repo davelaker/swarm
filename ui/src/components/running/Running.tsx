@@ -252,7 +252,7 @@ function RunView({
 
       <div className="run-right">
         <AgentsPanel agents={agents} />
-        <FindingsFeed findings={findings} />
+        <FindingsFeed findings={findings} tasks={tasks} />
       </div>
 
       <PmChat pmMsgs={pmMsgs} status={status} />
