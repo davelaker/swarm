@@ -179,8 +179,11 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({ ...state, driver, model, activeRun }));
     } catch {
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'No .swarm/state.json — run `swarm init` first.' }));
+      // No state.json yet (no run started) — still return 200 so the UI
+      // recognises the server as up and shows "agents ready" instead of "offline".
+      const driver = getDriverMode();
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ project: '', goal: '', tier: '', tasks: [], log: [], driver, model: null, activeRun: false }));
     }
     return;
   }
