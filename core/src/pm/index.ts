@@ -1,10 +1,33 @@
-// Real PM planning session — INCEPTION.md §3 (critical partner, not transcriber).
-// Called by POST /pm/message. Uses `claude -p` so it draws from the Max plan
-// Agent SDK credit pool, same as the execution agents.
+// PM planning session — INCEPTION.md §3 (critical partner, not transcriber).
+// Called by POST /pm/message.
+//
+// Instead of hoping `claude --print --json-schema` returns well-formed JSON
+// (it doesn't in single-shot mode without tools), we give the PM exactly one
+// MCP tool: `submit_pm_response`. Claude MUST call it to complete its turn —
+// tool calls are protocol-enforced, so the output is always structured.
+//
+// Flow:
+//   1. Write a temp file path for the output.
+//   2. Inline the MCP config as JSON (pm_responder server → mcp-server.js).
+//   3. Spawn: claude --print --mcp-config <json> --allowedTools mcp__pm_responder__submit_pm_response
+//   4. mcp-server.js captures the tool arguments and writes them to the temp file.
+//   5. Read the temp file → PmResponse. No heuristics, no fallbacks.
 
-import { spawn } from 'node:child_process';
+import { spawn }            from 'node:child_process';
+import { randomUUID }       from 'node:crypto';
+import * as fs              from 'node:fs';
+import * as os              from 'node:os';
+import * as path            from 'node:path';
+import { fileURLToPath }    from 'node:url';
 import { getConfigOptional } from '../config.js';
 import { loadProjectContext } from '../state/repo.js';
+
+// ─── MCP server path ──────────────────────────────────────────────────────────
+// At runtime this file is core/dist/pm/index.js; mcp-server.js is next to it.
+
+const __filename   = fileURLToPath(import.meta.url);
+const __dirname    = path.dirname(__filename);
+const MCP_SERVER   = path.join(__dirname, 'mcp-server.js');
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -13,8 +36,6 @@ export interface HistoryMessage {
   text: string;
 }
 
-// Structured charter state sent from the frontend on every message.
-// This is the authoritative memory — the PM trusts it over conversation history.
 export interface PmCharter {
   goal?:        string;
   constraints?: string[];
@@ -26,7 +47,7 @@ export interface PmResponse {
   reply:              string;
   securityInterject?: string;
   deploymentInfo?:    string;
-  suggestCompact?:    boolean;   // set when context is getting large; UI shows a compact button
+  suggestCompact?:    boolean;
   charterUpdates?: {
     goal?:              string;
     newConstraints?:    string[];
@@ -34,8 +55,8 @@ export interface PmResponse {
     newQuestions?:      string[];
     resolvedQuestion?:  { index: number; answer: string };
   };
-  teamAdd?:           string[];
-  enableExecute?:     boolean;
+  teamAdd?:       string[];
+  enableExecute?: boolean;
 }
 
 // ─── System prompt ────────────────────────────────────────────────────────────
@@ -55,32 +76,27 @@ PERSONA:
 CALIBRATE: bug fix = 1–2 exchanges then Execute; feature = 3–5; greenfield = more. Never over-question a bug fix; never under-question greenfield.
 
 CONTEXT MANAGEMENT:
-If you receive a CONTEXT NOTE or CONTEXT ALERT above the conversation, act on it. If the charter is executable, enable Execute. If it genuinely is not, set suggest_compact: true once — do not set it every turn. After it is set, do not set it again in the same conversation.
+If you receive a CONTEXT NOTE or CONTEXT ALERT above the conversation, act on it. If the charter is executable, enable Execute. If it genuinely is not, set suggest_compact: true once — do not set it every turn.
 
 DEPLOYMENT CHECK — do this once per project, not every session:
-Look at the project context provided above (from .swarm/PROJECT.md). Check whether a "## Deployment" section already has real content.
+Look at the project context provided. Check whether a "## Deployment" section already has real content.
 - If it does: skip — do not ask about deployment again.
-- If it is absent, blank, or says "unknown" / "to be discovered": ask once, early in the conversation (first or second exchange). Keep it brief: "How does this project get deployed when it's ready?" Accept any answer — git push, manual upload, CI/CD, "I'll handle it myself", or "not sure yet". Record whatever they say in deployment_info. This is background context, not a blocker.
+- If absent or blank: ask once, early (first or second exchange). Accept any answer. Record in deployment_info.
 Never ask about deployment more than once.
 
 WHAT YOU ARE DOING:
-Assembling a Project Charter through conversation. The current charter state is injected above as structured data — treat it as authoritative. You do not need to re-derive it from the conversation. Your job is to fill in what is missing, challenge what is wrong, and enable Execute when the charter is complete enough to act on.
+Assembling a Project Charter through conversation. The current charter state is injected above as structured data — treat it as authoritative. Your job is to fill in what is missing, challenge what is wrong, and enable Execute when the charter is complete enough to act on.
 
-Only the RECENT conversation is shown (last few exchanges). Earlier exchanges have already been absorbed into the charter state above.
-
-CHARTER FIELDS — extract as they become clear:
-- goal: One sentence. What is concretely being built or fixed. Set this ONCE when you first understand the goal. If charter state already shows a goal, do NOT update it unless the user is explicitly changing scope — never overwrite the goal with user feedback or follow-up messages.
-- new_constraints: Technical or product constraints. Add only genuinely new ones.
-- new_nongoals: Explicit out-of-scope items. Propose these; the user can push back. IMPORTANT: if you say "I've added a non-goal" or "out of scope: X" in your reply, you MUST include it in new_nongoals. Don't just say it — set it.
-- new_questions: Open questions you're raising that aren't yet answered.
-- resolved_question: If the user just answered an open question, resolve it (index and answer).
-
-CRITICAL — JSON fields must match your words:
-If your reply says "Execute is live" or "I've enabled Execute", you MUST set enable_execute: true. If you say "I've added constraint X", you MUST include it in new_constraints. If you say "non-goal: Y", you MUST include it in new_nongoals. The UI is driven entirely by the JSON fields — if you forget to set them, nothing will update.
+CHARTER FIELDS:
+- charter_updates.goal: Your clearest current formulation of what is being built. REFINE this as the conversation clarifies scope — goals evolve through discussion. The first message is often rough; as you ask questions and understand better, set a tighter version. If the user's clarification reveals the real goal is subtly different, update it. Always set it to the most precise version you have.
+- charter_updates.new_constraints: Technical or product constraints. Add only genuinely new ones.
+- charter_updates.new_nongoals: Explicit out-of-scope items. PROPOSE these yourself after understanding the goal — don't wait for the user to volunteer them. If you say "out of scope: X" in your reply, include it here.
+- charter_updates.new_questions: Open questions you're raising that aren't yet answered.
+- charter_updates.resolved_question: If the user just answered an open question, resolve it (index, answer).
 
 TEAM RECOMMENDATION — set team_add when ready:
 - "coder" — always
-- "reviewer" — ALWAYS when coder is on the team. Non-negotiable. A coder without a reviewer is not a complete team. No code ships without review. The only exception is a single-line config value change where there is genuinely nothing architectural to review.
+- "reviewer" — ALWAYS when coder is on the team. Non-negotiable. A coder without a reviewer is not a complete team. No code ships without review.
 - "tester" — always for features and greenfield; optional for trivial single-line bug fixes only
 - "security" — whenever there's SQL, auth, user input, API keys, crypto, or file system access in scope
 
@@ -89,64 +105,17 @@ If the user mentions SQL queries with user-controlled input, authentication, pas
 
 ENABLE EXECUTE — use judgment, not a checklist:
 Enable Execute when the goal is clear enough that agents can start without stalling mid-task.
-- NEVER on the first exchange, even if the request seems complete. You must always do at least one scoping round before enabling Execute.
+- NEVER on the first exchange, even if the request seems complete. Always do at least one scoping round first.
 - Required always: goal is specific, success condition is clear, team is recommended.
-- Required for features and above: at least one constraint AND one non-goal have been stated. Don't wait for the user to volunteer these — PROPOSE them yourself after the first exchange. Say something like: "A few assumptions I'm making: [constraint]. Out of scope: [non-goal]. Does that match?" Once acknowledged, you can enable Execute.
-- For bug fixes only: constraints and non-goals can be light or absent if the problem statement is already precise enough that an agent won't stall.
-- Do NOT enable Execute if a critical open question is unresolved. Ask first, then enable.
-- Do NOT enable Execute in the same message where you are asking a question. Resolve questions first.
+- Required for features and above: at least one constraint AND one non-goal have been stated. PROPOSE these yourself after the first exchange — "A few assumptions: [constraint]. Out of scope: [non-goal]. Does that match?" Once acknowledged, enable Execute.
+- For bug fixes only: constraints and non-goals can be light if the problem is precise enough that an agent won't stall.
+- Do NOT enable Execute if a critical open question is unresolved.
+- Do NOT enable Execute in the same message as an unanswered question.
 
-RESPONSE FORMAT — CRITICAL:
-Your ENTIRE response must be a single valid JSON object. No preamble, no markdown, no text outside the JSON.
-Start with { and end with }. Nothing before the opening brace.
-The "reply" field is your natural conversational response to the user. The structured fields are silent metadata.
-Never reference the JSON structure in your reply.`;
+RESPONSE — CRITICAL:
+You MUST call the \`submit_pm_response\` tool to deliver your response. Plain text output is ignored entirely — only the tool call is processed. Call it exactly once per turn.`;
 
-// ─── JSON schema ─────────────────────────────────────────────────────────────
-
-const SCHEMA = JSON.stringify({
-  type: 'object',
-  required: ['reply'],
-  properties: {
-    reply: {
-      type: 'string',
-      description: 'Your natural, conversational response to the user as the PM.',
-    },
-    security_interject: {
-      type: 'string',
-      description: 'One-line security concern from the Security specialist. Omit if none.',
-    },
-    deployment_info: {
-      type: 'string',
-      description: 'One-line summary of how this project is deployed. Set only when first learned — omit on all other turns.',
-    },
-    charter_updates: {
-      type: 'object',
-      properties: {
-        goal:             { type: 'string' },
-        new_constraints:  { type: 'array', items: { type: 'string' } },
-        new_nongoals:     { type: 'array', items: { type: 'string' } },
-        new_questions:    { type: 'array', items: { type: 'string' } },
-        resolved_question: {
-          type: 'object',
-          properties: {
-            index:  { type: 'number', description: 'Index of the question being resolved (0-based)' },
-            answer: { type: 'string' },
-          },
-          required: ['index', 'answer'],
-        },
-      },
-    },
-    team_add:       { type: 'array', items: { type: 'string', enum: ['coder', 'tester', 'security', 'reviewer', 'negotiator'] } },
-    enable_execute:  { type: 'boolean' },
-    suggest_compact: {
-      type: 'boolean',
-      description: 'Set true when the conversation is getting long and would benefit from being compacted. The UI will show a compact button to the user.',
-    },
-  },
-});
-
-// ─── Format conversation for the prompt ───────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatHistory(history: HistoryMessage[]): string {
   if (!history.length) return '(no prior conversation)';
@@ -156,18 +125,9 @@ function formatHistory(history: HistoryMessage[]): string {
   }).join('\n');
 }
 
-// ─── Context monitoring ───────────────────────────────────────────────────────
-// Rough estimate: 1 token ≈ 4 characters. Conservative but good enough for
-// deciding whether to nudge the PM toward wrapping up.
-
 function estimateTokens(...parts: (string | null | undefined)[]): number {
-  const total = parts.reduce((sum, p) => sum + (p?.length ?? 0), 0);
-  return Math.ceil(total / 4);
+  return Math.ceil(parts.reduce((sum, p) => sum + (p?.length ?? 0), 0) / 4);
 }
-
-// ─── Charter formatter ────────────────────────────────────────────────────────
-// Renders the structured charter as a compact block injected into every PM call.
-// This is the PM's persistent memory — replaces the need for full conversation history.
 
 function formatCharter(charter: PmCharter | null, team: string[]): string {
   if (!charter && !team.length) return '';
@@ -182,13 +142,13 @@ function formatCharter(charter: PmCharter | null, team: string[]): string {
 
 function contextNote(estimatedTokens: number, exchangeCount: number): string {
   if (estimatedTokens > 30_000) {
-    return `CONTEXT ALERT: This conversation is using ~${Math.round(estimatedTokens / 1000)}k estimated tokens (context window: 200k). If the charter is ready, enable Execute. Otherwise set suggest_compact: true so the user can compact the conversation.`;
+    return `CONTEXT ALERT: ~${Math.round(estimatedTokens / 1000)}k estimated tokens. If charter is ready, enable Execute. Otherwise set suggest_compact: true.`;
   }
   if (exchangeCount >= 12) {
-    return `CONTEXT NOTE: This conversation has had ${exchangeCount} user exchanges — that is unusually long for planning. If the charter is solid enough to execute, do so. If it is genuinely stuck, set suggest_compact: true.`;
+    return `CONTEXT NOTE: ${exchangeCount} exchanges — consider whether you have enough to enable Execute or set suggest_compact: true.`;
   }
   if (exchangeCount >= 8) {
-    return `CONTEXT NOTE: ${exchangeCount} exchanges in — consider whether you have enough to enable Execute. Planning should be brief.`;
+    return `CONTEXT NOTE: ${exchangeCount} exchanges in — consider enabling Execute if the charter is solid enough.`;
   }
   return '';
 }
@@ -201,43 +161,50 @@ export async function runPmMessage(
   charter?: PmCharter,
   team?:    string[],
 ): Promise<PmResponse> {
-  const cfg        = getConfigOptional();
+  getConfigOptional();
   const projectCtx = loadProjectContext();
 
-  // When the charter is provided, only send the last 6 messages — the structured
-  // charter captures everything that matters; recent exchanges provide flow context.
-  const recentHistory = charter ? history.slice(-6) : history;
-
+  const recentHistory   = charter ? history.slice(-6) : history;
   const exchangeCount   = history.filter(m => m.from === 'you').length;
   const charterBlock    = formatCharter(charter ?? null, team ?? []);
   const estimatedTokens = estimateTokens(PM_SYSTEM, projectCtx, charterBlock, formatHistory(recentHistory), text);
   const ctxNote         = contextNote(estimatedTokens, exchangeCount);
 
   const conversationPrompt = [
-    projectCtx   ? `Project context (.swarm/PROJECT.md):\n${projectCtx}\n`     : '',
-    charterBlock ? `${charterBlock}\n`                                           : '',
+    projectCtx   ? `Project context (.swarm/PROJECT.md):\n${projectCtx}\n`  : '',
+    charterBlock ? `${charterBlock}\n`                                        : '',
     recentHistory.length
       ? `Recent conversation:\n${formatHistory(recentHistory)}\n`
       : '',
     `User's latest message: ${text}`,
     ctxNote ? `\n${ctxNote}` : '',
     '',
-    'Continue as the PM. Reply to the user and update the charter as appropriate.',
-    // JSON enforcement suffix — placed in the user message (read last, higher weight than system prompt)
-    // because --json-schema without tools does not force JSON output from claude --print.
-    '\nIMPORTANT: Your response MUST be ONLY a valid JSON object. Start with { end with }. Example:',
-    '{"reply":"your conversational reply here","charter_updates":{"goal":"if set"},"enable_execute":false}',
+    'Continue as the PM. Call submit_pm_response with your reply and any charter updates.',
   ].filter(Boolean).join('\n');
+
+  // ── Temp output file — the MCP server writes the tool args here ─────────────
+  const outputPath = path.join(os.tmpdir(), `pm-output-${randomUUID()}.json`);
+
+  // ── Inline MCP config — passed directly to --mcp-config as a JSON string ───
+  const mcpConfig = JSON.stringify({
+    mcpServers: {
+      pm_responder: {
+        command: 'node',
+        args:    [MCP_SERVER],
+        env:     { PM_OUTPUT_PATH: outputPath },
+      },
+    },
+  });
 
   const args = [
     '--print',
     '--dangerously-skip-permissions',
-    '--output-format',  'json',
-    '--json-schema',    SCHEMA,
-    '--system-prompt',  PM_SYSTEM,
+    '--output-format',  'json',           // envelope gives us cost_usd
     '--no-session-persistence',
-    // Note: --allowedTools is variadic; omit it for the PM (no tools needed)
-    // and use -- to signal end-of-options before the prompt argument.
+    '--strict-mcp-config',                // ignore all other MCP servers
+    '--mcp-config',     mcpConfig,
+    '--allowedTools',   'mcp__pm_responder__submit_pm_response',
+    '--system-prompt',  PM_SYSTEM,
     '--',
     conversationPrompt,
   ];
@@ -256,157 +223,63 @@ export async function runPmMessage(
 
     const timer = setTimeout(() => {
       proc.kill();
+      try { fs.unlinkSync(outputPath); } catch { /* ok */ }
       reject(new Error('PM response timed out after 90s'));
     }, 90_000);
 
     proc.on('error', (err: Error) => {
       clearTimeout(timer);
+      try { fs.unlinkSync(outputPath); } catch { /* ok */ }
       reject(new Error(`Failed to spawn claude: ${err.message}`));
     });
 
     proc.on('close', (code: number | null) => {
       clearTimeout(timer);
 
-      // Always try to parse stdout first — claude exits 1 even for valid JSON
-      // responses when is_error: true (e.g. API errors). Include stdout in the
-      // error message so we can see the real cause.
-      let envelope: { result: unknown; is_error?: boolean; cost_usd?: number } | null = null;
-      try { envelope = JSON.parse(stdout); } catch { /* handled below */ }
-
-      if (code !== 0) {
-        if (envelope?.is_error) {
+      // Log cost if available (envelope may or may not parse cleanly)
+      try {
+        const envelope = JSON.parse(stdout) as { cost_usd?: number; is_error?: boolean; result?: unknown };
+        if (envelope.cost_usd) console.log(`[pm] cost: $${envelope.cost_usd.toFixed(4)}`);
+        if (envelope.is_error) {
+          try { fs.unlinkSync(outputPath); } catch { /* ok */ }
           reject(new Error(`claude API error: ${JSON.stringify(envelope.result).slice(0, 300)}`));
-        } else {
-          const detail = stderr.slice(0, 300) || stdout.slice(0, 300) || '(no output)';
-          reject(new Error(`claude exited ${code}: ${detail}`));
+          return;
         }
+      } catch { /* envelope not parseable — not fatal, carry on */ }
+
+      if (code !== 0 && !fs.existsSync(outputPath)) {
+        const detail = stderr.slice(0, 300) || stdout.slice(0, 300) || '(no output)';
+        reject(new Error(`claude exited ${code}: ${detail}`));
         return;
       }
 
-      if (!envelope) {
-        reject(new Error(`PM output not valid JSON: ${stdout.slice(0, 200)}`));
+      // Read the structured response written by the MCP server
+      if (!fs.existsSync(outputPath)) {
+        reject(new Error('PM did not call submit_pm_response — check server logs'));
         return;
       }
 
-      if (envelope.is_error) {
-        reject(new Error(`PM error: ${JSON.stringify(envelope.result)}`));
-        return;
-      }
-
-      // Debug: log what claude actually returned so we can see its format
-      console.log('[pm] result type:', typeof envelope.result, '| preview:', JSON.stringify(envelope.result)?.slice(0, 300));
-
-      // With --json-schema, claude may return result as an already-parsed object,
-      // a JSON string, or (if the schema wasn't enforced) raw text.
       let data: Record<string, unknown>;
-      const raw = typeof envelope.result === 'string' ? envelope.result : null;
-      if (typeof envelope.result === 'object' && envelope.result !== null) {
-        data = envelope.result as Record<string, unknown>;
-      } else if (raw !== null) {
-        // Try to extract JSON if model wrapped it in markdown fences
-        const stripped = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
-        try {
-          data = JSON.parse(stripped);
-        } catch {
-          // If the result looks like a JSON object, try that; otherwise use reply fallback
-          const match = stripped.match(/\{[\s\S]*\}/);
-          if (match) {
-            try { data = JSON.parse(match[0]); }
-            catch { reject(new Error(`PM result not parseable JSON: ${stripped.slice(0, 200)}`)); return; }
-          } else {
-            // Plain text response — wrap as reply and extract key signals.
-            data = { reply: stripped };
-            const lower = stripped.toLowerCase();
-
-            // ── 1. Extract goal from the current user message ──────────────
-            // The user's feature request IS the goal. Skip if it's clearly a
-            // question (ends with "?") or a conversational opener rather than
-            // a feature description.
-            const trimmedText = text.trim();
-            const isQuestion = trimmedText.endsWith('?');
-            const questionStarters = /^(do |can |could |should |would |is |are |was |were |has |have |did |does |what |why |how |when |who )/i;
-            const isConversational = isQuestion || questionStarters.test(trimmedText) || trimmedText.length < 30;
-
-            if (!isConversational && trimmedText.length < 800) {
-              data.charter_updates = { goal: trimmedText };
-            } else if (!isConversational) {
-              // Fall back to most recent substantive non-question user message
-              const prev = [...history].reverse().find(m =>
-                m.from === 'you' && m.text.length > 30 && !m.text.trim().endsWith('?')
-              );
-              if (prev) data.charter_updates = { goal: prev.text };
-            }
-
-            // ── 2. Detect execute-readiness ───────────────────────────────
-            // Any of these patterns in the PM reply means "ready to go".
-            const executeSignals = [
-              'execute is enabled', 'execute is active', 'execute is now enabled',
-              'hit execute', 'kick off the run', 'kick it off', 'ready to execute',
-              'ready when you are', 'whenever you\'re ready', 'whenever you are ready',
-              'team will pick it up', 'team is staffed', 'staffed and ready',
-              'start the run', 'enough to start', 'go ahead', 'good to go',
-              'coder, tester', 'coder and tester', // PM listing team = it's staffed
-            ];
-            if (executeSignals.some(s => lower.includes(s))) {
-              data.enable_execute = true;
-            }
-
-            // ── 3. Extract team from PM's text ────────────────────────────
-            if (!data.team_add) {
-              const team: string[] = [];
-              if (lower.includes('coder'))    team.push('coder');
-              if (lower.includes('tester'))   team.push('tester');
-              if (lower.includes('reviewer') || lower.includes('code reviewer')) team.push('reviewer');
-              if (lower.includes('security')) team.push('security');
-              if (team.length > 0) data.team_add = team;
-              else if (data.enable_execute)  data.team_add = ['coder', 'tester', 'reviewer'];
-            }
-          }
-        }
-      } else {
-        reject(new Error(`PM result was null`));
+      try {
+        data = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
+      } catch (err) {
+        reject(new Error(`Failed to read PM output file: ${err}`));
         return;
+      } finally {
+        try { fs.unlinkSync(outputPath); } catch { /* ok */ }
       }
+
+      console.log('[pm] tool call captured — reply length:', String(data.reply ?? '').length);
 
       const cu = (data.charter_updates ?? {}) as Record<string, unknown>;
       const rv = cu.resolved_question as { index: number; answer: string } | undefined;
 
-      // ── Execute signal detection from reply text ──────────────────────────────
-      // The PM sometimes says "Execute is live" in its reply but forgets to set
-      // enable_execute: true in the JSON fields. Detect it from the text as a fallback.
-      const replyLower = String(data.reply ?? '').toLowerCase();
-      const executeInReply = [
-        'execute is live', 'execute is enabled', 'execute is now enabled',
-        "execute's enabled", "i've enabled execute", 'execute is on',
-        'cleared to execute', 'execute is active',
-      ];
-      if (!data.enable_execute && executeInReply.some(s => replyLower.includes(s))) {
-        console.log('[pm] execute signal detected in reply text — setting enable_execute');
-        data.enable_execute = true;
-      }
-
-      // ── Goal protection ───────────────────────────────────────────────────────
-      // If charter already has a goal AND the PM's goal update matches the user's
-      // current message, it's the PM erroneously echoing the user's feedback as a
-      // goal update. Discard it.
-      if (cu.goal && charter?.goal && charter.goal.length > 20) {
-        const proposedGoal = String(cu.goal).trim().toLowerCase();
-        const userMsg      = text.trim().toLowerCase();
-        if (proposedGoal === userMsg || proposedGoal.includes(userMsg.slice(0, 40))) {
-          console.log('[pm] discarding goal update that mirrors user message');
-          delete cu.goal;
-        }
-      }
-
       // ── Server-side team enforcement ──────────────────────────────────────────
-      // Even if the PM forgets, enforce minimum team composition:
-      // - reviewer is ALWAYS required alongside coder
+      // Belt-and-braces: even if the PM omits reviewer, add it when execute fires.
       let resolvedTeam = Array.isArray(data.team_add) ? data.team_add.map(String) : undefined;
-      if (Boolean(data.enable_execute) && resolvedTeam) {
-        if (resolvedTeam.includes('coder') && !resolvedTeam.includes('reviewer')) {
-          console.log('[pm] enforcing reviewer — always required with coder');
-          resolvedTeam = [...resolvedTeam, 'reviewer'];
-        }
+      if (Boolean(data.enable_execute) && resolvedTeam?.includes('coder') && !resolvedTeam.includes('reviewer')) {
+        console.log('[pm] enforcing reviewer — always required with coder');
+        resolvedTeam = [...resolvedTeam, 'reviewer'];
       }
 
       resolve({
@@ -415,14 +288,14 @@ export async function runPmMessage(
         deploymentInfo:     data.deployment_info    ? String(data.deployment_info)    : undefined,
         suggestCompact:     Boolean(data.suggest_compact) || undefined,
         charterUpdates: {
-          goal:             cu.goal ? String(cu.goal) : undefined,
+          goal:             cu.goal             ? String(cu.goal)                              : undefined,
           newConstraints:   Array.isArray(cu.new_constraints) ? cu.new_constraints.map(String) : undefined,
           newNongoals:      Array.isArray(cu.new_nongoals)    ? cu.new_nongoals.map(String)    : undefined,
           newQuestions:     Array.isArray(cu.new_questions)   ? cu.new_questions.map(String)   : undefined,
           resolvedQuestion: rv,
         },
-        teamAdd:        resolvedTeam,
-        enableExecute:  Boolean(data.enable_execute),
+        teamAdd:       resolvedTeam,
+        enableExecute: Boolean(data.enable_execute),
       });
     });
   });
