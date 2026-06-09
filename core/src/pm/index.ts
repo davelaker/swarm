@@ -322,13 +322,14 @@ export async function runPmMessage(
               if (!data.team_add) data.team_add = ['coder', 'tester', 'reviewer'];
             }
 
-            // Try to extract the goal from the last user message in history
-            // (the PM's job is to confirm it; if it says "ready", the last feature
-            // description from the user IS the goal)
+            // Use the current user message as the goal when PM says "ready".
+            // `text` IS the user's current message (history only has prior turns).
             if (data.enable_execute && !data.charter_updates) {
-              const lastUserMsg = [...history].reverse().find(m => m.from === 'you');
-              if (lastUserMsg && lastUserMsg.text.length > 20 && lastUserMsg.text.length < 500) {
-                data.charter_updates = { goal: lastUserMsg.text };
+              // Prefer the current message if it looks like a feature description
+              const candidate = text.length > 20 && text.length < 600 ? text
+                : [...history].reverse().find(m => m.from === 'you' && m.text.length > 20)?.text;
+              if (candidate) {
+                data.charter_updates = { goal: candidate };
               }
             }
           }

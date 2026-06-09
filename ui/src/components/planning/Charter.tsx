@@ -59,7 +59,7 @@ export function Charter({ charter, team, phase, projectName, projectMd, contextF
 
         <Section num="02" label="Constraints"    items={charter.constraints} kind="con" mk="▸" optional active={active} />
         <Section num="03" label="Non-goals"      items={charter.nongoals}    kind="non" mk="✕" optional active={active} />
-        <Section num="04" label="Open questions" items={charter.questions}   kind="q"   mk="?"           active={active} />
+        <Section num="04" label="Open questions" items={charter.questions}   kind="q"   mk="?" optional active={active} />
 
         <div className="csec">
           <div className="csec-label">
