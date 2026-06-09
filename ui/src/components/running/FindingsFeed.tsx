@@ -135,7 +135,7 @@ function FindingCard({ f, tasks }: { f: Finding; tasks: Task[] }) {
         )}
         <span className={`vchip ${chip.cls}`}>{chip.label}</span>
       </div>
-      {sum && <div className="finding-summary">{sum}</div>}
+      {sum && !open && <div className="finding-summary">{sum}</div>}
       {open && (
         <div className="finding-body anim-in">
           <div className="fb-inner">
