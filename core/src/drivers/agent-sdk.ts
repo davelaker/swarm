@@ -114,9 +114,14 @@ async function runClaude(opts: {
     '--output-format', 'json',
     '--json-schema', opts.schema,
     '--system-prompt', opts.systemPrompt,
-    '--allowedTools', opts.allowedTools.join(','),
     '--no-session-persistence',
   ];
+
+  if (opts.allowedTools.length) {
+    // --allowedTools is variadic (<tools...>) so it must come before --
+    // or it will consume the prompt as another tool name.
+    args.push('--allowedTools', opts.allowedTools.join(','));
+  }
 
   if (opts.model) {
     args.push('--model', opts.model);
@@ -126,8 +131,9 @@ async function runClaude(opts: {
     args.push('--max-budget-usd', String(opts.maxBudgetUsd ?? cfg.hardCapUsd));
   }
 
-  // Append prompt as the final positional argument
-  args.push(opts.userPrompt);
+  // Use -- to terminate option parsing before the positional prompt argument.
+  // Without this, --allowedTools (variadic) would consume the prompt as a tool name.
+  args.push('--', opts.userPrompt);
 
   if (opts.verbose) {
     console.log(`  [agent-sdk] claude ${args.slice(0, 6).join(' ')} …`);

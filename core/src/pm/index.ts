@@ -227,7 +227,9 @@ export async function runPmMessage(
     '--json-schema',    SCHEMA,
     '--system-prompt',  PM_SYSTEM,
     '--no-session-persistence',
-    '--allowedTools',   '', // PM needs no tools — just reasoning
+    // Note: --allowedTools is variadic; omit it for the PM (no tools needed)
+    // and use -- to signal end-of-options before the prompt argument.
+    '--',
     conversationPrompt,
   ];
 
