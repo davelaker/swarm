@@ -309,28 +309,45 @@ export async function runPmMessage(
             try { data = JSON.parse(match[0]); }
             catch { reject(new Error(`PM result not parseable JSON: ${stripped.slice(0, 200)}`)); return; }
           } else {
-            // Plain text response — wrap as reply and extract key signals
+            // Plain text response — wrap as reply and extract key signals.
             data = { reply: stripped };
-
-            // Detect execute-readiness from PM's language
             const lower = stripped.toLowerCase();
-            const executePhrases = ['hit execute', 'ready when you are', 'team will pick it up',
-              'go ahead and execute', 'proceed', 'kick it off', 'start the run', 'enough to start'];
-            if (executePhrases.some(p => lower.includes(p))) {
-              data.enable_execute = true;
-              // Default team for a feature task when PM didn't specify
-              if (!data.team_add) data.team_add = ['coder', 'tester', 'reviewer'];
+
+            // ── 1. Extract goal from the current user message (always) ──────
+            // The user's feature request IS the goal. We don't need the PM to
+            // confirm it in JSON — the message itself is the spec.
+            const isFeatureMsg = text.trim().length > 30 && text.trim().length < 800;
+            if (isFeatureMsg) {
+              data.charter_updates = { goal: text.trim() };
+            } else {
+              // Fall back to most recent substantive user message in history
+              const prev = [...history].reverse().find(m => m.from === 'you' && m.text.length > 30);
+              if (prev) data.charter_updates = { goal: prev.text };
             }
 
-            // Use the current user message as the goal when PM says "ready".
-            // `text` IS the user's current message (history only has prior turns).
-            if (data.enable_execute && !data.charter_updates) {
-              // Prefer the current message if it looks like a feature description
-              const candidate = text.length > 20 && text.length < 600 ? text
-                : [...history].reverse().find(m => m.from === 'you' && m.text.length > 20)?.text;
-              if (candidate) {
-                data.charter_updates = { goal: candidate };
-              }
+            // ── 2. Detect execute-readiness ───────────────────────────────
+            // Any of these patterns in the PM reply means "ready to go".
+            const executeSignals = [
+              'execute is enabled', 'execute is active', 'execute is now enabled',
+              'hit execute', 'kick off the run', 'kick it off', 'ready to execute',
+              'ready when you are', 'whenever you\'re ready', 'whenever you are ready',
+              'team will pick it up', 'team is staffed', 'staffed and ready',
+              'start the run', 'enough to start', 'go ahead', 'good to go',
+              'coder, tester', 'coder and tester', // PM listing team = it's staffed
+            ];
+            if (executeSignals.some(s => lower.includes(s))) {
+              data.enable_execute = true;
+            }
+
+            // ── 3. Extract team from PM's text ────────────────────────────
+            if (!data.team_add) {
+              const team: string[] = [];
+              if (lower.includes('coder'))    team.push('coder');
+              if (lower.includes('tester'))   team.push('tester');
+              if (lower.includes('reviewer') || lower.includes('code reviewer')) team.push('reviewer');
+              if (lower.includes('security')) team.push('security');
+              if (team.length > 0) data.team_add = team;
+              else if (data.enable_execute)  data.team_add = ['coder', 'tester', 'reviewer'];
             }
           }
         }
