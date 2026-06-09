@@ -217,6 +217,7 @@ export async function runLoop(): Promise<LoopResult> {
         continue;
       }
       appendLog('pm', 'all tasks done');
+      bus.emit('swarm', { type: 'agent.finished', agent_id: 'pm' });
       console.log('\n  ✓ all tasks done\n');
       return { status: 'done', totalCostUsd: totalCost, message: 'All tasks completed successfully.' };
     }
@@ -236,7 +237,11 @@ export async function runLoop(): Promise<LoopResult> {
     );
     const inProg   = state.tasks.filter(t => t.status === 'in_progress');
 
-    if (!runnable.length && inProg.length) { await sleep(POLL_MS); continue; }
+    if (!runnable.length && inProg.length) {
+      const who = inProg.map(t => t.assignee).join(', ');
+      bus.emit('swarm', { type: 'agent.progress', agent_id: 'pm', step: `waiting for ${who}…` });
+      await sleep(POLL_MS); continue;
+    }
 
     if (!runnable.length && !inProg.length) {
       const blocked = state.tasks.filter(t => t.status === 'blocked');
@@ -272,6 +277,7 @@ export async function runLoop(): Promise<LoopResult> {
       },
     });
     appendLog('pm', `dispatching ${task.id} → ${task.assignee} (attempt ${task.attempts + 1})`);
+    bus.emit('swarm', { type: 'agent.progress', agent_id: 'pm', step: `dispatching ${task.assignee}…` });
     console.log(`  → ${task.id} [${task.assignee}]: "${task.title}"`);
 
     const heartbeat = setInterval(() => {

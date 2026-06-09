@@ -42,10 +42,20 @@ interface SessionState {
 
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-function storageKey(project: string): string {
-  // Sanitise project name so it's safe as a storage key
-  const safe = project.replace(/[^a-z0-9_-]/gi, '_').slice(0, 40) || 'default';
-  return `swarm-session-v1-${safe}`;
+// Fixed storage key — NOT project-scoped.
+//
+// Why: the project name comes from an async /state fetch, so on first render the
+// hook always starts with project = 'default'. If we keyed by project name, the
+// lazy initializer would load from 'default' but persist() would save under the
+// real project name once it loaded — so the next refresh would find nothing under
+// 'default' and start a fresh session.
+//
+// For a single-user localhost tool this is fine. When multi-project isolation
+// becomes necessary, the right fix is to put the project name in the URL so it's
+// available synchronously before any rendering.
+const STORAGE_KEY = 'swarm-session-v1';
+function storageKey(_project: string): string {
+  return STORAGE_KEY;
 }
 
 type PersistedState = Pick<SessionState,

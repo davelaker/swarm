@@ -24,6 +24,12 @@ type SseClient = http.ServerResponse;
 
 const clients = new Set<SseClient>();
 
+// ─── Active-run guard ─────────────────────────────────────────────────────────
+// Prevents a second Execute while agents are running. Without this, an HMR
+// hot-reload during a run would dump the user back on Planning with Execute
+// still enabled — a second click would spawn duplicate agents.
+let activeRun = false;
+
 function sendSse(res: SseClient, event: SwarmEvent): void {
   res.write(`data: ${JSON.stringify(event)}\n\n`);
 }
@@ -154,7 +160,7 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       // for api-key we know the exact model ID from config.
       const model  = driver === 'agent-sdk' ? null : cfg.coderModel;
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ ...state, driver, model }));
+      res.end(JSON.stringify({ ...state, driver, model, activeRun }));
     } catch {
       res.writeHead(503, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'No .swarm/state.json — run `swarm init` first.' }));
@@ -262,6 +268,9 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
       return;
     }
     if (route === '/run/execute') {
+      if (activeRun) {
+        res.writeHead(409); res.end(JSON.stringify({ error: 'A run is already in progress' })); return;
+      }
       const { goal, charter, team } = payload as {
         goal?:    string;
         charter?: { constraints: string[]; nongoals: string[]; questions: string[] };
@@ -270,11 +279,17 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
       if (!goal?.trim()) {
         res.writeHead(400); res.end(JSON.stringify({ error: 'goal required' })); return;
       }
+      activeRun = true;
       res.writeHead(200); res.end(JSON.stringify({ ok: true }));
       console.log(`\n  ▸ execute: "${goal}"\n`);
-      runNew(goal.trim(), charter, team).catch(err =>
-        console.error('  ✗ execute error:', (err as Error).message)
-      );
+      runNew(goal.trim(), charter, team)
+        .catch(err => {
+          const msg = (err as Error).message ?? 'Unknown error';
+          console.error('  ✗ execute error:', msg);
+          // Surface the failure to the UI via SSE so the user knows what happened.
+          fanout({ type: 'run.blocked', reason: msg });
+        })
+        .finally(() => { activeRun = false; });
       return;
     }
     if (route === '/run/pause') {

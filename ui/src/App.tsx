@@ -13,8 +13,21 @@ export interface RunCharter {
   questions:   string[];
 }
 
+// ─── Surface persistence ──────────────────────────────────────────────────────
+// Survives HMR and accidental refreshes. Without this, pressing Execute and
+// then triggering a hot-reload dumps the user back to Planning — with the
+// Execute button re-enabled — while agents are still running server-side.
+const SURFACE_KEY = 'swarm-surface-v1';
+function loadSurface(): Surface {
+  try {
+    const v = localStorage.getItem(SURFACE_KEY);
+    if (v === 'running' || v === 'planning' || v === 'marketplace') return v as Surface;
+  } catch { /* private mode or quota — ignore */ }
+  return 'planning';
+}
+
 export function App() {
-  const [surface,      setSurface]      = useState<Surface>('planning');
+  const [surface,      setSurface]      = useState<Surface>(loadSurface);
   const [executable,        setExecutable]        = useState(false);
   const [executableReason,  setExecutableReason]  = useState('Complete the planning conversation to unlock Execute');
   const [runGoal,           setRunGoal]           = useState('');
@@ -32,10 +45,14 @@ export function App() {
     const probe = () => {
       fetch('/state', { signal: AbortSignal.timeout(2000) })
         .then(r => { if (!r.ok) throw new Error(); return r.json(); })
-        .then((s: { project?: string; driver?: string; model?: string | null }) => {
+        .then((s: { project?: string; driver?: string; model?: string | null; activeRun?: boolean }) => {
           if (!mounted) return;
           setServerStatus('up');
           if (s.project) setProjectName(s.project);
+          // If the server says a run is active, snap to the Running tab regardless
+          // of what localStorage says — guards against the page being closed and
+          // reopened mid-run without localStorage being set.
+          if (s.activeRun) setSurface('running');
           // driver: 'agent-sdk' → Max plan credit pool; 'api-key' → show model name
           if (s.driver === 'agent-sdk') {
             setModelLabel('Max plan');
@@ -51,6 +68,11 @@ export function App() {
     probe();
     return () => { mounted = false; if (timer) clearTimeout(timer); };
   }, []);
+
+  // Persist surface so HMR / refresh restores the active tab.
+  useEffect(() => {
+    try { localStorage.setItem(SURFACE_KEY, surface); } catch { /* ignore */ }
+  }, [surface]);
 
   const handleExecutable = useCallback((v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => {
     setExecutable(v);

@@ -6,7 +6,12 @@ import { classify }  from '../agents/classifier.js';
 import { runLoop }   from '../loop.js';
 import { resetControl } from '../loop-control.js';
 import { getConfig } from '../config.js';
+import { bus }       from '../state/events.js';
 import type { Task, Tier, RunCharter } from '../state/types.js';
+
+function pmProgress(step: string): void {
+  bus.emit('swarm', { type: 'agent.progress', agent_id: 'pm', step });
+}
 
 // ─── Git safety fence ─────────────────────────────────────────────────────────
 // Refuses to run if the working tree has uncommitted changes that could be
@@ -84,21 +89,29 @@ export async function runNew(
 ): Promise<void> {
   const cfg = getConfig();
 
+  // Signal PM is active — visible immediately in the agents panel before
+  // any state.json changes land (classification can take 5–15s).
+  bus.emit('swarm', { type: 'agent.started', agent_id: 'pm' });
+  pmProgress('checking working tree…');
+
   // ── Git safety check ───────────────────────────────────────────────────────
   checkGitClean();
 
   // ── Bootstrap workspace ────────────────────────────────────────────────────
   if (!fs.existsSync(stateFile())) {
     const project = path.basename(process.cwd());
+    pmProgress('initialising workspace…');
     initWorkspace(project, goal);
     console.log(`  ✓ .swarm/ initialised for "${project}"\n`);
   }
 
   // ── Tier classification ────────────────────────────────────────────────────
+  pmProgress('classifying goal…');
   console.log('  ▸ classifying goal…');
   const cls = await classify(goal);
   console.log(`  ✓ tier: ${cls.tier.toUpperCase()}${cls.sensitive ? ' + sensitive path detected' : ''}`);
   console.log(`    ${cls.reasoning}\n`);
+  pmProgress(`tier: ${cls.tier}${cls.sensitive ? ' · sensitive' : ''} — building task graph…`);
 
   // ── Reset abort/pause state from any prior run ─────────────────────────────
   resetControl();
@@ -121,6 +134,7 @@ export async function runNew(
   const tasks = buildTaskGraph(goal, cls.tier, cls.sensitive, cfg);
   for (const t of tasks) addTask(t);
   appendLog('pm', `graph: ${tasks.map(t => `${t.id}→${t.assignee}`).join(', ')} [${cls.tier}]`);
+  pmProgress(`graph ready · ${tasks.length} task${tasks.length === 1 ? '' : 's'} · starting agents…`);
 
   if (charter?.constraints?.length) {
     appendLog('pm', `constraints: ${charter.constraints.join(' | ')}`);

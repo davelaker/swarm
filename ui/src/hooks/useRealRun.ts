@@ -71,7 +71,7 @@ function adaptTask(t: ServerTask, lane: number, prev?: Task): Task {
 const BLANK_METRICS = { inputTokens: null, outputTokens: null, costUsd: null, contextPct: null };
 
 function initAgents(): Record<string, AgentState> {
-  const blank = { active: false, step: '', verdict: null, ...BLANK_METRICS };
+  const blank = { active: false, step: '', activeAt: null, verdict: null, ...BLANK_METRICS };
   return {
     pm:         { ...blank },
     coder:      { ...blank },
@@ -192,13 +192,13 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
       };
 
     case 'agent.started':
-      return { ...prev, agents: { ...prev.agents, [ev.agent_id]: { active: true, step: 'working…', verdict: null } } };
+      return { ...prev, agents: { ...prev.agents, [ev.agent_id]: { ...prev.agents[ev.agent_id], active: true, step: 'working…', activeAt: Date.now(), verdict: null } } };
 
     case 'agent.progress':
-      return { ...prev, agents: { ...prev.agents, [ev.agent_id]: { ...prev.agents[ev.agent_id], active: true, step: ev.step } } };
+      return { ...prev, agents: { ...prev.agents, [ev.agent_id]: { ...prev.agents[ev.agent_id], active: true, step: ev.step, activeAt: prev.agents[ev.agent_id]?.activeAt ?? Date.now() } } };
 
     case 'agent.finished':
-      return { ...prev, agents: { ...prev.agents, [ev.agent_id]: { ...prev.agents[ev.agent_id], active: false, step: '' } } };
+      return { ...prev, agents: { ...prev.agents, [ev.agent_id]: { ...prev.agents[ev.agent_id], active: false, step: '', activeAt: null } } };
 
     case 'finding.written': {
       if (prev.findings.some(f => f.task === ev.task_id)) return prev;

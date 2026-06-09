@@ -14,10 +14,10 @@ interface PlanningProps {
 }
 
 export function Planning({ onExecutable, serverStatus = 'probing' }: PlanningProps) {
+  const [projectName, setProjectName] = useState<string | undefined>();
   const session    = usePlanningSession(onExecutable, projectName ?? 'default');
   const context    = useContextFiles();
   const [input, setInput]           = useState('');
-  const [projectName, setProjectName] = useState<string | undefined>();
   const scrollRef   = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 

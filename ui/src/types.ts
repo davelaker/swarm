@@ -27,6 +27,7 @@ export interface Task {
 export interface AgentState {
   active:       boolean;
   step:         string;
+  activeAt:     number | null;   // Date.now() when agent became active — drives elapsed timer
   verdict:      Verdict | null;
   inputTokens:  number | null;
   outputTokens: number | null;

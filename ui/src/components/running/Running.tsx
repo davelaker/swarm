@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { useRunSimulation }  from '../../hooks/useRunSimulation';
 import { useRealRun }        from '../../hooks/useRealRun';
 import { TaskGraph }         from './TaskGraph';
@@ -23,6 +23,108 @@ interface RunViewProps {
   connected?:    boolean;
   onPause?:      () => void;
   onAbort?:      () => void;
+}
+
+// ─── Run controls ─────────────────────────────────────────────────────────────
+
+function RunControls({ status, onPause, onAbort }: {
+  status:   RunStatus;
+  onPause?: () => void;
+  onAbort?: () => void;
+}) {
+  const [confirmAbort, setConfirmAbort] = useState(false);
+  const [pending, setPending] = useState<'aborting' | 'pausing' | null>(null);
+
+  // Clear pending state once the server confirms via SSE
+  useEffect(() => {
+    if (status === 'aborted' || status === 'done') setPending(null);
+    if (status === 'paused')                       setPending(null);
+  }, [status]);
+
+  const done = status === 'done' || status === 'aborted';
+
+  // ── Pending feedback ────────────────────────────────────────────────────────
+  if (pending === 'aborting') {
+    return (
+      <span style={{
+        fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--amber)',
+        display: 'flex', alignItems: 'center', gap: 6,
+      }}>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--amber)', animation: 'softpulse 1.4s infinite' }} />
+        Aborting — current task will finish first
+      </span>
+    );
+  }
+
+  if (pending === 'pausing') {
+    return (
+      <span style={{
+        fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--tx-2)',
+        display: 'flex', alignItems: 'center', gap: 6,
+      }}>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--tx-3)', animation: 'softpulse 1.4s infinite' }} />
+        Pausing — current task will finish first
+      </span>
+    );
+  }
+
+  // ── Abort confirmation ──────────────────────────────────────────────────────
+  if (confirmAbort) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{
+          fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--tx-2)',
+          maxWidth: 280, lineHeight: 1.4,
+        }}>
+          The current agent will finish its task, then stop.
+          Changes already written to disk remain.
+        </span>
+        <button className="btn sm danger" onClick={() => {
+          onAbort?.();
+          setPending('aborting');
+          setConfirmAbort(false);
+        }}>
+          Confirm abort
+        </button>
+        <button className="btn sm" onClick={() => setConfirmAbort(false)}>
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  // ── Normal controls ─────────────────────────────────────────────────────────
+  const pauseTitle = status === 'paused'
+    ? 'Resume the run — agents will continue from where they left off.'
+    : 'Pause after the current agent task completes. Does not interrupt a running agent — it will finish first.';
+
+  return (
+    <div style={{ display: 'flex', gap: 6 }}>
+      {onPause && (
+        <button
+          className="btn sm"
+          onClick={() => {
+            onPause();
+            if (status !== 'paused') setPending('pausing');
+          }}
+          disabled={done}
+          title={pauseTitle}
+        >
+          {status === 'paused' ? 'Resume' : 'Pause'}
+        </button>
+      )}
+      {onAbort && (
+        <button
+          className="btn sm danger"
+          onClick={() => setConfirmAbort(true)}
+          disabled={done}
+          title="Stop the run after the current agent task finishes."
+        >
+          Abort
+        </button>
+      )}
+    </div>
+  );
 }
 
 function RunView({
@@ -62,16 +164,7 @@ function RunView({
           <span className="rdot" />{label}
         </span>
         <div className="spacer" />
-        {onPause && (
-          <button className="btn sm" onClick={onPause} disabled={status === 'done' || status === 'aborted'}>
-            {status === 'paused' ? 'Resume' : 'Pause'}
-          </button>
-        )}
-        {onAbort && (
-          <button className="btn sm danger" onClick={onAbort} disabled={status === 'done' || status === 'aborted'}>
-            Abort
-          </button>
-        )}
+        <RunControls status={status} onPause={onPause} onAbort={onAbort} />
         <div className="spend">
           <div className="spend-top">
             <span className="amt">${spend.toFixed(2)}</span>

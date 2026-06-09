@@ -54,7 +54,7 @@ export function Charter({ charter, team, phase, projectName, projectMd, contextF
           </div>
           {charter.goal
             ? <div className="goal-text anim-in">{renderText(charter.goal)}</div>
-            : <div className="empty">Listening…</div>}
+            : <div className="empty">Waiting on PM…</div>}
         </div>
 
         <Section num="02" label="Constraints"    items={charter.constraints} kind="con" mk="▸" optional active={active} />
@@ -75,7 +75,7 @@ export function Charter({ charter, team, phase, projectName, projectMd, contextF
                   </span>
                 ))}
               </div>
-            : <div className="empty">{active ? 'PM will assign when ready' : 'Listening…'}</div>}
+            : <div className="empty">Waiting on PM…</div>}
         </div>
 
         <ContextFiles
@@ -99,7 +99,7 @@ function Section({ num, label, items, kind, mk, optional, active }: {
         {optional && <span className="field-opt">optional</span>}
       </div>
       {items.length === 0
-        ? <div className="empty">{active && optional ? 'Not specified' : 'Listening…'}</div>
+        ? <div className="empty">{active && optional ? 'Not specified' : 'Waiting on PM…'}</div>
         : <ul>
             {items.map((it, i) => (
               <li key={i} className={`${kind} anim-in ${it.resolved ? 'resolved' : ''}`}>
