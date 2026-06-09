@@ -36,11 +36,12 @@ export interface AgentState {
 }
 
 export interface Finding {
-  key: string;
-  agent: string;
-  task: string;
+  key:     string;
+  agent:   string;
+  task:    string;
   verdict: Verdict;
   summary: string;
+  path?:   string;   // relative path under .swarm/ — used to fetch full content
 }
 
 export interface ChatMessage {

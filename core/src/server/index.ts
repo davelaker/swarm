@@ -68,9 +68,26 @@ function diffAndEmit(prev: SwarmState | null, next: SwarmState): void {
       }
     }
 
-    // New finding written
+    // New finding written — parse frontmatter so the UI gets verdict+summary immediately
     if (task.result_ref && task.result_ref !== old?.result_ref) {
-      fanout({ type: 'finding.written', task_id: task.id, path: task.result_ref });
+      let verdict: string | undefined;
+      let summary: string | undefined;
+      try {
+        const abs     = path.resolve(swarmDir(), task.result_ref);
+        const content = fs.readFileSync(abs, 'utf8');
+        const m       = content.match(/^---[\r\n]([\s\S]*?)[\r\n]---/);
+        if (m) {
+          for (const line of m[1].split('\n')) {
+            const colon = line.indexOf(':');
+            if (colon < 1) continue;
+            const k = line.slice(0, colon).trim();
+            const v = line.slice(colon + 1).trim().replace(/^["']|["']$/g, '');
+            if (k === 'verdict') verdict = v;
+            if (k === 'summary') summary = v;
+          }
+        }
+      } catch { /* non-fatal — client falls back to path display */ }
+      fanout({ type: 'finding.written', task_id: task.id, path: task.result_ref, verdict, summary });
     }
   }
 
@@ -197,6 +214,22 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
 
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify({ projectMd, contextFiles }));
+    return;
+  }
+
+  if (url.pathname === '/findings') {
+    const relPath = url.searchParams.get('path');
+    if (!relPath) { res.writeHead(400); res.end('path required'); return; }
+    try {
+      const abs = path.resolve(swarmDir(), relPath);
+      // Safety: must stay inside .swarm/
+      if (!abs.startsWith(swarmDir())) { res.writeHead(403); res.end('forbidden'); return; }
+      const content = fs.readFileSync(abs, 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+      res.end(content);
+    } catch {
+      res.writeHead(404); res.end('not found');
+    }
     return;
   }
 

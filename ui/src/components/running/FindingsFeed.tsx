@@ -1,18 +1,36 @@
 import { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import type { Finding } from '../../types';
 import { PERSONAS } from '../../data/personas';
-import { FINDINGS_FULL } from '../../data/findingsFull';
 import { VerdictChip } from '../common/VerdictChip';
-import { IconFile, IconChevron } from '../common/icons';
+import { IconChevron } from '../common/icons';
 
 function FindingCard({ f }: { f: Finding }) {
-  const [open, setOpen] = useState(false);
-  const p    = PERSONAS[f.agent];
-  const full = FINDINGS_FULL[f.key];
+  const [open,    setOpen]    = useState(false);
+  const [content, setContent] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const p = PERSONAS[f.agent];
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && content === null && f.path && !loading) {
+      setLoading(true);
+      fetch(`/findings?path=${encodeURIComponent(f.path)}`)
+        .then(r => r.text())
+        .then(text => {
+          // Strip YAML frontmatter — show only the markdown body
+          const body = text.replace(/^---[\r\n][\s\S]*?[\r\n]---[\r\n]?/, '').trim();
+          setContent(body || '*(no body)*');
+        })
+        .catch(() => setContent('*(could not load finding)*'))
+        .finally(() => setLoading(false));
+    }
+  };
 
   return (
     <div className="finding">
-      <div className="finding-head" onClick={() => setOpen(o => !o)}>
+      <div className="finding-head" onClick={toggle} style={{ cursor: 'pointer' }}>
         <span className={`caret ${open ? 'open' : ''}`}><IconChevron /></span>
         <span className="finding-agent">
           <span className="pdot" style={{ background: p?.color }} />
@@ -22,38 +40,19 @@ function FindingCard({ f }: { f: Finding }) {
         <VerdictChip verdict={f.verdict} />
       </div>
       <div className="finding-summary">{f.summary}</div>
-      {open && full && (
+      {open && (
         <div className="finding-body anim-in">
-          <div className="fb-inner">
-            {full.body.map((b, i) => {
-              if (b.type === 'files') return (
-                <div className="fb-row" key={i}>
-                  <div className="fb-label">Files changed</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                    {b.items!.map((f2, j) => (
-                      <span className="file-tag" key={j}><IconFile /> {f2}</span>
-                    ))}
-                  </div>
-                </div>
-              );
-              if (b.type === 'note') return (
-                <div className="fb-row" key={i}>
-                  <div className="fb-label">{b.label}</div>
-                  <div>{b.text}</div>
-                </div>
-              );
-              if (b.type === 'code') return (
-                <div className="fb-row" key={i}>
-                  <div className="fb-label">{b.label}</div>
-                  <div className="code-block">
-                    {b.lines!.map((l, j) => (
-                      <div key={j} className={l.t}>{l.t === 'add' ? '+ ' : l.t === 'del' ? '- ' : '  '}{l.s}</div>
-                    ))}
-                  </div>
-                </div>
-              );
-              return null;
-            })}
+          <div className="fb-inner" style={{ padding: '10px 14px' }}>
+            {loading && (
+              <span style={{ color: 'var(--tx-3)', fontFamily: 'var(--mono)', fontSize: 11 }}>
+                loading…
+              </span>
+            )}
+            {!loading && content && (
+              <div className="finding-md">
+                <ReactMarkdown>{content}</ReactMarkdown>
+              </div>
+            )}
           </div>
         </div>
       )}

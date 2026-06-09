@@ -29,7 +29,7 @@ type SwarmEvent =
   | { type: 'agent.started';     agent_id: string }
   | { type: 'agent.progress';    agent_id: string; step: string }
   | { type: 'agent.finished';    agent_id: string }
-  | { type: 'finding.written';   task_id: string; path: string }
+  | { type: 'finding.written';   task_id: string; path: string; verdict?: string; summary?: string }
   | { type: 'log.appended';      actor: string; event: string }
   | { type: 'run.blocked';       reason: string }
   | { type: 'run.completed' }
@@ -205,16 +205,23 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
 
     case 'finding.written': {
       if (prev.findings.some(f => f.task === ev.task_id)) return prev;
-      const task    = prev.tasks.find(t => t.id === ev.task_id);
-      const verdict = task?.status === 'done' ? 'pass' : task?.status === 'changes_requested' ? 'changes' : 'complete';
+      const task = prev.tasks.find(t => t.id === ev.task_id);
+      // Map server verdict strings to UI Verdict type
+      const verdictMap: Record<string, Finding['verdict']> = {
+        COMPLETE: 'complete', PASS: 'pass', APPROVED: 'pass',
+        FAILED: 'fail', FAIL: 'fail', CHANGES_REQUESTED: 'changes',
+      };
+      const rawVerdict = (ev.verdict ?? '').toUpperCase();
+      const verdict: Finding['verdict'] = verdictMap[rawVerdict] ?? 'complete';
       return {
         ...prev,
         findings: [{
           key:     `${ev.task_id}-finding`,
           agent:   task?.assignee ?? 'pm',
           task:    ev.task_id,
-          verdict: verdict as Finding['verdict'],
-          summary: `Finding written — ${ev.path}`,
+          verdict,
+          summary: ev.summary ?? ev.path,
+          path:    ev.path,
         }, ...prev.findings],
       };
     }

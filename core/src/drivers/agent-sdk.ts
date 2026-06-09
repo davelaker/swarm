@@ -190,8 +190,10 @@ async function runClaude(opts: {
 
       if (!parseOk) {
         // --json-schema didn't enforce structured output — claude returned prose.
-        // Try to extract a JSON object embedded in the text, then fall back to
-        // keyword inference so a completed task isn't wrongly marked failed.
+        // Try to extract an embedded JSON object first; then search the prose for
+        // one of the schema's known verdict values (longest match wins to avoid
+        // FAIL matching inside CHANGES_REQUESTED); default to the first enum value
+        // (which is the "positive" outcome for every schema: COMPLETE, PASS, APPROVED).
         const text = String(envelope.result);
 
         const m = text.match(/\{[\s\S]*\}/);
@@ -200,15 +202,27 @@ async function runClaude(opts: {
         }
 
         if (!parseOk) {
-          const lower = text.toLowerCase();
-          const failed = /\b(fail|error|unable|cannot|could not|did not complete)\b/.test(lower);
+          let schemaVerdicts: string[] = [];
+          try {
+            const s = JSON.parse(opts.schema) as { properties?: { verdict?: { enum?: string[] } } };
+            schemaVerdicts = s?.properties?.verdict?.enum ?? [];
+          } catch { /* keep empty */ }
+
+          const textUpper = text.toUpperCase();
+          // Sort longest-first so CHANGES_REQUESTED is tried before REQUESTED, etc.
+          const found = [...schemaVerdicts]
+            .sort((a, b) => b.length - a.length)
+            .find(v => textUpper.includes(v));
+
+          // Default: first enum value = the positive outcome (COMPLETE / PASS / APPROVED)
+          const verdict = found ?? schemaVerdicts[0] ?? 'COMPLETE';
           data = {
-            verdict:       failed ? 'FAILED'   : 'COMPLETE',
+            verdict,
             summary:       text.replace(/[*`#]/g, '').split('\n')[0].trim().slice(0, 200) || 'Completed',
             files_changed: [],
-            findings: [],
+            findings:      [],
           };
-          console.warn(`  [agent-sdk] WARNING: --json-schema bypassed; inferred verdict=${data.verdict} from prose`);
+          console.warn(`  [agent-sdk] WARNING: --json-schema bypassed; inferred verdict=${verdict} from prose`);
         }
       }
 

@@ -73,7 +73,7 @@ export type SwarmEvent =
   | { type: 'agent.started';       agent_id: string }
   | { type: 'agent.progress';      agent_id: string; step: string }
   | { type: 'agent.finished';      agent_id: string }
-  | { type: 'finding.written';     task_id: string; path: string }
+  | { type: 'finding.written';     task_id: string; path: string; verdict?: string; summary?: string }
   | { type: 'log.appended';        actor: string; event: string }
   | { type: 'run.blocked';         reason: string }
   | { type: 'run.completed' }
