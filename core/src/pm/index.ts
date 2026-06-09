@@ -23,11 +23,19 @@ import { getConfigOptional } from '../config.js';
 import { loadProjectContext } from '../state/repo.js';
 
 // ─── MCP server path ──────────────────────────────────────────────────────────
-// At runtime this file is core/dist/pm/index.js; mcp-server.js is next to it.
+// The server can run two ways:
+//   dev:        tsx src/pm/index.ts  → __dirname is src/pm/, use tsx + .ts file
+//   production: node dist/pm/index.js → __dirname is dist/pm/, use node + .js file
 
-const __filename   = fileURLToPath(import.meta.url);
-const __dirname    = path.dirname(__filename);
-const MCP_SERVER   = path.join(__dirname, 'mcp-server.js');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+
+// Detect whether we're running via tsx (source) or compiled node
+const IS_TSX     = __filename.endsWith('.ts');
+const MCP_CMD    = IS_TSX ? 'tsx'       : 'node';
+const MCP_SERVER = IS_TSX
+  ? path.join(__dirname, 'mcp-server.ts')  // tsx executes .ts directly
+  : path.join(__dirname, 'mcp-server.js'); // node runs compiled .js
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -191,19 +199,23 @@ export async function runPmMessage(
     'Continue as the PM. Call submit_pm_response with your reply and any charter updates.',
   ].filter(Boolean).join('\n');
 
-  // ── Temp output file — the MCP server writes the tool args here ─────────────
-  const outputPath = path.join(os.tmpdir(), `pm-output-${randomUUID()}.json`);
+  // ── Temp files ────────────────────────────────────────────────────────────
+  const uuid        = randomUUID();
+  const outputPath  = path.join(os.tmpdir(), `pm-output-${uuid}.json`);
+  const configPath  = path.join(os.tmpdir(), `pm-config-${uuid}.json`);
 
-  // ── Inline MCP config — passed directly to --mcp-config as a JSON string ───
-  const mcpConfig = JSON.stringify({
+  // --mcp-config expects a file path, not inline JSON.
+  // MCP_CMD/MCP_SERVER handle both tsx (dev) and node (compiled) environments.
+  const mcpConfig = {
     mcpServers: {
       pm_responder: {
-        command: 'node',
+        command: MCP_CMD,
         args:    [MCP_SERVER],
         env:     { PM_OUTPUT_PATH: outputPath },
       },
     },
-  });
+  };
+  fs.writeFileSync(configPath, JSON.stringify(mcpConfig));
 
   const args = [
     '--print',
@@ -211,7 +223,7 @@ export async function runPmMessage(
     '--output-format',  'json',           // envelope gives us cost_usd
     '--no-session-persistence',
     '--strict-mcp-config',                // ignore all other MCP servers
-    '--mcp-config',     mcpConfig,
+    '--mcp-config',     configPath,
     '--allowedTools',   'mcp__pm_responder__submit_pm_response',
     '--system-prompt',  PM_SYSTEM,
     '--',
@@ -230,15 +242,20 @@ export async function runPmMessage(
     proc.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
     proc.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
 
+    const cleanup = () => {
+      try { fs.unlinkSync(outputPath); } catch { /* ok */ }
+      try { fs.unlinkSync(configPath); } catch { /* ok */ }
+    };
+
     const timer = setTimeout(() => {
       proc.kill();
-      try { fs.unlinkSync(outputPath); } catch { /* ok */ }
+      cleanup();
       reject(new Error('PM response timed out after 90s'));
     }, 90_000);
 
     proc.on('error', (err: Error) => {
       clearTimeout(timer);
-      try { fs.unlinkSync(outputPath); } catch { /* ok */ }
+      cleanup();
       reject(new Error(`Failed to spawn claude: ${err.message}`));
     });
 
@@ -250,7 +267,7 @@ export async function runPmMessage(
         const envelope = JSON.parse(stdout) as { cost_usd?: number; is_error?: boolean; result?: unknown };
         if (envelope.cost_usd) console.log(`[pm] cost: $${envelope.cost_usd.toFixed(4)}`);
         if (envelope.is_error) {
-          try { fs.unlinkSync(outputPath); } catch { /* ok */ }
+          cleanup();
           reject(new Error(`claude API error: ${JSON.stringify(envelope.result).slice(0, 300)}`));
           return;
         }
@@ -258,12 +275,19 @@ export async function runPmMessage(
 
       if (code !== 0 && !fs.existsSync(outputPath)) {
         const detail = stderr.slice(0, 300) || stdout.slice(0, 300) || '(no output)';
+        cleanup();
         reject(new Error(`claude exited ${code}: ${detail}`));
         return;
       }
 
       // Read the structured response written by the MCP server
       if (!fs.existsSync(outputPath)) {
+        // Log what Claude actually said so we can debug tool-call failures
+        console.error('[pm] submit_pm_response was not called');
+        console.error('[pm] MCP_CMD:', MCP_CMD, '| MCP_SERVER:', MCP_SERVER);
+        console.error('[pm] stdout:', stdout.slice(0, 400));
+        console.error('[pm] stderr:', stderr.slice(0, 400));
+        cleanup();
         reject(new Error('PM did not call submit_pm_response — check server logs'));
         return;
       }
@@ -272,11 +296,11 @@ export async function runPmMessage(
       try {
         data = JSON.parse(fs.readFileSync(outputPath, 'utf-8'));
       } catch (err) {
+        cleanup();
         reject(new Error(`Failed to read PM output file: ${err}`));
         return;
-      } finally {
-        try { fs.unlinkSync(outputPath); } catch { /* ok */ }
       }
+      cleanup();
 
       console.log('[pm] tool call captured — reply length:', String(data.reply ?? '').length);
 
