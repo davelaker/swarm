@@ -359,6 +359,25 @@ export function Running() {
     return <ServerDown />;
   }
 
+  // Server is up but no run has been started yet (state.json doesn't exist or tasks is empty).
+  if (state.tasks.length === 0 && state.status === 'running') {
+    return (
+      <div style={{
+        height: '100%', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', gap: 12, padding: 40,
+      }}>
+        <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tx-3)' }}>
+          No active run
+        </div>
+        <div style={{ color: 'var(--tx-2)', fontSize: 13, maxWidth: 340, textAlign: 'center', lineHeight: 1.7 }}>
+          Go to <strong style={{ color: 'var(--tx-1)' }}>Planning</strong> and click{' '}
+          <strong style={{ color: 'var(--tx-1)' }}>Execute</strong> to start a run.
+          This panel will update live as agents work.
+        </div>
+      </div>
+    );
+  }
+
   const pause = () => fetch('/run/pause',  { method: 'POST' }).catch(() => {});
   const abort = () => fetch('/run/abort',  { method: 'POST' }).catch(() => {});
   const resume = () => fetch('/run/resume', { method: 'POST' }).catch(() => {});
