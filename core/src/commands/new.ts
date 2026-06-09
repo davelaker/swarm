@@ -133,12 +133,9 @@ export async function runNew(
   // ── Build task graph ───────────────────────────────────────────────────────
   const tasks = buildTaskGraph(goal, cls.tier, cls.sensitive, cfg);
   for (const t of tasks) addTask(t);
-  appendLog('pm', `graph: ${tasks.map(t => `${t.id}→${t.assignee}`).join(', ')} [${cls.tier}]`);
+  // Don't echo graph or constraints to the PM chat — the task graph panel shows
+  // the structure already, and the user wrote the constraints in Planning.
   pmProgress(`graph ready · ${tasks.length} task${tasks.length === 1 ? '' : 's'} · starting agents…`);
-
-  if (charter?.constraints?.length) {
-    appendLog('pm', `constraints: ${charter.constraints.join(' | ')}`);
-  }
 
   console.log(`  project: ${getState().project}`);
   console.log(`  goal:    ${goal}`);
