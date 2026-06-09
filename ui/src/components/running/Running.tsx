@@ -127,15 +127,87 @@ function RunControls({ status, onPause, onAbort }: {
   );
 }
 
+function PmChat({ pmMsgs, status }: { pmMsgs: RunViewProps['pmMsgs']; status: RunStatus }) {
+  const chatRef  = useRef<HTMLDivElement>(null);
+  const taRef    = useRef<HTMLTextAreaElement>(null);
+  const [draft, setDraft] = useState('');
+  const [busy,  setBusy]  = useState(false);
+
+  // Auto-scroll when new messages arrive
+  useEffect(() => {
+    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+  }, [pmMsgs]);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${ta.scrollHeight}px`;
+  }, [draft]);
+
+  const disabled = status === 'done' || status === 'aborted';
+
+  const send = () => {
+    const text = draft.trim();
+    if (!text || busy || disabled) return;
+    setBusy(true);
+    setDraft('');
+    fetch('/run/message', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    }).finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="run-chat">
+      <div className="panel-head"><span>PM Chat</span></div>
+      <div className="chat" style={{ minHeight: 0 }}>
+        <div className="chat-scroll" ref={chatRef}>
+          {pmMsgs.length === 0 && (
+            <span style={{ color: 'var(--tx-3)', fontFamily: 'var(--mono)', fontSize: 11, padding: '2px 0' }}>
+              PM messages will appear here…
+            </span>
+          )}
+          {pmMsgs.map((m, i) => <Message key={i} m={m} />)}
+        </div>
+        <div className="composer">
+          <div className="composer-row">
+            <textarea
+              ref={taRef}
+              rows={1}
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+              }}
+              placeholder={disabled ? 'Run complete.' : 'Message the PM — pause the run to intervene…'}
+              disabled={disabled || busy}
+            />
+            <button
+              className="send-btn"
+              onClick={send}
+              disabled={!draft.trim() || disabled || busy}
+              title="Send (Enter)"
+            >
+              <IconSend />
+            </button>
+          </div>
+          {!disabled && (
+            <div className="hint">Enter to send · Shift+Enter for newline</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RunView({
   project, tier, tasks, agents, findings, pmMsgs,
   spend, spendCap, status, connected = true,
   onPause, onAbort,
 }: RunViewProps) {
-  const chatRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
-  }, [pmMsgs]);
 
   const tierColour = tier === 'tweak' ? 'blue' : tier === 'greenfield' ? 'green' : 'amber';
   const statusMeta: Record<RunStatus, { cls: string; label: string }> = {
@@ -183,20 +255,7 @@ function RunView({
         <FindingsFeed findings={findings} />
       </div>
 
-      <div className="run-chat">
-        <div className="panel-head"><span>PM Chat</span></div>
-        <div className="chat" style={{ minHeight: 0 }}>
-          <div className="chat-scroll" ref={chatRef}>
-            {pmMsgs.map((m, i) => <Message key={i} m={m} />)}
-          </div>
-          <div className="composer">
-            <div className="composer-row">
-              <textarea rows={1} placeholder="Message the PM — pause the run to intervene…" />
-              <button className="send-btn"><IconSend /></button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <PmChat pmMsgs={pmMsgs} status={status} />
     </div>
   );
 }

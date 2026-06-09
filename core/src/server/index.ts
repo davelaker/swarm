@@ -12,7 +12,7 @@ import http   from 'node:http';
 import path   from 'node:path';
 import fs     from 'node:fs';
 import { bus }      from '../state/events.js';
-import { getState, swarmDir, stateFile, projectContextFile, writeDeploymentInfo } from '../state/repo.js';
+import { getState, swarmDir, stateFile, projectContextFile, writeDeploymentInfo, appendLog } from '../state/repo.js';
 import { runPmMessage } from '../pm/index.js';
 import { runNew }       from '../commands/new.js';
 import { pauseRun, resumeRun, abortRun } from '../loop-control.js';
@@ -267,6 +267,18 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
         });
       return;
     }
+    if (route === '/run/message') {
+      const { text } = payload as { text?: string };
+      if (!text?.trim()) { res.writeHead(400); res.end(JSON.stringify({ error: 'text required' })); return; }
+      try {
+        appendLog('user', text.trim());
+        res.writeHead(200); res.end(JSON.stringify({ ok: true }));
+      } catch (err) {
+        res.writeHead(500); res.end(JSON.stringify({ error: (err as Error).message }));
+      }
+      return;
+    }
+
     if (route === '/run/execute') {
       if (activeRun) {
         res.writeHead(409); res.end(JSON.stringify({ error: 'A run is already in progress' })); return;

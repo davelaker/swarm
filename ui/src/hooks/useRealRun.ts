@@ -220,9 +220,9 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
     }
 
     case 'log.appended':
-      return ev.actor === 'pm'
-        ? { ...prev, pmMsgs: [...prev.pmMsgs, { from: 'pm', text: ev.event }] }
-        : prev;
+      if (ev.actor === 'pm')   return { ...prev, pmMsgs: [...prev.pmMsgs, { from: 'pm',  text: ev.event }] };
+      if (ev.actor === 'user') return { ...prev, pmMsgs: [...prev.pmMsgs, { from: 'you', text: ev.event }] };
+      return prev;
 
     case 'run.completed':
       return { ...prev, status: 'done' };
