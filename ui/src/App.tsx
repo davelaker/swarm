@@ -33,9 +33,10 @@ export function App() {
   const [runGoal,           setRunGoal]           = useState('');
   const [runCharter,        setRunCharter]        = useState<RunCharter | null>(null);
   const [runTeam,           setRunTeam]           = useState<string[]>([]);
-  const [serverStatus, setServerStatus] = useState<ServerStatus>('probing');
-  const [projectName,  setProjectName]  = useState<string | null>(null);
-  const [modelLabel,   setModelLabel]   = useState<string | null>(null);
+  const [serverStatus,  setServerStatus]  = useState<ServerStatus>('probing');
+  const [projectName,   setProjectName]   = useState<string | null>(null);
+  const [modelLabel,    setModelLabel]    = useState<string | null>(null);
+  const [executeError,  setExecuteError]  = useState<string | null>(null);
 
   // Single server probe — retries every 3s, also reads project name when up.
   useEffect(() => {
@@ -84,14 +85,44 @@ export function App() {
   }, []);
 
   const goExecute = useCallback(() => {
-    if (runGoal) {
-      fetch('/run/execute', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ goal: runGoal, charter: runCharter, team: runTeam }),
-      }).catch(() => {});
-    }
-    setSurface('running');
+    if (!runGoal) return;
+    setExecuteError(null);
+
+    fetch('/run/execute', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ goal: runGoal, charter: runCharter, team: runTeam }),
+    })
+      .then(r => {
+        if (!r.ok) return r.json().then((d: { error?: string }) => { throw new Error(d.error ?? `HTTP ${r.status}`); });
+        // Server accepted the request — switch to Running and watch for early failure.
+        setSurface('running');
+
+        // Open a short-lived SSE listener. If the run gets blocked before the
+        // first task arrives (e.g. git-dirty check), snap back to Planning with
+        // the reason. Close after 20 s regardless — by then success is confirmed.
+        const es = new EventSource('/events');
+        let done = false;
+        const finish = () => { if (!done) { done = true; es.close(); } };
+        const timer = setTimeout(finish, 20_000);
+
+        es.onmessage = (ev) => {
+          let msg: { type: string; reason?: string; task?: unknown };
+          try { msg = JSON.parse(ev.data); } catch { return; }
+
+          if (msg.type === 'task.created' || msg.type === 'run.classified') {
+            clearTimeout(timer); finish();                 // run started — stop watching
+          } else if (msg.type === 'run.blocked') {
+            clearTimeout(timer); finish();
+            setExecuteError(msg.reason ?? 'Run was blocked before it could start');
+            setSurface('planning');
+          }
+        };
+        es.onerror = () => { clearTimeout(timer); finish(); };
+      })
+      .catch((err: Error) => {
+        setExecuteError(err.message);                      // sync POST failure (409, network, etc.)
+      });
   }, [runGoal, runCharter, runTeam]);
 
   const serverDot = serverStatus === 'up'      ? 'var(--green)'
@@ -141,10 +172,27 @@ export function App() {
 
         {surface === 'planning' && (
           <>
-            <span className="pill">
-              <span className="dot" style={{ background: 'var(--amber)' }} />
-              PLANNING
-            </span>
+            {executeError ? (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 7,
+                fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--red)',
+                background: 'var(--red-d)', border: '1px solid rgba(240,90,82,0.25)',
+                borderRadius: 6, padding: '4px 10px', maxWidth: 380,
+              }}>
+                <span style={{ flexShrink: 0 }}>✗</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{executeError}</span>
+                <button
+                  onClick={() => setExecuteError(null)}
+                  style={{ flexShrink: 0, color: 'var(--red)', opacity: 0.7, fontSize: 13, lineHeight: 1 }}
+                  title="Dismiss"
+                >×</button>
+              </span>
+            ) : (
+              <span className="pill">
+                <span className="dot" style={{ background: 'var(--amber)' }} />
+                PLANNING
+              </span>
+            )}
             {/* Wrapper span carries the tooltip — disabled buttons swallow pointer events
                 in Chrome so `title` never fires directly on the button. */}
             <span
