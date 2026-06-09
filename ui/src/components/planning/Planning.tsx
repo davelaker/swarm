@@ -91,6 +91,7 @@ export function Planning({ onExecutable, serverStatus = 'probing' }: PlanningPro
       <Charter
         charter={session.charter}
         team={session.team}
+        phase={session.phase}
         projectName={projectName}
         projectMd={context.projectMd}
         contextFiles={context.contextFiles}

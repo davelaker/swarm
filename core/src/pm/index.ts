@@ -309,8 +309,28 @@ export async function runPmMessage(
             try { data = JSON.parse(match[0]); }
             catch { reject(new Error(`PM result not parseable JSON: ${stripped.slice(0, 200)}`)); return; }
           } else {
-            // Plain text response — wrap it as a reply so the UI still works
+            // Plain text response — wrap as reply and extract key signals
             data = { reply: stripped };
+
+            // Detect execute-readiness from PM's language
+            const lower = stripped.toLowerCase();
+            const executePhrases = ['hit execute', 'ready when you are', 'team will pick it up',
+              'go ahead and execute', 'proceed', 'kick it off', 'start the run', 'enough to start'];
+            if (executePhrases.some(p => lower.includes(p))) {
+              data.enable_execute = true;
+              // Default team for a feature task when PM didn't specify
+              if (!data.team_add) data.team_add = ['coder', 'tester', 'reviewer'];
+            }
+
+            // Try to extract the goal from the last user message in history
+            // (the PM's job is to confirm it; if it says "ready", the last feature
+            // description from the user IS the goal)
+            if (data.enable_execute && !data.charter_updates) {
+              const lastUserMsg = [...history].reverse().find(m => m.from === 'you');
+              if (lastUserMsg && lastUserMsg.text.length > 20 && lastUserMsg.text.length < 500) {
+                data.charter_updates = { goal: lastUserMsg.text };
+              }
+            }
           }
         }
       } else {

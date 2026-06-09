@@ -15,13 +15,14 @@ function renderText(t: string) {
 interface CharterProps {
   charter:      CharterData;
   team:         string[];
+  phase:        string;        // planning phase — controls empty-state copy
   projectName?: string;
   projectMd:    ContextFile | null;
   contextFiles: ContextFile[];
   onAskPm:      (message: string) => void;
 }
 
-export function Charter({ charter, team, projectName, projectMd, contextFiles, onAskPm }: CharterProps) {
+export function Charter({ charter, team, phase, projectName, projectMd, contextFiles, onAskPm }: CharterProps) {
   const title = charter.goal
     ? charter.goal.replace(/[.,].*$/, '').trim().slice(0, 48)
     : 'New project';
@@ -29,6 +30,11 @@ export function Charter({ charter, team, projectName, projectMd, contextFiles, o
   const subtitle = projectName
     ? `${projectName} · charter draft`
     : 'charter draft';
+
+  // Once the PM has started engaging (past 'goal' phase), empty optional
+  // fields show "not specified" rather than "listening" so users know they're
+  // optional, not missing data.
+  const active = phase !== 'start' && phase !== 'goal';
 
   return (
     <div className="plan-left">
@@ -42,18 +48,24 @@ export function Charter({ charter, team, projectName, projectMd, contextFiles, o
         <div className="sub">{subtitle}</div>
 
         <div className="csec">
-          <div className="csec-label"><span className="num">01</span> Goal</div>
+          <div className="csec-label">
+            <span className="num">01</span> Goal
+            <span className="field-req">required</span>
+          </div>
           {charter.goal
             ? <div className="goal-text anim-in">{renderText(charter.goal)}</div>
             : <div className="empty">Listening…</div>}
         </div>
 
-        <Section num="02" label="Constraints"    items={charter.constraints} kind="con" mk="▸" />
-        <Section num="03" label="Non-goals"      items={charter.nongoals}    kind="non" mk="✕" />
-        <Section num="04" label="Open questions" items={charter.questions}   kind="q"   mk="?" />
+        <Section num="02" label="Constraints"    items={charter.constraints} kind="con" mk="▸" optional active={active} />
+        <Section num="03" label="Non-goals"      items={charter.nongoals}    kind="non" mk="✕" optional active={active} />
+        <Section num="04" label="Open questions" items={charter.questions}   kind="q"   mk="?"           active={active} />
 
         <div className="csec">
-          <div className="csec-label"><span className="num">05</span> Recommended team</div>
+          <div className="csec-label">
+            <span className="num">05</span> Recommended team
+            <span className="field-req">required</span>
+          </div>
           {team.length
             ? <div className="team-chips">
                 {team.map(id => (
@@ -63,7 +75,7 @@ export function Charter({ charter, team, projectName, projectMd, contextFiles, o
                   </span>
                 ))}
               </div>
-            : <div className="empty">Listening…</div>}
+            : <div className="empty">{active ? 'PM will assign when ready' : 'Listening…'}</div>}
         </div>
 
         <ContextFiles
@@ -76,12 +88,18 @@ export function Charter({ charter, team, projectName, projectMd, contextFiles, o
   );
 }
 
-function Section({ num, label, items, kind, mk }: { num: string; label: string; items: CharterData['constraints']; kind: string; mk: string }) {
+function Section({ num, label, items, kind, mk, optional, active }: {
+  num: string; label: string; items: CharterData['constraints'];
+  kind: string; mk: string; optional?: boolean; active?: boolean;
+}) {
   return (
     <div className="csec">
-      <div className="csec-label"><span className="num">{num}</span> {label}</div>
+      <div className="csec-label">
+        <span className="num">{num}</span> {label}
+        {optional && <span className="field-opt">optional</span>}
+      </div>
       {items.length === 0
-        ? <div className="empty">Listening…</div>
+        ? <div className="empty">{active && optional ? 'Not specified' : 'Listening…'}</div>
         : <ul>
             {items.map((it, i) => (
               <li key={i} className={`${kind} anim-in ${it.resolved ? 'resolved' : ''}`}>
