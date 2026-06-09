@@ -62,17 +62,17 @@ function buildTaskGraph(goal: string, tier: Tier, sensitive: boolean, cfg: Retur
   }
 
   const tester: Task = {
-    id: 't2', title: `Test: ${goal}`, status: 'pending',
+    id: 't2', title: 'Run test suite — verify no regressions', status: 'pending',
     owner: cfg.owner, assignee: 'tester',
     depends_on: ['t1'], artifacts: [], result_ref: null, attempts: 0,
   };
   const security: Task = {
-    id: 't3', title: `Security review: ${goal}`, status: 'pending',
+    id: 't3', title: 'Security audit — review changed files for vulnerabilities', status: 'pending',
     owner: cfg.owner, assignee: 'security',
     depends_on: ['t1'], artifacts: [], result_ref: null, attempts: 0,
   };
   const reviewer: Task = {
-    id: 't4', title: `Code review: ${goal}`, status: 'pending',
+    id: 't4', title: 'Code review — correctness, robustness, design', status: 'pending',
     owner: cfg.owner, assignee: 'reviewer',
     depends_on: ['t1'], artifacts: [], result_ref: null, attempts: 0,
   };
