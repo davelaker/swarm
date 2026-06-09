@@ -326,34 +326,23 @@ input, textarea, select { font-family: inherit; }
 .review-text:focus { outline: none; border-color: var(--blue); }
 .review-footer { flex-shrink: 0; padding: 12px 14px; border-top: 1px solid var(--border); }
 
-/* ── Dark-theme overrides for diff2html (scoped to .d2h-dark wrapper) ── */
-.d2h-dark { font-family: var(--mono); font-size: 12px; }
-.d2h-dark .d2h-file-wrapper { background: var(--bg); border: none; border-bottom: 1px solid var(--border); margin: 0; }
-.d2h-dark .d2h-file-header { background: var(--bg-2); border-bottom: 1px solid var(--border); padding: 8px 14px; }
-.d2h-dark .d2h-file-name { color: var(--tx-1); font-size: 12px; }
-.d2h-dark .d2h-file-stats { color: var(--tx-3); }
-.d2h-dark .d2h-diff-table { width: 100%; border-collapse: collapse; background: var(--bg); }
-.d2h-dark td, .d2h-dark th { border-color: var(--border-soft) !important; }
-.d2h-dark .d2h-code-linenumber { background: var(--bg-1) !important; color: var(--tx-3) !important; border-right: 1px solid var(--border) !important; width: 54px; min-width: 54px; padding: 0 8px !important; user-select: none; font-size: 11px; }
-.d2h-dark .d2h-code-line { color: var(--tx); padding: 0 12px !important; white-space: pre; }
-.d2h-dark .d2h-code-line-prefix { color: var(--tx-3); user-select: none; margin-right: 4px; }
-.d2h-dark .d2h-ins                { background: rgba(52,207,138,0.07) !important; }
-.d2h-dark .d2h-ins.d2h-code-linenumber { background: rgba(52,207,138,0.14) !important; color: rgba(52,207,138,0.7) !important; }
-.d2h-dark .d2h-del                { background: rgba(240,90,82,0.07) !important; }
-.d2h-dark .d2h-del.d2h-code-linenumber { background: rgba(240,90,82,0.14) !important; color: rgba(240,90,82,0.7) !important; }
-.d2h-dark .d2h-info               { background: rgba(77,141,244,0.06) !important; color: var(--tx-3) !important; border-color: var(--border) !important; }
-.d2h-dark .d2h-code-side-emptyplaceholder, .d2h-dark .d2h-emptyplaceholder { background: var(--bg-1) !important; }
-.d2h-dark .d2h-file-list-wrapper  { background: var(--bg-2); border-bottom: 1px solid var(--border); }
-.d2h-dark .d2h-file-list-title    { color: var(--tx-3); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
-.d2h-dark .d2h-file-list li       { border-bottom: 1px solid var(--border-soft); }
-.d2h-dark .d2h-file-list a        { color: var(--tx-1); font-size: 12px; }
-.d2h-dark .d2h-tag                { background: var(--bg-3); color: var(--tx-3); border: 1px solid var(--border); font-size: 10px; }
-/* Clickable row highlight */
-.d2h-dark tr:hover td             { background: rgba(77,141,244,0.05) !important; cursor: pointer; }
-.d2h-dark tr.diff-selected td     { background: rgba(77,141,244,0.12) !important; box-shadow: inset 3px 0 0 var(--blue); }
-/* Inline +/- syntax highlights from diff2html — keep them readable on dark bg */
-.d2h-dark .d2h-ins .d2h-code-line-ctn ins { background: rgba(52,207,138,0.25); border-radius: 2px; text-decoration: none; }
-.d2h-dark .d2h-del .d2h-code-line-ctn del { background: rgba(240,90,82,0.25); border-radius: 2px; text-decoration: none; }
+/* ── diff2html dark theme — minimal overrides on top of built-in .d2h-dark-color-scheme ── */
+/* Use the library's own colorScheme:'dark' which adds .d2h-dark-color-scheme to its wrapper.
+   Only override what we actually need to change for our app: font, sticky header, interaction. */
+/* diff2html sets font-family directly on .d2h-diff-table so inheritance doesn't reach it —
+   target the table and header explicitly to match the app's coding font */
+.d2h-dark-color-scheme { font-size: 12px; }
+.diff-pane .d2h-diff-table { font-family: var(--mono) !important; font-size: 12px !important; }
+.diff-pane .d2h-file-header { font-family: var(--mono) !important; }
+/* Give .d2h-code-wrapper a position context so the absolute-positioned line number
+   cells are anchored to it (which scrolls inside .diff-pane) rather than to some
+   ancestor outside the scroll container — fixes line numbers drifting on scroll */
+.diff-pane .d2h-code-wrapper { position: relative; }
+/* Sticky file list — stays pinned at top while scrolling through the diff */
+.diff-pane .d2h-file-list-wrapper { position: sticky; top: 0; z-index: 10; }
+/* Row hover + click-to-annotate highlight */
+.d2h-dark-color-scheme tr:hover td             { background: rgba(77,141,244,0.06) !important; cursor: pointer; }
+.d2h-dark-color-scheme tr.diff-selected td     { background: rgba(77,141,244,0.15) !important; box-shadow: inset 3px 0 0 var(--blue); }
 .run-chat .chat-scroll { padding: 14px 20px 6px; gap: 12px; scrollbar-width: thin; scrollbar-color: var(--border-1) transparent; }
 /* PM status messages in the run chat are machine-generated — render in mono */
 .run-chat .msg:not(.you) .bubble { font-family: var(--mono); font-size: 12px; line-height: 1.6; }

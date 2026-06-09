@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as Diff2Html from 'diff2html';
+import { ColorSchemeType } from 'diff2html/lib-esm/types';
 import 'diff2html/bundles/css/diff2html.min.css';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -229,6 +230,7 @@ export function ChangesPanel() {
     matching:      'lines',
     outputFormat:  'line-by-line',
     renderNothingWhenEmpty: true,
+    colorScheme:   ColorSchemeType.DARK,
   });
 
   return (
@@ -252,7 +254,6 @@ export function ChangesPanel() {
               </div>
             )}
             <div
-              className="d2h-dark"
               dangerouslySetInnerHTML={{ __html: diffHtml }}
             />
           </>
