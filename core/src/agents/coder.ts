@@ -6,6 +6,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import fs        from 'node:fs';
 import fsp       from 'node:fs/promises';
 import path      from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { getConfig }             from '../config.js';
 import { CODER_SYSTEM }          from './prompts.js';
 import { buildCachedSystem, logCacheStats, CACHE_BETA } from './cache.js';
@@ -242,6 +243,21 @@ export async function runCoder(task: Task, state: SwarmState, verbose = true): P
   }
 
   if (!summary) summary = `Task "${task.title}" completed.`;
+
+  // If the agent omitted files_changed (or returned []), fall back to git status.
+  // This is the common case when the model is confident enough to skip the list.
+  if (filesChanged.length === 0) {
+    try {
+      const raw = execFileSync('git', ['status', '--porcelain'], {
+        cwd: projectRoot(), encoding: 'utf8',
+      });
+      const detected = raw.split('\n')
+        .filter(l => l.trim() && !l.startsWith('!!'))   // ignore .gitignore hints
+        .map(l => l.slice(3).trim().replace(/ -> .+$/, ''))  // strip rename arrows
+        .filter(f => f && !f.endsWith('/'));
+      if (detected.length) filesChanged = detected;
+    } catch { /* non-fatal — git unavailable or clean tree */ }
+  }
 
   // totalCost already accumulates cache costs from each iteration
   const costUsd = tokensToDollars(model, totalInput, totalOutput) + totalCost;
