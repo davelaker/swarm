@@ -35,10 +35,10 @@ const TESTER_SCHEMA = JSON.stringify({
   type: 'object',
   properties: {
     verdict: { type: 'string', enum: ['PASS', 'FAIL'] },
-    summary: { type: 'string' },
-    detail:  { type: 'string' },
+    summary: { type: 'string', description: 'One sentence: test command run, number passed/failed' },
+    detail:  { type: 'string', description: 'Full test output or key excerpt showing which tests ran' },
   },
-  required: ['verdict', 'summary'],
+  required: ['verdict', 'summary', 'detail'],
 });
 
 const REVIEWER_SCHEMA = JSON.stringify({

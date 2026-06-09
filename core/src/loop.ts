@@ -92,7 +92,8 @@ function spawnRemediation(state: SwarmState, reviewTaskId: string, cfg: ReturnTy
 
   addTask(fixTask);
   addTask(recheckTask);
-  appendLog('pm', `spawned remediation: ${fixId} → ${recheckId}`);
+  const reviewerLabel = reviewAgent === 'reviewer' ? 'Code Reviewer' : 'Security';
+  appendLog('pm', `${reviewerLabel} flagged issues in ${reviewTaskId} — asking Coder to fix them (${fixId}), then running ${reviewerLabel} again (${recheckId})`);
   console.log(`  ↳ remediation spawned: ${fixId} (coder fix) → ${recheckId} (${reviewAgent} re-review)`);
 }
 
@@ -114,7 +115,7 @@ function ensureSecurityTask(state: SwarmState, coderTaskId: string, cfg: ReturnT
     attempts:   0,
   };
   addTask(secTask);
-  appendLog('pm', `sensitive path escalation: added security task ${secTask.id}`);
+  appendLog('pm', `⚠ Coder touched sensitive files — adding a Security review (${secTask.id}) before this run can complete`);
   console.log(`  ⚠ sensitive path detected — security task added (${secTask.id})`);
 }
 
@@ -229,7 +230,7 @@ export async function runLoop(): Promise<LoopResult> {
         console.log('  ⚑ gate check: blocking findings found — tasks reverted to blocked');
         continue;
       }
-      appendLog('pm', 'all tasks done');
+      appendLog('pm', `✓ All ${state.tasks.length} task${state.tasks.length === 1 ? '' : 's'} complete — run finished successfully`);
       bus.emit('swarm', { type: 'agent.finished', agent_id: 'pm' });
       console.log('\n  ✓ all tasks done\n');
       return { status: 'done', totalCostUsd: totalCost, message: 'All tasks completed successfully.' };
@@ -238,9 +239,9 @@ export async function runLoop(): Promise<LoopResult> {
     // ── Terminal: failed tasks out of attempts ────────────────────────────────
     const failed = state.tasks.filter(t => t.status === 'failed');
     if (failed.length) {
-      const ids = failed.map(t => t.id).join(', ');
-      appendLog('pm', `tasks failed: ${ids}`);
-      return { status: 'failed', totalCostUsd: totalCost, message: `Tasks failed: ${ids}` };
+      const failedDesc = failed.map(t => `${t.id} (${t.assignee}: "${t.title}")`).join(', ');
+      appendLog('pm', `✗ Run stopped — failed tasks: ${failedDesc}`);
+      return { status: 'failed', totalCostUsd: totalCost, message: `Tasks failed: ${failedDesc}` };
     }
 
     // ── Find runnable tasks ───────────────────────────────────────────────────
@@ -307,8 +308,11 @@ export async function runLoop(): Promise<LoopResult> {
         attempt_key:  `${task.id}:${task.attempts + 1}`,
       },
     });
-    appendLog('pm', `dispatching ${task.id} → ${task.assignee} (attempt ${task.attempts + 1})`);
-    bus.emit('swarm', { type: 'agent.progress', agent_id: 'pm', step: `dispatching ${task.assignee}…` });
+    const attemptNote = task.attempts + 1 > 1 ? ` (retry ${task.attempts + 1})` : '';
+    appendLog('pm', `→ ${task.assignee} [${task.id}]${attemptNote}: "${task.title}"`);
+    // Use "X running…" not "dispatching X…" — the former reflects the sustained wait
+    // while the PM loop is blocked on Promise.all; "dispatching" would remain stale.
+    bus.emit('swarm', { type: 'agent.progress', agent_id: 'pm', step: `${task.assignee} running…` });
     console.log(`  → ${task.id} [${task.assignee}]: "${task.title}"`);
 
     const heartbeat = setInterval(() => {
@@ -358,6 +362,7 @@ export async function runLoop(): Promise<LoopResult> {
         status:    finalStatus,
         result_ref: resultRef ? path.relative(swarmDir(), resultRef) : task.result_ref,
         artifacts: result.artifacts ?? task.artifacts,
+        cost_usd:  result.costUsd,
         lease:     undefined,
       });
 
@@ -384,7 +389,7 @@ export async function runLoop(): Promise<LoopResult> {
     } catch (err) {
       clearInterval(heartbeat);
       const msg = (err instanceof Error) ? err.message : String(err);
-      appendLog('pm', `${task.id} errored: ${msg}`);
+      appendLog('pm', `✗ ${task.assignee} [${task.id}] errored: ${msg.slice(0, 200)}`);
       console.error(`  ✗ ${task.id} errored: ${msg}`);
 
       const cur = getState().tasks.find(t => t.id === task.id);

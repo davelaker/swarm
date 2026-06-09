@@ -91,16 +91,14 @@ function diffAndEmit(prev: SwarmState | null, next: SwarmState): void {
     }
   }
 
-  // New log entries → forward as agent.progress (step line in agents panel)
+  // New log entries → forward as log.appended (PM chat) only.
+  // We do NOT synthesise agent.progress from completion log entries — those arrive
+  // AFTER the agent.finished event and would re-activate the agent row with active:true,
+  // causing the blinking cursor to persist on idle/blocked agents.
+  // Agent step text comes exclusively from bus events (loop.ts) and agent.started.
   const prevLen = prev.log.length;
   for (const entry of next.log.slice(prevLen)) {
     fanout({ type: 'log.appended', actor: entry.actor, event: entry.event });
-
-    // Synthesise agent.progress for the ticking step line
-    if (entry.actor !== 'pm' && entry.event.includes('dispatching') === false) {
-      const step = entry.event.replace(/^[^:]+:\s*/, '').slice(0, 80);
-      fanout({ type: 'agent.progress', agent_id: entry.actor, step });
-    }
   }
 
   // Run completed

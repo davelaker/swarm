@@ -10,6 +10,7 @@
 import { runInit }        from './commands/init.js';
 import { runCheck }       from './commands/check.js';
 import { runNew }         from './commands/new.js';
+import { runStatus }      from './commands/status.js';
 import { runEval }        from './eval/index.js';
 import { startServer }    from './server/index.js';
 import { getConfigOptional } from './config.js';
@@ -26,6 +27,11 @@ switch (cmd) {
 
   case 'check': {
     await runCheck();
+    break;
+  }
+
+  case 'status': {
+    runStatus();
     break;
   }
 
@@ -73,6 +79,7 @@ switch (cmd) {
     swarm check             verify all four Phase 0 seams
     swarm new "<goal>"      run a task end-to-end
     swarm eval [<cases>]    run the eval harness
+    swarm status            print a snapshot of the current run
     swarm dev               start the dashboard server
 
   Driver selection (SWARM_DRIVER):

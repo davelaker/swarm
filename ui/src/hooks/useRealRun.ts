@@ -135,12 +135,20 @@ export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState 
           })
           .reverse();  // newest first, matching the SSE prepend order
 
+        // Pre-populate agent verdicts from snapshot findings so chips show on reload.
+        const agents = initAgents();
+        snap.tasks.filter(t => t.result_ref && t.finding_verdict).forEach(t => {
+          const rawVerdict = (t.finding_verdict ?? '').toUpperCase();
+          const v: Finding['verdict'] = verdictMap[rawVerdict] ?? 'complete';
+          if (agents[t.assignee]) agents[t.assignee] = { ...agents[t.assignee], verdict: v };
+        });
+
         setServerStatus('up');
         setState({
           project:  snap.project,
           tier:     snap.tier,
           tasks,
-          agents:   initAgents(),
+          agents,
           findings,
           pmMsgs:   snap.goal ? [{ from: 'pm', text: `Goal: ${snap.goal}` }] : [],
           status:   allDone ? 'done' : 'running',
@@ -208,14 +216,28 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
       return { ...prev, tasks: [...prev.tasks, adaptTask(ev.task, lanes.get(ev.task.id) ?? 0)] };
     }
 
-    case 'task.status_changed':
+    case 'task.status_changed': {
+      const changedTask = prev.tasks.find(t => t.id === ev.task_id);
+      const agentId     = changedTask?.assignee;
+      const isTerminal  = ev.status === 'done' || ev.status === 'blocked' || ev.status === 'failed';
+
+      // When a task finishes (any terminal state), immediately clear the agent's
+      // active flag so the cursor stops blinking. Verdict chips are set by
+      // finding.written events. Without this the log-entry timing can race and
+      // leave agents stuck in active:true.
+      const agents = isTerminal && agentId && prev.agents[agentId]
+        ? { ...prev.agents, [agentId]: { ...prev.agents[agentId], active: false, step: '', activeAt: null } }
+        : prev.agents;
+
       return {
         ...prev,
         tasks: prev.tasks.map(t => t.id === ev.task_id ? { ...t, status: ev.status as Task['status'] } : t),
+        agents,
         status: ev.status === 'done' && prev.tasks.every(t =>
           t.id === ev.task_id ? true : t.status === 'done'
         ) ? 'done' : prev.status,
       };
+    }
 
     case 'agent.started':
       return { ...prev, agents: { ...prev.agents, [ev.agent_id]: { ...prev.agents[ev.agent_id], active: true, step: 'working…', activeAt: Date.now(), verdict: null } } };
@@ -236,8 +258,16 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
       };
       const rawVerdict = (ev.verdict ?? '').toUpperCase();
       const verdict: Finding['verdict'] = verdictMap[rawVerdict] ?? 'complete';
+
+      // Also stamp the verdict onto the agent row so the chip shows when idle.
+      const agentId = task?.assignee;
+      const agents  = agentId && prev.agents[agentId]
+        ? { ...prev.agents, [agentId]: { ...prev.agents[agentId], verdict } }
+        : prev.agents;
+
       return {
         ...prev,
+        agents,
         findings: [{
           key:     `${ev.task_id}-finding`,
           agent:   task?.assignee ?? 'pm',
@@ -245,6 +275,7 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
           verdict,
           summary: ev.summary ?? ev.path,
           path:    ev.path,
+          ts:      Date.now(),
         }, ...prev.findings],
       };
     }
@@ -257,8 +288,15 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
     case 'run.completed':
       return { ...prev, status: 'done' };
 
-    case 'run.blocked':
-      return { ...prev, status: 'running', pmMsgs: [...prev.pmMsgs, { from: 'pm', text: `Blocked: ${ev.reason}` }] };
+    case 'run.blocked': {
+      // Enrich the "blocked" message with task context so the PM chat is useful.
+      // ev.reason is either a task ID (e.g. "t3") or a free-form error string.
+      const blockedTask = prev.tasks.find(t => t.id === ev.reason);
+      const msg = blockedTask
+        ? `⚑ ${blockedTask.assignee} [${blockedTask.id}] flagged issues — "${blockedTask.title}". Check Findings for details.`
+        : `⚑ Run blocked: ${ev.reason}`;
+      return { ...prev, status: 'running', pmMsgs: [...prev.pmMsgs, { from: 'pm', text: msg }] };
+    }
 
     case 'task.metrics':
       return {

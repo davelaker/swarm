@@ -37,6 +37,7 @@ export interface Task {
   artifacts:   string[];
   result_ref:  string | null; // path to findings file
   attempts:    number;
+  cost_usd?:   number;        // accumulated agent cost for this task (api-key driver only)
   lease?:      Lease;
 }
 

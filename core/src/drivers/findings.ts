@@ -24,6 +24,11 @@ export function coderFinding(task: Task, summary: string, files: string[]): stri
 }
 
 export function testerFinding(task: Task, verdict: string, summary: string, detail?: string): string {
+  const bodyDetail = detail
+    ? detail
+    : verdict === 'PASS'
+      ? 'Tests ran and passed. No failures detected.'
+      : 'Tests ran but reported failures — see summary above.';
   return [
     '---',
     `task: ${task.id}`,
@@ -35,7 +40,8 @@ export function testerFinding(task: Task, verdict: string, summary: string, deta
     '',
     `## ${verdict}: ${summary}`,
     '',
-    ...(detail ? [detail, ''] : []),
+    bodyDetail,
+    '',
   ].join('\n');
 }
 
@@ -67,7 +73,7 @@ export function reviewerFinding(task: Task, verdict: string, summary: string, it
       ].join('\n')).join('\n')
     : verdict === 'APPROVED'
       ? 'No significant issues found in the changed code.\n'
-      : '';
+      : 'Issues were identified but the structured findings list was not captured. Check the agent run log for details.\n';
 
   return header + `## ${verdict}: ${summary}\n\n` + body;
 }
@@ -100,7 +106,7 @@ export function securityFinding(task: Task, verdict: string, summary: string, it
       ].join('\n')).join('\n')
     : verdict === 'APPROVED'
       ? 'No security issues found.\n'
-      : '';
+      : 'Issues were identified but the structured findings list was not captured. Check the agent run log for details.\n';
 
   return header + `## ${verdict}: ${summary}\n\n` + body;
 }

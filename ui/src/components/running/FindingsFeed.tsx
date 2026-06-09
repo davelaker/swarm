@@ -77,6 +77,17 @@ function cleanSummary(summary: string): string {
   return summary;
 }
 
+// ─── Time formatting ─────────────────────────────────────────────────────────
+
+function fmtTime(ts: number): string {
+  const d = new Date(ts);
+  const h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, '0');
+  const ampm = h >= 12 ? 'pm' : 'am';
+  const h12 = h % 12 || 12;
+  return `${h12}:${m}${ampm}`;
+}
+
 // ─── Card ─────────────────────────────────────────────────────────────────────
 
 function FindingCard({ f, tasks }: { f: Finding; tasks: Task[] }) {
@@ -113,6 +124,15 @@ function FindingCard({ f, tasks }: { f: Finding; tasks: Task[] }) {
           {p?.name}
         </span>
         <span className="finding-tid">{f.task}</span>
+        <span style={{ flex: 1 }} />
+        {f.ts && (
+          <span style={{
+            fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--tx-3)',
+            marginRight: 8, flexShrink: 0,
+          }}>
+            {fmtTime(f.ts)}
+          </span>
+        )}
         <span className={`vchip ${chip.cls}`}>{chip.label}</span>
       </div>
       {sum && <div className="finding-summary">{sum}</div>}

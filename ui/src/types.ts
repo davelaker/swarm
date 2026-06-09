@@ -42,6 +42,7 @@ export interface Finding {
   verdict: Verdict;
   summary: string;
   path?:   string;   // relative path under .swarm/ — used to fetch full content
+  ts?:     number;   // Date.now() when SSE event arrived; absent for snapshot findings
 }
 
 export interface ChatMessage {

@@ -237,9 +237,9 @@ input, textarea, select { font-family: inherit; }
 .spend-bar { height: 4px; border-radius: 3px; background: var(--bg-3); overflow: hidden; }
 .spend-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--blue), #6aa6f8); border-radius: 3px; transition: width 0.2s linear; }
 .run-graph { border-right: 1px solid var(--border); background: var(--bg-1); display: flex; flex-direction: column; min-height: 0; }
-.run-right { display: flex; flex-direction: column; min-height: 0; }
+.run-right { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .run-agents { flex: 0 0 auto; border-bottom: 1px solid var(--border); }
-.run-findings { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.run-findings { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .graph-scroll { flex: 1; overflow-y: auto; position: relative; padding: 14px 16px 24px 8px; }
 .graph-inner { position: relative; }
 .graph-edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; z-index: 0; }
