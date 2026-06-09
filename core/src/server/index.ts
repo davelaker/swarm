@@ -91,15 +91,11 @@ function diffAndEmit(prev: SwarmState | null, next: SwarmState): void {
     }
   }
 
-  // New log entries → forward as log.appended (PM chat) only.
-  // We do NOT synthesise agent.progress from completion log entries — those arrive
-  // AFTER the agent.finished event and would re-activate the agent row with active:true,
-  // causing the blinking cursor to persist on idle/blocked agents.
-  // Agent step text comes exclusively from bus events (loop.ts) and agent.started.
-  const prevLen = prev.log.length;
-  for (const entry of next.log.slice(prevLen)) {
-    fanout({ type: 'log.appended', actor: entry.actor, event: entry.event });
-  }
+  // Log entries are forwarded by repo.appendLog() via the in-process bus — the bus
+  // handler in repo.ts always emits log.appended synchronously, so we do NOT
+  // re-emit them here. Doing so causes every PM message to appear twice (once from
+  // the bus, once from the file-watcher diff). The file-watcher path only covers
+  // events that the bus cannot: task graph changes, findings, and run lifecycle.
 
   // Run completed
   if (next.tasks.length > 0 && next.tasks.every(t => t.status === 'done') &&
