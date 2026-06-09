@@ -8,9 +8,13 @@
 // Both feed the same `fanout()` function → all SSE clients.
 // See UX.md §3 for the architecture diagram.
 
-import http   from 'node:http';
-import path   from 'node:path';
-import fs     from 'node:fs';
+import http      from 'node:http';
+import path      from 'node:path';
+import fs        from 'node:fs';
+import { execFile }  from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 import { bus }      from '../state/events.js';
 import { getState, swarmDir, stateFile, projectContextFile, writeDeploymentInfo, appendLog } from '../state/repo.js';
 import { runPmMessage } from '../pm/index.js';
@@ -372,6 +376,50 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
       abortRun();
       fanout({ type: 'run.aborted' });
       res.writeHead(200); res.end(JSON.stringify({ ok: true })); return;
+    }
+
+    if (route === '/run/push') {
+      const cwd = path.dirname(swarmDir());
+      execFileAsync('git', ['push', 'origin', 'HEAD'], { cwd })
+        .then(() => {
+          appendLog('pm', '⬆ Pushed to remote successfully');
+          res.writeHead(200); res.end(JSON.stringify({ ok: true }));
+        })
+        .catch((err: { stderr?: Buffer; message: string }) => {
+          const msg = (err.stderr?.toString().trim() || err.message).slice(0, 300);
+          appendLog('pm', `✗ Push failed: ${msg}`);
+          res.writeHead(200); res.end(JSON.stringify({ ok: false, error: msg }));
+        });
+      return;
+    }
+
+    if (route === '/run/pr') {
+      let state: ReturnType<typeof getState>;
+      try { state = getState(); } catch {
+        res.writeHead(400); res.end(JSON.stringify({ error: 'No run state found' })); return;
+      }
+      const cwd   = path.dirname(swarmDir());
+      const title = state.goal.slice(0, 120);
+      const parts: string[] = [state.goal];
+      const constraints = state.charter?.constraints ?? [];
+      const nongoals    = state.charter?.nongoals    ?? [];
+      if (constraints.length) parts.push('## Constraints\n' + constraints.map(c => `- ${c}`).join('\n'));
+      if (nongoals.length)    parts.push('## Non-goals\n'   + nongoals.map(n => `- ${n}`).join('\n'));
+      parts.push('🤖 Generated with Agent Swarm');
+      const body = parts.join('\n\n');
+
+      execFileAsync('gh', ['pr', 'create', '--title', title, '--body', body], { cwd })
+        .then(({ stdout }) => {
+          const url = stdout.trim().match(/https:\/\/\S+/)?.[0] ?? undefined;
+          appendLog('pm', `⬆ PR created${url ? `: ${url}` : ''}`);
+          res.writeHead(200); res.end(JSON.stringify({ ok: true, url: url ?? null }));
+        })
+        .catch((err: { stderr?: Buffer; message: string }) => {
+          const msg = (err.stderr?.toString().trim() || err.message).slice(0, 300);
+          appendLog('pm', `✗ PR creation failed: ${msg}`);
+          res.writeHead(200); res.end(JSON.stringify({ ok: false, error: msg }));
+        });
+      return;
     }
 
     res.writeHead(404); res.end(JSON.stringify({ error: 'unknown route' }));

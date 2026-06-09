@@ -25,6 +25,85 @@ interface RunViewProps {
   onAbort?:      () => void;
 }
 
+// ─── Post-run actions ─────────────────────────────────────────────────────────
+
+type ActionState = 'idle' | 'pending' | 'ok' | 'err';
+
+function PostRunActions() {
+  const [pushState, setPushState] = useState<ActionState>('idle');
+  const [pushErr,   setPushErr]   = useState<string | null>(null);
+  const [prState,   setPrState]   = useState<ActionState>('idle');
+  const [prErr,     setPrErr]     = useState<string | null>(null);
+  const [prUrl,     setPrUrl]     = useState<string | null>(null);
+
+  const push = () => {
+    setPushState('pending'); setPushErr(null);
+    fetch('/run/push', { method: 'POST' })
+      .then(r => r.json())
+      .then((d: { ok: boolean; error?: string }) => {
+        if (d.ok) { setPushState('ok'); }
+        else      { setPushState('err'); setPushErr(d.error ?? 'Push failed'); }
+      })
+      .catch((e: Error) => { setPushState('err'); setPushErr(e.message); });
+  };
+
+  const createPr = () => {
+    setPrState('pending'); setPrErr(null);
+    fetch('/run/pr', { method: 'POST' })
+      .then(r => r.json())
+      .then((d: { ok: boolean; url?: string; error?: string }) => {
+        if (d.ok) { setPrState('ok'); setPrUrl(d.url ?? null); }
+        else      { setPrState('err'); setPrErr(d.error ?? 'PR creation failed'); }
+      })
+      .catch((e: Error) => { setPrState('err'); setPrErr(e.message); });
+  };
+
+  const errStyle: React.CSSProperties = {
+    fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--red)',
+    maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  };
+
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      {/* Push */}
+      <button
+        className="btn sm"
+        onClick={push}
+        disabled={pushState === 'pending' || pushState === 'ok'}
+        title="git push origin HEAD"
+      >
+        {pushState === 'pending' ? 'Pushing…' : pushState === 'ok' ? '✓ Pushed' : pushState === 'err' ? 'Retry push' : 'Push'}
+      </button>
+      {pushState === 'err' && pushErr && (
+        <span style={errStyle} title={pushErr}>⚠ {pushErr}</span>
+      )}
+
+      {/* Create PR / View PR */}
+      {prState === 'ok' && prUrl ? (
+        <a
+          href={prUrl} target="_blank" rel="noopener noreferrer"
+          className="btn sm primary"
+          style={{ textDecoration: 'none' }}
+        >
+          View PR ↗
+        </a>
+      ) : (
+        <button
+          className="btn sm primary"
+          onClick={createPr}
+          disabled={prState === 'pending'}
+          title="gh pr create"
+        >
+          {prState === 'pending' ? 'Creating PR…' : prState === 'err' ? 'Retry PR' : 'Create PR'}
+        </button>
+      )}
+      {prState === 'err' && prErr && (
+        <span style={errStyle} title={prErr}>⚠ {prErr}</span>
+      )}
+    </div>
+  );
+}
+
 // ─── Run controls ─────────────────────────────────────────────────────────────
 
 function RunControls({ status, onPause, onAbort }: {
@@ -92,6 +171,9 @@ function RunControls({ status, onPause, onAbort }: {
       </div>
     );
   }
+
+  // ── Done: replace Pause/Abort with post-run actions ────────────────────────
+  if (done) return <PostRunActions />;
 
   // ── Normal controls ─────────────────────────────────────────────────────────
   const pauseTitle = status === 'paused'
@@ -251,7 +333,7 @@ function RunView({
       <TaskGraph tasks={tasks} agentSteps={agentSteps} />
 
       <div className="run-right">
-        <AgentsPanel agents={agents} />
+        <AgentsPanel agents={agents} status={status} />
         <FindingsFeed findings={findings} tasks={tasks} />
       </div>
 

@@ -1,10 +1,19 @@
 import { useState, useEffect } from 'react';
-import type { AgentState } from '../../types';
+import type { AgentState, RunStatus } from '../../types';
 import { PERSONAS } from '../../data/personas';
 import { VerdictChip } from '../common/VerdictChip';
 
 const ORDER = ['pm', 'coder', 'tester', 'security', 'reviewer', 'negotiator'];
-const IDLE_LABEL: Record<string, string> = { pm: 'refereeing', negotiator: 'no conflicts to arbitrate' };
+
+// Idle labels while a run is active
+const IDLE_LABEL: Record<string, string> = {
+  pm:         'refereeing',
+  negotiator: 'no conflicts to arbitrate',
+};
+// Idle labels once the run has finished (PM gets nothing — "refereeing" is stale)
+const DONE_LABEL: Record<string, string> = {
+  pm: '',
+};
 
 function useNow(active: boolean): number {
   const [now, setNow] = useState(() => Date.now());
@@ -28,7 +37,7 @@ function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
-function AgentRow({ id, a }: { id: string; a: AgentState }) {
+function AgentRow({ id, a, idleLabel }: { id: string; a: AgentState; idleLabel: string }) {
   const p          = PERSONAS[id];
   const now        = useNow(a.active);
   const elapsed    = a.active && a.activeAt ? now - a.activeAt : 0;
@@ -56,7 +65,9 @@ function AgentRow({ id, a }: { id: string; a: AgentState }) {
                 </span>
               : a.verdict
                 ? <VerdictChip verdict={a.verdict} />
-                : <span className="agent-sub mono">{IDLE_LABEL[id] ?? 'idle'}</span>}
+                : idleLabel
+                  ? <span className="agent-sub mono">{idleLabel}</span>
+                  : null}
           </span>
         </div>
         {!a.active && hasMetrics && (
@@ -78,11 +89,15 @@ function AgentRow({ id, a }: { id: string; a: AgentState }) {
   );
 }
 
-export function AgentsPanel({ agents }: { agents: Record<string, AgentState> }) {
+export function AgentsPanel({ agents, status }: { agents: Record<string, AgentState>; status: RunStatus }) {
+  const idleLabel = (id: string) => {
+    const map = (status === 'done' || status === 'aborted') ? DONE_LABEL : IDLE_LABEL;
+    return map[id] ?? 'idle';
+  };
   return (
     <div className="run-agents">
       <div className="panel-head"><span>Agents</span></div>
-      {ORDER.map(id => <AgentRow key={id} id={id} a={agents[id]} />)}
+      {ORDER.map(id => <AgentRow key={id} id={id} a={agents[id]} idleLabel={idleLabel(id)} />)}
     </div>
   );
 }
