@@ -69,7 +69,10 @@ function spawnRemediation(state: SwarmState, reviewTaskId: string, cfg: ReturnTy
     status:     'pending',
     owner:      cfg.owner,
     assignee:   'coder',
-    depends_on: [reviewTaskId],
+    // No dependency on the blocked review task — that would deadlock because
+    // blocked tasks never enter the doneIds set. The coder can start immediately;
+    // the review finding is already on disk and the task title names the source.
+    depends_on: [],
     artifacts:  [],
     result_ref: null,
     attempts:   0,
@@ -205,9 +208,19 @@ export async function runLoop(): Promise<LoopResult> {
 
     // ── Terminal: all tasks done ──────────────────────────────────────────────
     if (state.tasks.every(t => t.status === 'done')) {
+      // Skip review tasks that have been superseded by a re-check (t_chk_<id>).
+      // Without this the C2 gate would see the original CHANGES_REQUESTED finding
+      // and re-block t4 even after the coder fixed the issues and t_chk_t4 passed.
+      const remediatedIds = new Set(
+        state.tasks
+          .filter(t => t.id.startsWith('t_chk_'))
+          .map(t => t.id.slice('t_chk_'.length))   // 't_chk_t4' → 't4'
+      );
+
       let blocked = false;
       for (const t of state.tasks) {
         if (t.assignee === 'security' || t.assignee === 'tester' || t.assignee === 'reviewer') {
+          if (remediatedIds.has(t.id)) continue;    // superseded — skip original
           const blocks = await validateTaskFinding(t, t.id);
           if (blocks) { blocked = true; updateTask(t.id, { status: 'blocked' }); }
         }
@@ -245,7 +258,25 @@ export async function runLoop(): Promise<LoopResult> {
 
     if (!runnable.length && !inProg.length) {
       const blocked = state.tasks.filter(t => t.status === 'blocked');
-      if (blocked.length) { await sleep(POLL_MS); continue; }
+      // If there are blocked tasks but also pending tasks that depend only on
+      // blocked (not done) deps, those pending tasks will never run — real deadlock.
+      if (blocked.length) {
+        const blockedOrDoneIds = new Set(
+          state.tasks.filter(t => t.status === 'done' || t.status === 'blocked').map(t => t.id)
+        );
+        const wouldBeRunnable = state.tasks.some(
+          t => t.status === 'pending' && t.depends_on.every(dep => blockedOrDoneIds.has(dep))
+        );
+        if (wouldBeRunnable) {
+          // There are tasks that could run if we treated blocked as satisfied —
+          // this shouldn't happen now that fix tasks have empty depends_on,
+          // but surface it clearly if it ever does.
+          appendLog('pm', 'deadlock: pending tasks depend on blocked tasks');
+          console.error('  ✗ deadlock — pending tasks depend on blocked tasks (fix: check depends_on)\n');
+          return { status: 'deadlock', totalCostUsd: totalCost, message: 'Deadlock: pending tasks depend on blocked tasks.' };
+        }
+        await sleep(POLL_MS); continue;
+      }
       appendLog('pm', 'deadlock');
       console.error('  ✗ deadlock — nothing runnable and nothing in progress\n');
       return { status: 'deadlock', totalCostUsd: totalCost, message: 'Deadlock: task graph cannot make progress.' };

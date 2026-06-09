@@ -255,11 +255,21 @@ function charterBlock(state: SwarmState): string {
 }
 
 function coderPrompt(task: Task, state: SwarmState): string {
+  // For remediation fix tasks, point the coder at the review finding it must address.
+  const isFixTask = task.id.startsWith('t_fix_');
+  const reviewRef = isFixTask
+    ? state.tasks
+        .filter(t => (t.assignee === 'reviewer' || t.assignee === 'security') && t.result_ref)
+        .map(t => `Review findings to address: .swarm/${t.result_ref}`)
+        .join('\n')
+    : '';
+
   return [
     projectCtxBlock(),
     `Task: ${task.title}`,
     state.goal ? `Goal: ${state.goal}` : '',
     charterBlock(state),
+    reviewRef,
   ].filter(Boolean).join('\n');
 }
 

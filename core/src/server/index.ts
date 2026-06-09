@@ -176,8 +176,32 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       // model: for agent-sdk the session model is chosen by the claude CLI, not us;
       // for api-key we know the exact model ID from config.
       const model  = driver === 'agent-sdk' ? null : cfg.coderModel;
+
+      // Enrich tasks with finding verdict+summary so the UI can populate
+      // the findings panel on initial load (not just via SSE events).
+      const enrichedTasks = (state.tasks as unknown as Record<string, unknown>[]).map(t => {
+        const ref = t.result_ref as string | null;
+        if (!ref) return t;
+        try {
+          const abs     = path.resolve(swarmDir(), ref);
+          const content = fs.readFileSync(abs, 'utf8');
+          const m       = content.match(/^---[\r\n]([\s\S]*?)[\r\n]---/);
+          if (!m) return t;
+          let verdict: string | undefined, summary: string | undefined;
+          for (const line of m[1].split('\n')) {
+            const colon = line.indexOf(':');
+            if (colon < 1) continue;
+            const k = line.slice(0, colon).trim();
+            const v = line.slice(colon + 1).trim().replace(/^["']|["']$/g, '');
+            if (k === 'verdict') verdict = v;
+            if (k === 'summary') summary = v;
+          }
+          return { ...t, finding_verdict: verdict, finding_summary: summary };
+        } catch { return t; }
+      });
+
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ ...state, driver, model, activeRun }));
+      res.end(JSON.stringify({ ...state, tasks: enrichedTasks, driver, model, activeRun }));
     } catch {
       // No state.json yet (no run started) — still return 200 so the UI
       // recognises the server as up and shows "agents ready" instead of "offline".

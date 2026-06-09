@@ -4,13 +4,15 @@ import { useState, useEffect, useRef } from 'react';
 import type { Task, AgentState, Finding, ChatMessage, RunStatus } from '../types';
 
 interface ServerTask {
-  id:         string;
-  title:      string;
-  status:     string;
-  assignee:   string;
-  depends_on: string[];
-  result_ref: string | null;
-  attempts:   number;
+  id:               string;
+  title:            string;
+  status:           string;
+  assignee:         string;
+  depends_on:       string[];
+  result_ref:       string | null;
+  attempts:         number;
+  finding_verdict?: string;   // enriched by server from finding frontmatter
+  finding_summary?: string;
 }
 
 interface ServerState {
@@ -112,13 +114,34 @@ export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState 
         const tasks   = snap.tasks.map(t => adaptTask(t, lanes.get(t.id) ?? 0));
         const allDone = tasks.length > 0 && tasks.every(t => t.status === 'done');
 
+        // Populate findings from snapshot so they survive refresh / reconnect.
+        const verdictMap: Record<string, Finding['verdict']> = {
+          COMPLETE: 'complete', PASS: 'pass', APPROVED: 'pass',
+          FAILED: 'fail', FAIL: 'fail', CHANGES_REQUESTED: 'changes',
+        };
+        const findings: Finding[] = snap.tasks
+          .filter(t => t.result_ref)
+          .map(t => {
+            const rawVerdict = (t.finding_verdict ?? '').toUpperCase();
+            const verdict: Finding['verdict'] = verdictMap[rawVerdict] ?? 'complete';
+            return {
+              key:     `${t.id}-finding`,
+              agent:   t.assignee,
+              task:    t.id,
+              verdict,
+              summary: t.finding_summary ?? t.result_ref!,
+              path:    t.result_ref!,
+            };
+          })
+          .reverse();  // newest first, matching the SSE prepend order
+
         setServerStatus('up');
         setState({
           project:  snap.project,
           tier:     snap.tier,
           tasks,
           agents:   initAgents(),
-          findings: [],
+          findings,
           pmMsgs:   snap.goal ? [{ from: 'pm', text: `Goal: ${snap.goal}` }] : [],
           status:   allDone ? 'done' : 'running',
           connected: true,
