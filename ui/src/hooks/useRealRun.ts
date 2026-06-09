@@ -143,6 +143,16 @@ export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState 
           if (agents[t.assignee]) agents[t.assignee] = { ...agents[t.assignee], verdict: v };
         });
 
+        // Reconstruct PM chat history from the persisted log (actor 'pm' | 'user').
+        // The goal line is always the first message; log entries follow in order.
+        const logMsgs: Array<{ from: 'pm' | 'you'; text: string }> = snap.log
+          .filter(e => e.actor === 'pm' || e.actor === 'user')
+          .map(e => ({ from: e.actor === 'pm' ? 'pm' as const : 'you' as const, text: e.event }));
+        const pmMsgs = [
+          ...(snap.goal ? [{ from: 'pm' as const, text: `Goal: ${snap.goal}` }] : []),
+          ...logMsgs,
+        ];
+
         setServerStatus('up');
         setState({
           project:  snap.project,
@@ -150,7 +160,7 @@ export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState 
           tasks,
           agents,
           findings,
-          pmMsgs:   snap.goal ? [{ from: 'pm', text: `Goal: ${snap.goal}` }] : [],
+          pmMsgs,
           status:   allDone ? 'done' : 'running',
           connected: true,
           spend:    0,
