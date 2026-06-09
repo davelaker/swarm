@@ -22,28 +22,43 @@ interface SessionState {
 }
 
 // ─── localStorage persistence ─────────────────────────────────────────────────
-// Survives HMR reloads (React resets useState/useRef on hot-reload) and
-// accidental browser refreshes. Cleared by newSession().
+// Survives HMR reloads and accidental browser refreshes. Cleared by newSession().
+//
+// Security notes (localhost dev tool):
+//   - Data is plaintext; don't paste credentials or secrets into the PM chat.
+//   - Sessions are scoped per-project so different projects don't share state.
+//   - TTL of SESSION_TTL_MS: stale planning data is cleared automatically.
+//     Keeps the browser clean even if you forget to click "New session".
 
-const STORAGE_KEY = 'swarm-planning-session-v1';
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+function storageKey(project: string): string {
+  // Sanitise project name so it's safe as a storage key
+  const safe = project.replace(/[^a-z0-9_-]/gi, '_').slice(0, 40) || 'default';
+  return `swarm-session-v1-${safe}`;
+}
 
 type PersistedState = Pick<SessionState,
   'messages' | 'charter' | 'team' | 'phase' | 'executable' | 'executableReason'
->;
+> & { savedAt: number };
 
-function loadPersisted(): PersistedState | null {
+function loadPersisted(project: string): Omit<PersistedState, 'savedAt'> | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey(project));
     if (!raw) return null;
     const p = JSON.parse(raw) as PersistedState;
-    // Basic sanity check
+    // Expire stale sessions
+    if (!p.savedAt || Date.now() - p.savedAt > SESSION_TTL_MS) {
+      localStorage.removeItem(storageKey(project));
+      return null;
+    }
     return Array.isArray(p.messages) && p.messages.length > 0 ? p : null;
   } catch {
     return null;
   }
 }
 
-function persist(s: SessionState) {
+function persist(s: SessionState, project: string) {
   try {
     const p: PersistedState = {
       messages:         s.messages,
@@ -52,24 +67,27 @@ function persist(s: SessionState) {
       phase:            s.phase,
       executable:       s.executable,
       executableReason: s.executableReason,
+      savedAt:          Date.now(),
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+    localStorage.setItem(storageKey(project), JSON.stringify(p));
   } catch { /* quota exceeded or private mode — ignore */ }
 }
 
-function clearPersisted() {
-  try { localStorage.removeItem(STORAGE_KEY); } catch { /* ok */ }
+function clearPersisted(project: string) {
+  try { localStorage.removeItem(storageKey(project)); } catch { /* ok */ }
 }
 
 const DEFAULT_REASON = 'Complete the planning conversation to unlock Execute';
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
-export function usePlanningSession(onExecutable: (v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => void) {
-
+export function usePlanningSession(
+  onExecutable: (v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => void,
+  project = 'default',
+) {
   // Lazy initializer — runs once, restores persisted session if available.
   const [state, setState] = useState<SessionState>(() => {
-    const p = loadPersisted();
+    const p = loadPersisted(project);
     if (p) {
       return {
         messages:        p.messages,
@@ -97,15 +115,15 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
   // Persist on every meaningful state change (skip transient 'typing' flicker).
   useEffect(() => {
     if (state.phase === 'start') return;  // nothing worth saving yet
-    persist(state);
-  }, [state]);
+    persist(state, project);
+  }, [state, project]);
 
   // On mount, if we restored an executable session, re-notify the parent
   // (App.tsx stores executable separately and won't know otherwise).
   const onExecutableRef = useRef(onExecutable);
   onExecutableRef.current = onExecutable;
   useEffect(() => {
-    const p = loadPersisted();
+    const p = loadPersisted(project);
     if (p?.executable && p.charter?.goal) {
       const charter: RunCharter = {
         constraints: (p.charter.constraints ?? []).map((c: { text: string }) => c.text),
@@ -323,7 +341,7 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
   // ─── init ─────────────────────────────────────────────────────────────────
   // Skipped automatically if a persisted session was restored (started = true).
 
-  const started = useRef(loadPersisted() !== null);
+  const started = useRef(loadPersisted(project) !== null);
 
   const init = useCallback((projectName?: string, projectStack?: string) => {
     if (started.current) return;
@@ -352,7 +370,7 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
   // a "New session" button.
 
   const newSession = useCallback(() => {
-    clearPersisted();
+    clearPersisted(project);
     started.current = false;
     setState({
       messages:        [],

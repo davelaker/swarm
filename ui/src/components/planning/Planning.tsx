@@ -14,7 +14,7 @@ interface PlanningProps {
 }
 
 export function Planning({ onExecutable, serverStatus = 'probing' }: PlanningProps) {
-  const session    = usePlanningSession(onExecutable);
+  const session    = usePlanningSession(onExecutable, projectName ?? 'default');
   const context    = useContextFiles();
   const [input, setInput]           = useState('');
   const [projectName, setProjectName] = useState<string | undefined>();
