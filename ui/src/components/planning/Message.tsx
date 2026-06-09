@@ -1,12 +1,76 @@
+import { Fragment } from 'react';
 import type { ChatMessage } from '../../types';
 
-function renderText(t: string) {
-  const parts = t.split(/(`[^`]+`)/g);
-  return parts.map((p, i) =>
-    p.startsWith('`') && p.endsWith('`')
-      ? <code key={i} style={{ fontFamily: 'var(--mono)', fontSize: '0.85em', background: 'rgba(255,255,255,0.06)', padding: '1px 5px', borderRadius: 4 }}>{p.slice(1, -1)}</code>
-      : <span key={i}>{p}</span>
-  );
+// ─── Inline Markdown ──────────────────────────────────────────────────────────
+// Handles: **bold**, *italic*, `code`
+// Order in the regex matters — bold/code before italic so ** isn't eaten by *.
+
+const INLINE_RE = /(\*\*[^*\n]+\*\*|`[^`\n]+`|\*[^*\n]+\*)/g;
+
+function renderInline(text: string) {
+  const parts = text.split(INLINE_RE);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**'))
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith('`')  && part.endsWith('`'))
+      return <code key={i} className="md-code">{part.slice(1, -1)}</code>;
+    if (part.startsWith('*')  && part.endsWith('*'))
+      return <em key={i}>{part.slice(1, -1)}</em>;
+    return <Fragment key={i}>{part}</Fragment>;
+  });
+}
+
+// ─── Block Markdown ───────────────────────────────────────────────────────────
+// Handles paragraphs (blank-line separated), bullet lists (- or *), line breaks.
+
+function renderMarkdown(text: string) {
+  const blocks = text.trim().split(/\n{2,}/);
+
+  return blocks.map((block, bi) => {
+    const lines = block.split('\n');
+
+    // Bullet list: every line starts with "- " or "* "
+    if (lines.length > 1 && lines.every(l => /^\s*[-*]\s/.test(l))) {
+      return (
+        <ul key={bi} className="md-list">
+          {lines.map((line, li) => (
+            <li key={li}>{renderInline(line.replace(/^\s*[-*]\s+/, ''))}</li>
+          ))}
+        </ul>
+      );
+    }
+
+    // Mixed block: some bullet lines, some plain — render each line individually
+    if (lines.some(l => /^\s*[-*]\s/.test(l))) {
+      return (
+        <div key={bi} className="md-block">
+          {lines.map((line, li) => {
+            if (/^\s*[-*]\s/.test(line)) {
+              return (
+                <div key={li} className="md-inline-bullet">
+                  <span className="md-bullet-mk">▸</span>
+                  {renderInline(line.replace(/^\s*[-*]\s+/, ''))}
+                </div>
+              );
+            }
+            return <p key={li} className="md-p">{renderInline(line)}</p>;
+          })}
+        </div>
+      );
+    }
+
+    // Plain paragraph — preserve single newlines as <br>
+    return (
+      <p key={bi} className="md-p">
+        {lines.map((line, li) => (
+          <Fragment key={li}>
+            {li > 0 && <br />}
+            {renderInline(line)}
+          </Fragment>
+        ))}
+      </p>
+    );
+  });
 }
 
 function Avatar({ from }: { from: string }) {
@@ -28,7 +92,7 @@ export function Message({ m }: { m: ChatMessage }) {
           background: 'var(--bg-2)', border: '1px solid var(--border)',
           borderRadius: 6, padding: '5px 12px', lineHeight: 1.5,
         }}>
-          {renderText(m.text)}
+          {renderInline(m.text)}
         </span>
       </div>
     );
@@ -44,7 +108,7 @@ export function Message({ m }: { m: ChatMessage }) {
           <span className="who">{who}</span>
           {m.time && <span className="time">{m.time}</span>}
         </div>
-        <div className="bubble">{renderText(m.text)}</div>
+        <div className="bubble md">{renderMarkdown(m.text)}</div>
       </div>
     </div>
   );
