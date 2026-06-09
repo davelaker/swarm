@@ -21,8 +21,35 @@ export function Planning({ onExecutable, serverStatus = 'probing' }: PlanningPro
   const scrollRef   = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Start the PM opening message on mount
-  useEffect(() => { session.init(); }, []);
+  // Start the PM opening message once we have project context.
+  // We wait up to 1.5s for /state and /context to load before falling back
+  // to the generic greeting so the PM can reference the existing project.
+  const initFired = useRef(false);
+  useEffect(() => {
+    if (initFired.current) return;
+    // Extract a short stack summary from PROJECT.md (first tech stack bullet)
+    const stackLine = context.projectMd?.content
+      ?.split('\n')
+      .find(l => l.match(/^\s*[-*]\s*(language|runtime|tech|stack)/i));
+    const stackHint = stackLine
+      ? stackLine.replace(/^\s*[-*]\s*/i, '').replace(/\*\*/g, '').slice(0, 60)
+      : undefined;
+    if (projectName || context.projectMd) {
+      initFired.current = true;
+      session.init(projectName, stackHint);
+    }
+  }, [projectName, context.projectMd]);
+
+  // Fallback: fire after 1.5s even if context never arrives
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (!initFired.current) {
+        initFired.current = true;
+        session.init();
+      }
+    }, 1500);
+    return () => clearTimeout(t);
+  }, []);
 
   // Try to fetch the real project name from the backend
   useEffect(() => {

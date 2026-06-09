@@ -236,18 +236,27 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
       });
   }, [state.messages]);
 
-  // Kick off the opening message on first use
+  // Kick off the opening message on first use.
+  // If projectName/stack are provided, the PM acknowledges the existing project
+  // rather than asking a blank "what are we building?" question.
   const started = useRef(false);
-  const init = useCallback(() => {
+  const init = useCallback((projectName?: string, projectStack?: string) => {
     if (started.current) return;
     started.current = true;
+
+    const greeting = projectName
+      ? projectStack
+        ? `I can see this is **${projectName}** (${projectStack}). What are we building this session?`
+        : `I can see this is **${projectName}**. What are we building this session?`
+      : "Before I staff anything — what are we building?";
+
     schedule([
-      { delay: 600,  fn: p => ({ ...p, typing: 'pm' }) },
-      { delay: 1400, fn: p => ({
+      { delay: 400,  fn: p => ({ ...p, typing: 'pm' }) },
+      { delay: 900, fn: p => ({
           ...p,
           typing:   null,
           phase:    'goal' as Phase,   // unlock the textarea
-          messages: [{ from: 'pm', text: "Before I staff anything — what are we building?", time: now() }],
+          messages: [{ from: 'pm', text: greeting, time: now() }],
         }),
       },
     ]);

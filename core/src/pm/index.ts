@@ -313,15 +313,22 @@ export async function runPmMessage(
             data = { reply: stripped };
             const lower = stripped.toLowerCase();
 
-            // ── 1. Extract goal from the current user message (always) ──────
-            // The user's feature request IS the goal. We don't need the PM to
-            // confirm it in JSON — the message itself is the spec.
-            const isFeatureMsg = text.trim().length > 30 && text.trim().length < 800;
-            if (isFeatureMsg) {
-              data.charter_updates = { goal: text.trim() };
-            } else {
-              // Fall back to most recent substantive user message in history
-              const prev = [...history].reverse().find(m => m.from === 'you' && m.text.length > 30);
+            // ── 1. Extract goal from the current user message ──────────────
+            // The user's feature request IS the goal. Skip if it's clearly a
+            // question (ends with "?") or a conversational opener rather than
+            // a feature description.
+            const trimmedText = text.trim();
+            const isQuestion = trimmedText.endsWith('?');
+            const questionStarters = /^(do |can |could |should |would |is |are |was |were |has |have |did |does |what |why |how |when |who )/i;
+            const isConversational = isQuestion || questionStarters.test(trimmedText) || trimmedText.length < 30;
+
+            if (!isConversational && trimmedText.length < 800) {
+              data.charter_updates = { goal: trimmedText };
+            } else if (!isConversational) {
+              // Fall back to most recent substantive non-question user message
+              const prev = [...history].reverse().find(m =>
+                m.from === 'you' && m.text.length > 30 && !m.text.trim().endsWith('?')
+              );
               if (prev) data.charter_updates = { goal: prev.text };
             }
 
