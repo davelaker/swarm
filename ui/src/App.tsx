@@ -174,7 +174,7 @@ export function App() {
               onMouseEnter={e => (e.currentTarget.style.color = 'var(--tx-1)')}
               onMouseLeave={e => (e.currentTarget.style.color = 'var(--tx-3)')}
             >
-              <GitHubIcon />
+              <IconGitHub />
             </a>
           )}
         </div>
