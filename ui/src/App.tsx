@@ -88,6 +88,11 @@ export function App() {
     if (!runGoal) return;
     setExecuteError(null);
 
+    // Optimistic: switch to Running immediately so the tab feels instant.
+    // If the POST or the early SSE watch detects a failure we snap back to
+    // Planning and surface the reason.
+    setSurface('running');
+
     fetch('/run/execute', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -95,8 +100,6 @@ export function App() {
     })
       .then(r => {
         if (!r.ok) return r.json().then((d: { error?: string }) => { throw new Error(d.error ?? `HTTP ${r.status}`); });
-        // Server accepted the request — switch to Running and watch for early failure.
-        setSurface('running');
 
         // Open a short-lived SSE listener. If the run gets blocked before the
         // first task arrives (e.g. git-dirty check), snap back to Planning with
@@ -121,7 +124,9 @@ export function App() {
         es.onerror = () => { clearTimeout(timer); finish(); };
       })
       .catch((err: Error) => {
-        setExecuteError(err.message);                      // sync POST failure (409, network, etc.)
+        // POST failed (409 conflict, network error, etc.) — snap back to Planning.
+        setExecuteError(err.message);
+        setSurface('planning');
       });
   }, [runGoal, runCharter, runTeam]);
 
