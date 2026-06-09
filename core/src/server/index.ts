@@ -35,28 +35,24 @@ const clients = new Set<SseClient>();
 let activeRun = false;
 
 // ─── GitHub URL detection ─────────────────────────────────────────────────────
-// Reads the `origin` remote once and converts SSH or HTTPS git URLs to a
-// browser-accessible https://github.com URL. Cached so the server probe
-// loop (every 3 s) doesn't shell out repeatedly.
+// Reads `origin` once at startup and caches the result. The /state handler
+// reads the cached value synchronously — no async needed there.
 
-let githubUrl: string | null | undefined = undefined; // undefined = not yet fetched
+let githubUrl: string | null = null;
 
-async function getGithubUrl(): Promise<string | null> {
-  if (githubUrl !== undefined) return githubUrl;
-  try {
-    const cwd = path.dirname(swarmDir());
-    const { stdout } = await execFileAsync('git', ['remote', 'get-url', 'origin'], { cwd });
-    const raw = stdout.trim();
-    // SSH:   git@github.com:user/repo.git
-    // HTTPS: https://github.com/user/repo.git  (or without .git)
-    const sshMatch   = raw.match(/^git@github\.com:(.+?)(?:\.git)?$/);
-    const httpsMatch = raw.match(/^https?:\/\/github\.com\/(.+?)(?:\.git)?$/);
-    const slug = sshMatch?.[1] ?? httpsMatch?.[1];
-    githubUrl = slug ? `https://github.com/${slug}` : null;
-  } catch {
-    githubUrl = null;
-  }
-  return githubUrl;
+function detectGithubUrl(): void {
+  // Use process.cwd() directly; swarmDir() may not resolve until a run exists.
+  execFileAsync('git', ['remote', 'get-url', 'origin'], { cwd: process.cwd() })
+    .then(({ stdout }) => {
+      const raw = stdout.trim();
+      // SSH:   git@github.com:user/repo.git
+      // HTTPS: https://github.com/user/repo.git  (or without .git)
+      const sshMatch   = raw.match(/^git@github\.com:(.+?)(?:\.git)?$/);
+      const httpsMatch = raw.match(/^https?:\/\/github\.com\/(.+?)(?:\.git)?$/);
+      const slug = sshMatch?.[1] ?? httpsMatch?.[1];
+      if (slug) githubUrl = `https://github.com/${slug}`;
+    })
+    .catch(() => { /* not a git repo or no origin — leave null */ });
 }
 
 function sendSse(res: SseClient, event: SwarmEvent): void {
@@ -192,8 +188,7 @@ function startFileWatcher(): void {
 
 function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
   if (url.pathname === '/state') {
-    // async block so we can await getGithubUrl() without making the whole handler async
-    (async () => { try {
+    try {
       const state  = getState();
       const driver = getDriverMode();
       const cfg    = getConfigOptional();
@@ -224,19 +219,15 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
         } catch { return t; }
       });
 
-      const repoUrl = await getGithubUrl();
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ ...state, tasks: enrichedTasks, driver, model, activeRun, repoUrl }));
+      res.end(JSON.stringify({ ...state, tasks: enrichedTasks, driver, model, activeRun, repoUrl: githubUrl }));
     } catch {
       // No state.json yet (no run started) — still return 200 so the UI
       // recognises the server as up and shows "agents ready" instead of "offline".
-      const driver  = getDriverMode();
-      const repoUrl = await getGithubUrl();
+      const driver = getDriverMode();
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ project: '', goal: '', tier: '', tasks: [], log: [], driver, model: null, activeRun: false, repoUrl }));
-    } })().catch(() => {
-      res.writeHead(500); res.end('{}');
-    });
+      res.end(JSON.stringify({ project: '', goal: '', tier: '', tasks: [], log: [], driver, model: null, activeRun: false, repoUrl: githubUrl }));
+    }
     return;
   }
 
@@ -523,6 +514,10 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
 }
 
 export function startServer(port: number): http.Server {
+  // Kick off GitHub URL detection immediately — result is cached and used by /state.
+  // Fire-and-forget; if git isn't available the cached value stays null.
+  detectGithubUrl();
+
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
 
