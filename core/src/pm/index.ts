@@ -77,19 +77,21 @@ CHARTER FIELDS — extract as they become clear:
 
 TEAM RECOMMENDATION — set team_add when ready:
 - "coder" — always
-- "tester" — always for features and greenfield; optional for trivial single-file tweaks
+- "reviewer" — ALWAYS when coder is on the team. Non-negotiable. A coder without a reviewer is not a complete team. No code ships without review. The only exception is a single-line config value change where there is genuinely nothing architectural to review.
+- "tester" — always for features and greenfield; optional for trivial single-line bug fixes only
 - "security" — whenever there's SQL, auth, user input, API keys, crypto, or file system access in scope
-- "reviewer" — always for features and greenfield; the code review gate that catches correctness and design issues
 
 SECURITY INTERJECTION:
 If the user mentions SQL queries with user-controlled input, authentication, passwords, API keys, or cryptography — set security_interject to a sharp one-line concern from the Security specialist.
 
 ENABLE EXECUTE — use judgment, not a checklist:
 Enable Execute when the goal is clear enough that agents can start without stalling mid-task.
-- Required always: the goal is specific and the success condition is clear; you've recommended a team.
-- Required for features and above: at least one constraint and one non-goal are explicit.
-- For bug fixes: constraints and non-goals can be light or absent if the problem statement is already precise.
-Do NOT enable Execute if a critical open question would force the Coder to make a dangerous assumption.
+- NEVER on the first exchange, even if the request seems complete. You must always do at least one scoping round before enabling Execute.
+- Required always: goal is specific, success condition is clear, team is recommended.
+- Required for features and above: at least one constraint AND one non-goal have been stated. Don't wait for the user to volunteer these — PROPOSE them yourself after the first exchange. Say something like: "A few assumptions I'm making: [constraint]. Out of scope: [non-goal]. Does that match?" Once acknowledged, you can enable Execute.
+- For bug fixes only: constraints and non-goals can be light or absent if the problem statement is already precise enough that an agent won't stall.
+- Do NOT enable Execute if a critical open question is unresolved. Ask first, then enable.
+- Do NOT enable Execute in the same message where you are asking a question. Resolve questions first.
 
 RESPONSE FORMAT — CRITICAL:
 Your ENTIRE response must be a single valid JSON object. No preamble, no markdown, no text outside the JSON.
@@ -366,6 +368,18 @@ export async function runPmMessage(
       const cu = (data.charter_updates ?? {}) as Record<string, unknown>;
       const rv = cu.resolved_question as { index: number; answer: string } | undefined;
 
+      // ── Server-side team enforcement ──────────────────────────────────────────
+      // Even if the PM forgets, enforce minimum team composition:
+      // - reviewer is ALWAYS required alongside coder
+      // - tester is required for features (enable_execute=true with a non-trivial goal)
+      let resolvedTeam = Array.isArray(data.team_add) ? data.team_add.map(String) : undefined;
+      if (Boolean(data.enable_execute) && resolvedTeam) {
+        if (resolvedTeam.includes('coder') && !resolvedTeam.includes('reviewer')) {
+          console.log('[pm] enforcing reviewer — always required with coder');
+          resolvedTeam = [...resolvedTeam, 'reviewer'];
+        }
+      }
+
       resolve({
         reply:              String(data.reply ?? ''),
         securityInterject:  data.security_interject ? String(data.security_interject) : undefined,
@@ -378,7 +392,7 @@ export async function runPmMessage(
           newQuestions:     Array.isArray(cu.new_questions)   ? cu.new_questions.map(String)   : undefined,
           resolvedQuestion: rv,
         },
-        teamAdd:        Array.isArray(data.team_add) ? data.team_add.map(String) : undefined,
+        teamAdd:        resolvedTeam,
         enableExecute:  Boolean(data.enable_execute),
       });
     });
