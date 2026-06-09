@@ -242,6 +242,40 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     return;
   }
 
+  if (url.pathname === '/run/diff') {
+    const cwd = path.dirname(swarmDir());
+    // Try strategies in order — return first non-empty result.
+    // 1. Uncommitted working-tree changes (coder wrote files, not yet committed)
+    // 2. Committed changes ahead of main (coder committed before push)
+    // 3. Committed changes ahead of master (alt branch name)
+    // 4. Last commit (fallback for any repo state)
+    const strategies: string[][] = [
+      ['diff', 'HEAD'],
+      ['diff', 'main...HEAD'],
+      ['diff', 'master...HEAD'],
+      ['diff', 'HEAD~1'],
+    ];
+    const tryNext = (i: number): void => {
+      if (i >= strategies.length) {
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+        res.end('');
+        return;
+      }
+      execFileAsync('git', strategies[i], { cwd })
+        .then(({ stdout }) => {
+          if (stdout.trim()) {
+            res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+            res.end(stdout);
+          } else {
+            tryNext(i + 1);
+          }
+        })
+        .catch(() => tryNext(i + 1));
+    };
+    tryNext(0);
+    return;
+  }
+
   if (url.pathname === '/findings') {
     const relPath = url.searchParams.get('path');
     if (!relPath) { res.writeHead(400); res.end('path required'); return; }

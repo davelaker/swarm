@@ -4,6 +4,7 @@ import { useRealRun }        from '../../hooks/useRealRun';
 import { TaskGraph }         from './TaskGraph';
 import { AgentsPanel }       from './AgentsPanel';
 import { FindingsFeed }      from './FindingsFeed';
+import { ChangesPanel }      from './ChangesPanel';
 import { Message }           from '../planning/Message';
 import { IconSend }          from '../common/icons';
 import type { RunStatus }    from '../../types';
@@ -29,7 +30,10 @@ interface RunViewProps {
 
 type ActionState = 'idle' | 'pending' | 'ok' | 'err';
 
-function PostRunActions() {
+function PostRunActions({ onToggleChanges, showChanges }: {
+  onToggleChanges: () => void;
+  showChanges:     boolean;
+}) {
   const [pushState, setPushState] = useState<ActionState>('idle');
   const [pushErr,   setPushErr]   = useState<string | null>(null);
   const [prState,   setPrState]   = useState<ActionState>('idle');
@@ -65,6 +69,17 @@ function PostRunActions() {
 
   return (
     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      {/* Changes toggle */}
+      <button
+        className={`btn sm${showChanges ? ' active' : ''}`}
+        onClick={onToggleChanges}
+        title="Review code changes made during this run"
+      >
+        {showChanges ? 'Hide changes' : 'View changes'}
+      </button>
+
+      <span style={{ width: 1, height: 16, background: 'var(--border-1)', flexShrink: 0 }} />
+
       {/* Push */}
       <button
         className="btn sm"
@@ -106,10 +121,12 @@ function PostRunActions() {
 
 // ─── Run controls ─────────────────────────────────────────────────────────────
 
-function RunControls({ status, onPause, onAbort }: {
-  status:   RunStatus;
-  onPause?: () => void;
-  onAbort?: () => void;
+function RunControls({ status, onPause, onAbort, onToggleChanges, showChanges }: {
+  status:           RunStatus;
+  onPause?:         () => void;
+  onAbort?:         () => void;
+  onToggleChanges?: () => void;
+  showChanges?:     boolean;
 }) {
   const [confirmAbort, setConfirmAbort] = useState(false);
   const [pending, setPending] = useState<'aborting' | 'pausing' | null>(null);
@@ -173,7 +190,12 @@ function RunControls({ status, onPause, onAbort }: {
   }
 
   // ── Done: replace Pause/Abort with post-run actions ────────────────────────
-  if (done) return <PostRunActions />;
+  if (done) return (
+    <PostRunActions
+      onToggleChanges={onToggleChanges ?? (() => {})}
+      showChanges={showChanges ?? false}
+    />
+  );
 
   // ── Normal controls ─────────────────────────────────────────────────────────
   const pauseTitle = status === 'paused'
@@ -290,6 +312,7 @@ function RunView({
   spend, spendCap, status, connected = true,
   onPause, onAbort,
 }: RunViewProps) {
+  const [showChanges, setShowChanges] = useState(false);
 
   const tierColour = tier === 'tweak' ? 'blue' : tier === 'greenfield' ? 'green' : 'amber';
   const statusMeta: Record<RunStatus, { cls: string; label: string }> = {
@@ -318,7 +341,13 @@ function RunView({
           <span className="rdot" />{label}
         </span>
         <div className="spacer" />
-        <RunControls status={status} onPause={onPause} onAbort={onAbort} />
+        <RunControls
+          status           = {status}
+          onPause          = {onPause}
+          onAbort          = {onAbort}
+          onToggleChanges  = {() => setShowChanges(v => !v)}
+          showChanges      = {showChanges}
+        />
         <div className="spend">
           <div className="spend-top">
             <span className="amt">${spend.toFixed(2)}</span>
@@ -330,12 +359,17 @@ function RunView({
         </div>
       </div>
 
-      <TaskGraph tasks={tasks} agentSteps={agentSteps} />
-
-      <div className="run-right">
-        <AgentsPanel agents={agents} status={status} />
-        <FindingsFeed findings={findings} tasks={tasks} />
-      </div>
+      {showChanges ? (
+        <ChangesPanel />
+      ) : (
+        <>
+          <TaskGraph tasks={tasks} agentSteps={agentSteps} />
+          <div className="run-right">
+            <AgentsPanel agents={agents} status={status} />
+            <FindingsFeed findings={findings} tasks={tasks} />
+          </div>
+        </>
+      )}
 
       <PmChat pmMsgs={pmMsgs} status={status} />
     </div>
