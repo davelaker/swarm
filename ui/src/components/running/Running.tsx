@@ -22,6 +22,7 @@ interface RunViewProps {
   spendCap:      number;
   status:        RunStatus;
   connected?:    boolean;
+  alreadyPushed?: boolean;
   onPause?:      () => void;
   onAbort?:      () => void;
   onPrCreated?:  (url: string) => void;
@@ -31,12 +32,13 @@ interface RunViewProps {
 
 type ActionState = 'idle' | 'pending' | 'ok' | 'err';
 
-function PostRunActions({ onToggleChanges, showChanges, onPrCreated }: {
+function PostRunActions({ onToggleChanges, showChanges, onPrCreated, alreadyPushed }: {
   onToggleChanges: () => void;
   showChanges:     boolean;
   onPrCreated?:    (url: string) => void;
+  alreadyPushed?:  boolean;
 }) {
-  const [pushState, setPushState] = useState<ActionState>('idle');
+  const [pushState, setPushState] = useState<ActionState>(alreadyPushed ? 'ok' : 'idle');
   const [pushErr,   setPushErr]   = useState<string | null>(null);
   const [prState,   setPrState]   = useState<ActionState>('idle');
   const [prErr,     setPrErr]     = useState<string | null>(null);
@@ -130,13 +132,14 @@ function PostRunActions({ onToggleChanges, showChanges, onPrCreated }: {
 
 // ─── Run controls ─────────────────────────────────────────────────────────────
 
-function RunControls({ status, onPause, onAbort, onToggleChanges, showChanges, onPrCreated }: {
+function RunControls({ status, onPause, onAbort, onToggleChanges, showChanges, onPrCreated, alreadyPushed }: {
   status:           RunStatus;
   onPause?:         () => void;
   onAbort?:         () => void;
   onToggleChanges?: () => void;
   showChanges?:     boolean;
   onPrCreated?:     (url: string) => void;
+  alreadyPushed?:   boolean;
 }) {
   const [confirmAbort, setConfirmAbort] = useState(false);
   const [pending, setPending] = useState<'aborting' | 'pausing' | null>(null);
@@ -205,6 +208,7 @@ function RunControls({ status, onPause, onAbort, onToggleChanges, showChanges, o
       onToggleChanges={onToggleChanges ?? (() => {})}
       showChanges={showChanges ?? false}
       onPrCreated={onPrCreated}
+      alreadyPushed={alreadyPushed}
     />
   );
 
@@ -321,6 +325,7 @@ function PmChat({ pmMsgs, status }: { pmMsgs: RunViewProps['pmMsgs']; status: Ru
 function RunView({
   project, tier, tasks, agents, findings, pmMsgs,
   spend, spendCap, status, connected = true,
+  alreadyPushed,
   onPause, onAbort, onPrCreated,
 }: RunViewProps) {
   const [showChanges, setShowChanges] = useState(false);
@@ -359,6 +364,7 @@ function RunView({
           onToggleChanges  = {() => setShowChanges(v => !v)}
           showChanges      = {showChanges}
           onPrCreated      = {onPrCreated}
+          alreadyPushed    = {alreadyPushed}
         />
         <div className="spend">
           <div className="spend-top">
@@ -512,19 +518,20 @@ export function Running({ onPrCreated }: { onPrCreated?: (url: string) => void }
 
   return (
     <RunView
-      project      = {state.project}
-      tier         = {state.tier}
-      tasks        = {state.tasks}
-      agents       = {state.agents}
-      findings     = {state.findings}
-      pmMsgs       = {state.pmMsgs}
-      spend        = {state.spend}
-      spendCap     = {state.spendCap}
-      status       = {state.status}
-      connected    = {state.connected}
-      onPause      = {state.status === 'paused' ? resume : pause}
-      onAbort      = {abort}
-      onPrCreated  = {onPrCreated}
+      project        = {state.project}
+      tier           = {state.tier}
+      tasks          = {state.tasks}
+      agents         = {state.agents}
+      findings       = {state.findings}
+      pmMsgs         = {state.pmMsgs}
+      spend          = {state.spend}
+      spendCap       = {state.spendCap}
+      status         = {state.status}
+      connected      = {state.connected}
+      alreadyPushed  = {state.pushed}
+      onPause        = {state.status === 'paused' ? resume : pause}
+      onAbort        = {abort}
+      onPrCreated    = {onPrCreated}
     />
   );
 }

@@ -95,6 +95,7 @@ export interface RealRunState {
   connected: boolean;
   spend:     number;
   spendCap:  number;
+  pushed:    boolean;   // true if a successful push was logged this run
 }
 
 export type ServerStatus = 'probing' | 'down' | 'up';
@@ -153,6 +154,12 @@ export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState 
           ...logMsgs,
         ];
 
+        // Detect a prior successful push from the persisted log so the Push
+        // button stays disabled after a page refresh.
+        const pushed = snap.log.some(
+          e => e.actor === 'pm' && e.event.includes('Pushed to remote successfully'),
+        );
+
         setServerStatus('up');
         setState({
           project:  snap.project,
@@ -165,6 +172,7 @@ export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState 
           connected: true,
           spend:    0,
           spendCap: 2,  // default; overridden by run.cost_updated events
+          pushed,
         });
       })
       .catch(() => {
