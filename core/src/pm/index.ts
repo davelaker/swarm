@@ -218,6 +218,10 @@ export async function runPmMessage(
     ctxNote ? `\n${ctxNote}` : '',
     '',
     'Continue as the PM. Reply to the user and update the charter as appropriate.',
+    // JSON enforcement suffix — placed in the user message (read last, higher weight than system prompt)
+    // because --json-schema without tools does not force JSON output from claude --print.
+    '\nIMPORTANT: Your response MUST be ONLY a valid JSON object. Start with { end with }. Example:',
+    '{"reply":"your conversational reply here","charter_updates":{"goal":"if set"},"enable_execute":false}',
   ].filter(Boolean).join('\n');
 
   const args = [
@@ -247,8 +251,8 @@ export async function runPmMessage(
 
     const timer = setTimeout(() => {
       proc.kill();
-      reject(new Error('PM response timed out after 30s'));
-    }, 30_000);
+      reject(new Error('PM response timed out after 90s'));
+    }, 90_000);
 
     proc.on('error', (err: Error) => {
       clearTimeout(timer);
@@ -258,15 +262,23 @@ export async function runPmMessage(
     proc.on('close', (code: number | null) => {
       clearTimeout(timer);
 
+      // Always try to parse stdout first — claude exits 1 even for valid JSON
+      // responses when is_error: true (e.g. API errors). Include stdout in the
+      // error message so we can see the real cause.
+      let envelope: { result: unknown; is_error?: boolean; cost_usd?: number } | null = null;
+      try { envelope = JSON.parse(stdout); } catch { /* handled below */ }
+
       if (code !== 0) {
-        reject(new Error(`claude exited ${code}: ${stderr.slice(0, 200)}`));
+        if (envelope?.is_error) {
+          reject(new Error(`claude API error: ${JSON.stringify(envelope.result).slice(0, 300)}`));
+        } else {
+          const detail = stderr.slice(0, 300) || stdout.slice(0, 300) || '(no output)';
+          reject(new Error(`claude exited ${code}: ${detail}`));
+        }
         return;
       }
 
-      let envelope: { result: unknown; is_error?: boolean; cost_usd?: number };
-      try {
-        envelope = JSON.parse(stdout);
-      } catch {
+      if (!envelope) {
         reject(new Error(`PM output not valid JSON: ${stdout.slice(0, 200)}`));
         return;
       }
@@ -276,13 +288,33 @@ export async function runPmMessage(
         return;
       }
 
+      // Debug: log what claude actually returned so we can see its format
+      console.log('[pm] result type:', typeof envelope.result, '| preview:', JSON.stringify(envelope.result)?.slice(0, 300));
+
+      // With --json-schema, claude may return result as an already-parsed object,
+      // a JSON string, or (if the schema wasn't enforced) raw text.
       let data: Record<string, unknown>;
-      try {
-        data = typeof envelope.result === 'string'
-          ? JSON.parse(envelope.result)
-          : envelope.result as Record<string, unknown>;
-      } catch {
-        reject(new Error(`PM result not parseable JSON`));
+      const raw = typeof envelope.result === 'string' ? envelope.result : null;
+      if (typeof envelope.result === 'object' && envelope.result !== null) {
+        data = envelope.result as Record<string, unknown>;
+      } else if (raw !== null) {
+        // Try to extract JSON if model wrapped it in markdown fences
+        const stripped = raw.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim();
+        try {
+          data = JSON.parse(stripped);
+        } catch {
+          // If the result looks like a JSON object, try that; otherwise use reply fallback
+          const match = stripped.match(/\{[\s\S]*\}/);
+          if (match) {
+            try { data = JSON.parse(match[0]); }
+            catch { reject(new Error(`PM result not parseable JSON: ${stripped.slice(0, 200)}`)); return; }
+          } else {
+            // Plain text response — wrap it as a reply so the UI still works
+            data = { reply: stripped };
+          }
+        }
+      } else {
+        reject(new Error(`PM result was null`));
         return;
       }
 

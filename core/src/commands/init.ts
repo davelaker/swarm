@@ -20,50 +20,72 @@ function buildProjectMd(project: string): string {
   const hasFile = (...names: string[]) =>
     names.some(n => fs.existsSync(path.join(cwd, n)));
 
-  const lines: string[] = [];
+  // For monorepos: also look one level deep for package.json files
+  const findPackageJsonPaths = (): string[] => {
+    const paths: string[] = [];
+    if (hasFile('package.json')) paths.push(path.join(cwd, 'package.json'));
+    try {
+      const entries = fs.readdirSync(cwd, { withFileTypes: true });
+      for (const e of entries) {
+        if (!e.isDirectory() || e.name.startsWith('.') || e.name === 'node_modules') continue;
+        const sub = path.join(cwd, e.name, 'package.json');
+        if (fs.existsSync(sub)) paths.push(sub);
+      }
+    } catch { /* ignore */ }
+    return paths;
+  };
 
-  // Language / runtime
-  if (hasFile('package.json')) lines.push('- Runtime: Node.js');
-  else if (hasFile('pyproject.toml', 'setup.py', 'requirements.txt')) lines.push('- Runtime: Python');
+  const lines: string[] = [];
+  const pkgPaths = findPackageJsonPaths();
+
+  // Language / runtime — detect from root or any workspace
+  if (pkgPaths.length > 0) {
+    lines.push('- Runtime: Node.js');
+    if (pkgPaths.length > 1) lines.push(`- Structure: monorepo (${pkgPaths.length} workspaces)`);
+  } else if (hasFile('pyproject.toml', 'setup.py', 'requirements.txt')) lines.push('- Runtime: Python');
   else if (hasFile('go.mod')) lines.push('- Runtime: Go');
   else if (hasFile('Cargo.toml')) lines.push('- Runtime: Rust');
   else if (hasFile('pom.xml', 'build.gradle')) lines.push('- Runtime: JVM');
 
   // Package manager
-  if (hasFile('pnpm-lock.yaml')) lines.push('- Package manager: pnpm');
+  if (hasFile('pnpm-lock.yaml') || pkgPaths.some(p => fs.existsSync(path.join(path.dirname(p), 'pnpm-lock.yaml')))) lines.push('- Package manager: pnpm');
   else if (hasFile('bun.lockb')) lines.push('- Package manager: bun');
   else if (hasFile('yarn.lock')) lines.push('- Package manager: yarn');
-  else if (hasFile('package-lock.json')) lines.push('- Package manager: npm');
+  else lines.push('- Package manager: npm');
 
-  // Framework hints from package.json
-  if (hasFile('package.json')) {
+  // Framework and test hints — merge across all package.json files
+  const allFw = new Set<string>();
+  const testCmds: string[] = [];
+  for (const pkgPath of pkgPaths) {
     try {
-      const pkg = JSON.parse(fs.readFileSync(path.join(cwd, 'package.json'), 'utf8'));
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
       const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-      const fw: string[] = [];
-      if (deps['next'])         fw.push('Next.js');
-      if (deps['react'])        fw.push('React');
-      if (deps['vue'])          fw.push('Vue');
-      if (deps['svelte'])       fw.push('Svelte');
-      if (deps['express'])      fw.push('Express');
-      if (deps['fastify'])      fw.push('Fastify');
-      if (deps['hono'])         fw.push('Hono');
-      if (deps['@nestjs/core']) fw.push('NestJS');
-      if (deps['prisma'])       fw.push('Prisma');
-      if (deps['drizzle-orm'])  fw.push('Drizzle ORM');
-      if (deps['sequelize'])    fw.push('Sequelize');
-      if (deps['typeorm'])      fw.push('TypeORM');
-      if (deps['vitest'])       fw.push('Vitest');
-      if (deps['jest'])         fw.push('Jest');
-      if (fw.length) lines.push(`- Frameworks / libraries: ${fw.join(', ')}`);
-
-      // Test script
-      if (pkg.scripts?.test) lines.push(`- Test command: \`${pkg.scripts.test}\``);
-    } catch { /* malformed package.json — skip */ }
+      if (deps['next'])         allFw.add('Next.js');
+      if (deps['react'])        allFw.add('React');
+      if (deps['vue'])          allFw.add('Vue');
+      if (deps['svelte'])       allFw.add('Svelte');
+      if (deps['express'])      allFw.add('Express');
+      if (deps['fastify'])      allFw.add('Fastify');
+      if (deps['hono'])         allFw.add('Hono');
+      if (deps['@nestjs/core']) allFw.add('NestJS');
+      if (deps['prisma'])       allFw.add('Prisma');
+      if (deps['drizzle-orm'])  allFw.add('Drizzle ORM');
+      if (deps['vite'])         allFw.add('Vite');
+      if (deps['vitest'])       allFw.add('Vitest');
+      if (deps['jest'])         allFw.add('Jest');
+      if (pkg.scripts?.test && !testCmds.includes(pkg.scripts.test)) {
+        const ws = path.relative(cwd, path.dirname(pkgPath)) || '.';
+        testCmds.push(`\`${pkg.scripts.test}\` (${ws})`);
+      }
+    } catch { /* malformed — skip */ }
   }
+  if (allFw.size > 0) lines.push(`- Frameworks / libraries: ${[...allFw].join(', ')}`);
+  if (testCmds.length > 0) lines.push(`- Test command: ${testCmds.join(', ')}`);
 
-  // TypeScript
-  if (hasFile('tsconfig.json')) lines.push('- Language: TypeScript');
+  // TypeScript — check root or any workspace
+  const hasTsConfig = hasFile('tsconfig.json') ||
+    pkgPaths.some(p => fs.existsSync(path.join(path.dirname(p), 'tsconfig.json')));
+  if (hasTsConfig) lines.push('- Language: TypeScript');
 
   const stackSection = lines.length
     ? lines.join('\n')

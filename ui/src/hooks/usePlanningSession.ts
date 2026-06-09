@@ -2,6 +2,10 @@ import { useState, useRef, useCallback } from 'react';
 import type { CharterData, ChatMessage } from '../types';
 import type { RunCharter } from '../App';
 
+function now(): string {
+  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type Phase = 'start' | 'goal' | 'scope' | 'nongoals' | 'questions' | 'team' | 'ready';
@@ -54,11 +58,12 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
     enableExecute?: boolean;
   }): SessionState => {
     const cu = resp.charterUpdates ?? {};
+    const respondedAt = now();
     const newMessages = [
       ...(resp.securityInterject
-        ? [{ from: 'security' as const, text: resp.securityInterject }]
+        ? [{ from: 'security' as const, text: resp.securityInterject, time: respondedAt }]
         : []),
-      { from: 'pm' as const, text: resp.reply },
+      { from: 'pm' as const, text: resp.reply, time: respondedAt },
     ];
 
     let questions = prev.charter.questions;
@@ -113,9 +118,10 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
     if (!trimmed) return;
 
     // Add user message + show typing immediately
+    const sentAt = now();
     setState(prev => ({
       ...prev,
-      messages: [...prev.messages, { from: 'you', text: trimmed }],
+      messages: [...prev.messages, { from: 'you', text: trimmed, time: sentAt }],
       typing: 'pm',
     }));
 
@@ -140,7 +146,10 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
       }),
       signal:  AbortSignal.timeout(45_000),
     })
-      .then(r => { if (!r.ok) throw new Error(`server ${r.status}`); return r.json(); })
+      .then(r => r.json().then((body: Record<string, unknown>) => {
+        if (!r.ok) throw new Error(typeof body.error === 'string' ? body.error : `server ${r.status}`);
+        return body;
+      }))
       .then(resp => {
         setState(prev => {
           const next = applyPmResponse(prev, resp);
@@ -177,7 +186,9 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
         const isTimeout = err.name === 'TimeoutError' || err.name === 'AbortError';
         const notice = isTimeout
           ? 'PM took too long to respond (>45s). Try again or check the server logs.'
-          : 'PM server not reachable. Run `swarm dev` in the core/ directory, then resend.';
+          : err.message.startsWith('server ') || err.message === 'Failed to fetch'
+            ? 'PM server not reachable. Run `swarm dev` in the core/ directory, then resend.'
+            : `PM error: ${err.message}`;
         setState(prev => ({
           ...prev,
           typing: null,
@@ -236,7 +247,7 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
           ...p,
           typing:   null,
           phase:    'goal' as Phase,   // unlock the textarea
-          messages: [{ from: 'pm', text: "Before I staff anything — what are we building?" }],
+          messages: [{ from: 'pm', text: "Before I staff anything — what are we building?", time: now() }],
         }),
       },
     ]);

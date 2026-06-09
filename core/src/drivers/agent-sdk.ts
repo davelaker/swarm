@@ -154,15 +154,21 @@ async function runClaude(opts: {
     proc.on('error', (err: Error) => reject(new Error(`Failed to spawn claude CLI: ${err.message}\nIs Claude Code installed and in PATH?`)));
 
     proc.on('close', (code: number | null) => {
+      // Always try to parse stdout — claude exits 1 for is_error responses too.
+      let envelope: ClaudeOutput | null = null;
+      try { envelope = JSON.parse(stdout) as ClaudeOutput; } catch { /* handled below */ }
+
       if (code !== 0) {
-        reject(new Error(`claude exited ${code}: ${stderr.slice(0, 400)}`));
+        if (envelope?.is_error) {
+          reject(new Error(`claude API error: ${JSON.stringify(envelope.result).slice(0, 400)}`));
+        } else {
+          const detail = stderr.slice(0, 400) || stdout.slice(0, 400) || '(no output)';
+          reject(new Error(`claude exited ${code}: ${detail}`));
+        }
         return;
       }
 
-      let envelope: ClaudeOutput;
-      try {
-        envelope = JSON.parse(stdout) as ClaudeOutput;
-      } catch {
+      if (!envelope) {
         reject(new Error(`claude output is not valid JSON: ${stdout.slice(0, 200)}`));
         return;
       }
