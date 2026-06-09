@@ -127,6 +127,13 @@ export function Planning({ onExecutable, serverStatus = 'probing' }: PlanningPro
       <div className="plan-right">
         <div className="panel-head">
           <span>PM Conversation</span>
+          <button
+            className="new-session-btn"
+            onClick={session.newSession}
+            title="Clear conversation and start fresh"
+          >
+            New session
+          </button>
           <span className="spacer" />
           <span style={{ display: 'flex', alignItems: 'center', gap: 12, fontFamily: 'var(--mono)', fontSize: 11, textTransform: 'none', letterSpacing: 0 }}>
             {modeLabel && (

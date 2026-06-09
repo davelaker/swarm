@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import type { CharterData, ChatMessage } from '../types';
 import type { RunCharter } from '../App';
 
@@ -16,26 +16,108 @@ interface SessionState {
   team:            string[];
   typing:          string | null;
   executable:      boolean;
-  executableReason: string;   // tooltip shown on disabled Execute button
+  executableReason: string;
   phase:           Phase;
   suggestCompact:  boolean;
 }
 
+// ─── localStorage persistence ─────────────────────────────────────────────────
+// Survives HMR reloads (React resets useState/useRef on hot-reload) and
+// accidental browser refreshes. Cleared by newSession().
+
+const STORAGE_KEY = 'swarm-planning-session-v1';
+
+type PersistedState = Pick<SessionState,
+  'messages' | 'charter' | 'team' | 'phase' | 'executable' | 'executableReason'
+>;
+
+function loadPersisted(): PersistedState | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as PersistedState;
+    // Basic sanity check
+    return Array.isArray(p.messages) && p.messages.length > 0 ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+function persist(s: SessionState) {
+  try {
+    const p: PersistedState = {
+      messages:         s.messages,
+      charter:          s.charter,
+      team:             s.team,
+      phase:            s.phase,
+      executable:       s.executable,
+      executableReason: s.executableReason,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+  } catch { /* quota exceeded or private mode — ignore */ }
+}
+
+function clearPersisted() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* ok */ }
+}
+
+const DEFAULT_REASON = 'Complete the planning conversation to unlock Execute';
+
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
 export function usePlanningSession(onExecutable: (v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => void) {
-  const [state, setState] = useState<SessionState>({
-    messages:        [],
-    charter:         { goal: '', constraints: [], nongoals: [], questions: [] },
-    team:            [],
-    typing:          null,
-    executable:      false,
-    executableReason: 'Complete the planning conversation to unlock Execute',
-    phase:           'start',
-    suggestCompact:  false,
+
+  // Lazy initializer — runs once, restores persisted session if available.
+  const [state, setState] = useState<SessionState>(() => {
+    const p = loadPersisted();
+    if (p) {
+      return {
+        messages:        p.messages,
+        charter:         p.charter  ?? { goal: '', constraints: [], nongoals: [], questions: [] },
+        team:            p.team     ?? [],
+        typing:          null,
+        executable:      p.executable      ?? false,
+        executableReason: p.executableReason ?? DEFAULT_REASON,
+        phase:           p.phase   ?? 'goal',
+        suggestCompact:  false,
+      };
+    }
+    return {
+      messages:        [],
+      charter:         { goal: '', constraints: [], nongoals: [], questions: [] },
+      team:            [],
+      typing:          null,
+      executable:      false,
+      executableReason: DEFAULT_REASON,
+      phase:           'start',
+      suggestCompact:  false,
+    };
   });
 
-  // Schedule a sequence of state mutations with delays — used only for init()
+  // Persist on every meaningful state change (skip transient 'typing' flicker).
+  useEffect(() => {
+    if (state.phase === 'start') return;  // nothing worth saving yet
+    persist(state);
+  }, [state]);
+
+  // On mount, if we restored an executable session, re-notify the parent
+  // (App.tsx stores executable separately and won't know otherwise).
+  const onExecutableRef = useRef(onExecutable);
+  onExecutableRef.current = onExecutable;
+  useEffect(() => {
+    const p = loadPersisted();
+    if (p?.executable && p.charter?.goal) {
+      const charter: RunCharter = {
+        constraints: (p.charter.constraints ?? []).map((c: { text: string }) => c.text),
+        nongoals:    (p.charter.nongoals    ?? []).map((n: { text: string }) => n.text),
+        questions:   (p.charter.questions   ?? []).map((q: { text: string }) => q.text),
+      };
+      onExecutableRef.current(true, p.charter.goal, charter, p.team ?? []);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Schedule helper (used only by init) ─────────────────────────────────
+
   const schedule = useCallback((steps: Array<{ delay: number; fn: (prev: SessionState) => SessionState }>) => {
     let offset = 0;
     steps.forEach(({ delay, fn }) => {
@@ -86,7 +168,6 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
       ? [...prev.team, ...resp.teamAdd.filter(t => !prev.team.includes(t))]
       : prev.team;
 
-    // Executable state: enable → true, disable → false, otherwise keep current
     const newExecutable = resp.enableExecute  ? true
                         : resp.disableExecute ? false
                         : prev.executable;
@@ -97,9 +178,9 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
         ? ''
         : prev.executableReason;
 
-    const newPhase: Phase = resp.enableExecute ? 'ready'
-      : resp.disableExecute                    ? 'scope'
-      : cu.goal && prev.phase === 'goal'        ? 'scope'
+    const newPhase: Phase = resp.enableExecute  ? 'ready'
+      : resp.disableExecute                     ? 'scope'
+      : cu.goal && prev.phase === 'goal'         ? 'scope'
       : cu.newConstraints?.length && prev.phase === 'scope' ? 'nongoals'
       : cu.newQuestions?.length   && prev.phase === 'nongoals' ? 'questions'
       : prev.phase;
@@ -126,15 +207,12 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
     };
   }, []);
 
-
-
-  // ─── send: real backend only — tells the user if it fails ───────────────
+  // ─── send ─────────────────────────────────────────────────────────────────
 
   const send = useCallback((text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
 
-    // Add user message + show typing immediately
     const sentAt = now();
     setState(prev => ({
       ...prev,
@@ -142,7 +220,6 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
       typing: 'pm',
     }));
 
-    // Snapshot history BEFORE the user message was added
     const historySnapshot = state.messages;
 
     fetch('/pm/message', {
@@ -151,8 +228,6 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
       body:    JSON.stringify({
         text:    trimmed,
         history: historySnapshot,
-        // Send structured charter on every message so the PM works from
-        // authoritative state rather than reconstructing it from history.
         charter: {
           goal:        state.charter.goal || undefined,
           constraints: state.charter.constraints.map(c => c.text),
@@ -173,9 +248,7 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
           const withExtras = resp.deploymentInfo
             ? { ...next, messages: [...next.messages, { from: 'system' as const, text: 'Deployment method saved to .swarm/PROJECT.md' }] }
             : next;
-          return resp.suggestCompact
-            ? { ...withExtras, suggestCompact: true }
-            : withExtras;
+          return resp.suggestCompact ? { ...withExtras, suggestCompact: true } : withExtras;
         });
         if (resp.enableExecute) {
           const cu   = resp.charterUpdates ?? {};
@@ -205,9 +278,10 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
           messages: [...prev.messages, { from: 'system', text: notice }],
         }));
       });
-  }, [state.messages, applyPmResponse, onExecutable]);
+  }, [state.messages, state.charter, state.team, applyPmResponse, onExecutable]);
 
-  // ─── compact: ask PM to summarise and replace history ────────────────────
+  // ─── compact ──────────────────────────────────────────────────────────────
+
   const compact = useCallback(() => {
     setState(prev => ({ ...prev, typing: 'pm', suggestCompact: false }));
 
@@ -244,12 +318,13 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
       .catch(() => {
         setState(prev => ({ ...prev, typing: null }));
       });
-  }, [state.messages]);
+  }, [state.messages, state.charter, state.team]);
 
-  // Kick off the opening message on first use.
-  // If projectName/stack are provided, the PM acknowledges the existing project
-  // rather than asking a blank "what are we building?" question.
-  const started = useRef(false);
+  // ─── init ─────────────────────────────────────────────────────────────────
+  // Skipped automatically if a persisted session was restored (started = true).
+
+  const started = useRef(loadPersisted() !== null);
+
   const init = useCallback((projectName?: string, projectStack?: string) => {
     if (started.current) return;
     started.current = true;
@@ -261,16 +336,36 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
       : "Before I staff anything — what are we building?";
 
     schedule([
-      { delay: 400,  fn: p => ({ ...p, typing: 'pm' }) },
+      { delay: 400, fn: p => ({ ...p, typing: 'pm' }) },
       { delay: 900, fn: p => ({
           ...p,
           typing:   null,
-          phase:    'goal' as Phase,   // unlock the textarea
+          phase:    'goal' as Phase,
           messages: [{ from: 'pm', text: greeting, time: now() }],
         }),
       },
     ]);
   }, [schedule]);
 
-  return { ...state, send, init, compact };
+  // ─── newSession ───────────────────────────────────────────────────────────
+  // Clears persisted state and resets to blank. Exposed so the UI can offer
+  // a "New session" button.
+
+  const newSession = useCallback(() => {
+    clearPersisted();
+    started.current = false;
+    setState({
+      messages:        [],
+      charter:         { goal: '', constraints: [], nongoals: [], questions: [] },
+      team:            [],
+      typing:          null,
+      executable:      false,
+      executableReason: DEFAULT_REASON,
+      phase:           'start',
+      suggestCompact:  false,
+    });
+    onExecutable(false);
+  }, [onExecutable]);
+
+  return { ...state, send, init, compact, newSession };
 }
