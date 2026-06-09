@@ -3,7 +3,55 @@ import type { Task } from '../../types';
 import { PERSONAS } from '../../data/personas';
 import { STATUS_COLOR, STATUS_LABEL } from '../../data/runScript';
 
+const TRUNCATE = 72; // chars shown before "more" toggle appears
+
 interface Edge { from: { x: number; y: number }; to: { x: number; y: number }; key: string; color: string }
+
+function TaskCard({ t, agentSteps }: { t: Task; agentSteps: Record<string, string> }) {
+  const [expanded, setExpanded] = useState(false);
+  const p       = PERSONAS[t.assignee];
+  const color   = STATUS_COLOR[t.status];
+  const isActive = t.status === 'in_progress';
+  const step    = isActive ? agentSteps[t.assignee] : null;
+  const needsTruncation = t.title.length > TRUNCATE;
+  const displayTitle = needsTruncation && !expanded
+    ? t.title.slice(0, TRUNCATE).trimEnd() + '…'
+    : t.title;
+
+  return (
+    <div className="tnode-card">
+      <div className="tnode-top">
+        <span className="tnode-id">{t.id}</span>
+        <span className="tnode-title">{displayTitle}</span>
+      </div>
+      {needsTruncation && (
+        <button
+          onClick={() => setExpanded(e => !e)}
+          style={{
+            all: 'unset', cursor: 'pointer',
+            fontFamily: 'var(--mono)', fontSize: 10,
+            color: 'var(--tx-3)', marginTop: 3,
+            display: 'block',
+          }}
+        >
+          {expanded ? '▴ less' : '▾ more'}
+        </button>
+      )}
+      <div className="tnode-bottom">
+        <span className="tnode-assignee">
+          <span className="pdot" style={{ background: p?.color }} />
+          {p?.name}
+        </span>
+        <span className="tnode-status" style={{ color }}>{STATUS_LABEL[t.status]}</span>
+      </div>
+      {step && (
+        <div className="tnode-step" style={{ color: p?.color }}>
+          {step}<span className="cursor" style={{ color: p?.color }} />
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function TaskGraph({ tasks, agentSteps }: { tasks: Task[]; agentSteps: Record<string, string> }) {
   const innerRef = useRef<HTMLDivElement>(null);
@@ -54,46 +102,23 @@ export function TaskGraph({ tasks, agentSteps }: { tasks: Task[]; agentSteps: Re
               return <path key={e.key} d={d} fill="none" stroke={e.color} strokeWidth="1.5" />;
             })}
           </svg>
-          {tasks.map(t => {
-            const p = PERSONAS[t.assignee];
-            const color = STATUS_COLOR[t.status];
-            const isActive = t.status === 'in_progress';
-            const step = isActive ? agentSteps[t.assignee] : null;
-            return (
-              <div key={t.id} className={`tnode ${t.status} ${t.late ? 'anim-in' : ''}`}>
-                <div className="tnode-rail">
-                  <div
-                    className="tnode-dot"
-                    ref={el => { dotRefs.current[t.id] = el; }}
-                    style={{
-                      left: 18 + t.lane * 20,
-                      background: color,
-                      boxShadow: isActive ? '0 0 0 4px rgba(77,141,244,0.18)' : 'none',
-                      animation: isActive ? 'softpulse 1.3s infinite' : 'none',
-                    }}
-                  />
-                </div>
-                <div className="tnode-card">
-                  <div className="tnode-top">
-                    <span className="tnode-id">{t.id}</span>
-                    <span className="tnode-title">{t.title}</span>
-                  </div>
-                  <div className="tnode-bottom">
-                    <span className="tnode-assignee">
-                      <span className="pdot" style={{ background: p?.color }} />
-                      {p?.name}
-                    </span>
-                    <span className="tnode-status" style={{ color }}>{STATUS_LABEL[t.status]}</span>
-                  </div>
-                  {step && (
-                    <div className="tnode-step" style={{ color: p?.color }}>
-                      {step}<span className="cursor" style={{ color: p?.color }} />
-                    </div>
-                  )}
-                </div>
+          {tasks.map(t => (
+            <div key={t.id} className={`tnode ${t.status} ${t.late ? 'anim-in' : ''}`}>
+              <div className="tnode-rail">
+                <div
+                  className="tnode-dot"
+                  ref={el => { dotRefs.current[t.id] = el; }}
+                  style={{
+                    left: 18 + t.lane * 20,
+                    background: STATUS_COLOR[t.status],
+                    boxShadow: t.status === 'in_progress' ? '0 0 0 4px rgba(77,141,244,0.18)' : 'none',
+                    animation: t.status === 'in_progress' ? 'softpulse 1.3s infinite' : 'none',
+                  }}
+                />
               </div>
-            );
-          })}
+              <TaskCard t={t} agentSteps={agentSteps} />
+            </div>
+          ))}
         </div>
       </div>
     </div>
