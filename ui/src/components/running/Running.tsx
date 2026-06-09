@@ -24,15 +24,17 @@ interface RunViewProps {
   connected?:    boolean;
   onPause?:      () => void;
   onAbort?:      () => void;
+  onPrCreated?:  (url: string) => void;
 }
 
 // ─── Post-run actions ─────────────────────────────────────────────────────────
 
 type ActionState = 'idle' | 'pending' | 'ok' | 'err';
 
-function PostRunActions({ onToggleChanges, showChanges }: {
+function PostRunActions({ onToggleChanges, showChanges, onPrCreated }: {
   onToggleChanges: () => void;
   showChanges:     boolean;
+  onPrCreated?:    (url: string) => void;
 }) {
   const [pushState, setPushState] = useState<ActionState>('idle');
   const [pushErr,   setPushErr]   = useState<string | null>(null);
@@ -56,8 +58,15 @@ function PostRunActions({ onToggleChanges, showChanges }: {
     fetch('/run/pr', { method: 'POST' })
       .then(r => r.json())
       .then((d: { ok: boolean; url?: string; error?: string }) => {
-        if (d.ok) { setPrState('ok'); setPrUrl(d.url ?? null); }
-        else      { setPrState('err'); setPrErr(d.error ?? 'PR creation failed'); }
+        if (d.ok) {
+          const url = d.url ?? null;
+          setPrState('ok'); setPrUrl(url);
+          // Navigate back to Planning with a recap after a short beat
+          // so the user can see the "View PR" button briefly before leaving.
+          if (url) setTimeout(() => onPrCreated?.(url), 1200);
+        } else {
+          setPrState('err'); setPrErr(d.error ?? 'PR creation failed');
+        }
       })
       .catch((e: Error) => { setPrState('err'); setPrErr(e.message); });
   };
@@ -80,12 +89,12 @@ function PostRunActions({ onToggleChanges, showChanges }: {
 
       <span style={{ width: 1, height: 16, background: 'var(--border-1)', flexShrink: 0 }} />
 
-      {/* Push */}
+      {/* Push — locked once a PR exists (no point re-pushing) */}
       <button
         className="btn sm"
         onClick={push}
-        disabled={pushState === 'pending' || pushState === 'ok'}
-        title="git push origin HEAD"
+        disabled={pushState === 'pending' || pushState === 'ok' || prState === 'ok'}
+        title={prState === 'ok' ? 'Already pushed — PR is open' : 'git push origin HEAD'}
       >
         {pushState === 'pending' ? 'Pushing…' : pushState === 'ok' ? '✓ Pushed' : pushState === 'err' ? 'Retry push' : 'Push'}
       </button>
@@ -93,7 +102,7 @@ function PostRunActions({ onToggleChanges, showChanges }: {
         <span style={errStyle} title={pushErr}>⚠ {pushErr}</span>
       )}
 
-      {/* Create PR / View PR */}
+      {/* Create PR / View PR — requires a successful push first */}
       {prState === 'ok' && prUrl ? (
         <a
           href={prUrl} target="_blank" rel="noopener noreferrer"
@@ -106,8 +115,8 @@ function PostRunActions({ onToggleChanges, showChanges }: {
         <button
           className="btn sm primary"
           onClick={createPr}
-          disabled={prState === 'pending'}
-          title="gh pr create"
+          disabled={prState === 'pending' || pushState !== 'ok'}
+          title={pushState !== 'ok' ? 'Push first, then create a PR' : 'gh pr create'}
         >
           {prState === 'pending' ? 'Creating PR…' : prState === 'err' ? 'Retry PR' : 'Create PR'}
         </button>
@@ -121,12 +130,13 @@ function PostRunActions({ onToggleChanges, showChanges }: {
 
 // ─── Run controls ─────────────────────────────────────────────────────────────
 
-function RunControls({ status, onPause, onAbort, onToggleChanges, showChanges }: {
+function RunControls({ status, onPause, onAbort, onToggleChanges, showChanges, onPrCreated }: {
   status:           RunStatus;
   onPause?:         () => void;
   onAbort?:         () => void;
   onToggleChanges?: () => void;
   showChanges?:     boolean;
+  onPrCreated?:     (url: string) => void;
 }) {
   const [confirmAbort, setConfirmAbort] = useState(false);
   const [pending, setPending] = useState<'aborting' | 'pausing' | null>(null);
@@ -194,6 +204,7 @@ function RunControls({ status, onPause, onAbort, onToggleChanges, showChanges }:
     <PostRunActions
       onToggleChanges={onToggleChanges ?? (() => {})}
       showChanges={showChanges ?? false}
+      onPrCreated={onPrCreated}
     />
   );
 
@@ -310,7 +321,7 @@ function PmChat({ pmMsgs, status }: { pmMsgs: RunViewProps['pmMsgs']; status: Ru
 function RunView({
   project, tier, tasks, agents, findings, pmMsgs,
   spend, spendCap, status, connected = true,
-  onPause, onAbort,
+  onPause, onAbort, onPrCreated,
 }: RunViewProps) {
   const [showChanges, setShowChanges] = useState(false);
 
@@ -347,6 +358,7 @@ function RunView({
           onAbort          = {onAbort}
           onToggleChanges  = {() => setShowChanges(v => !v)}
           showChanges      = {showChanges}
+          onPrCreated      = {onPrCreated}
         />
         <div className="spend">
           <div className="spend-top">
@@ -458,7 +470,7 @@ function Code({ children }: { children: React.ReactNode }) {
 
 // ─── Running: real backend or server-down screen ──────────────────────────────
 
-export function Running() {
+export function Running({ onPrCreated }: { onPrCreated?: (url: string) => void }) {
   const { serverStatus, state } = useRealRun();
 
   if (serverStatus === 'probing') {
@@ -500,18 +512,19 @@ export function Running() {
 
   return (
     <RunView
-      project   = {state.project}
-      tier      = {state.tier}
-      tasks     = {state.tasks}
-      agents    = {state.agents}
-      findings  = {state.findings}
-      pmMsgs    = {state.pmMsgs}
-      spend     = {state.spend}
-      spendCap  = {state.spendCap}
-      status    = {state.status}
-      connected = {state.connected}
-      onPause   = {state.status === 'paused' ? resume : pause}
-      onAbort   = {abort}
+      project      = {state.project}
+      tier         = {state.tier}
+      tasks        = {state.tasks}
+      agents       = {state.agents}
+      findings     = {state.findings}
+      pmMsgs       = {state.pmMsgs}
+      spend        = {state.spend}
+      spendCap     = {state.spendCap}
+      status       = {state.status}
+      connected    = {state.connected}
+      onPause      = {state.status === 'paused' ? resume : pause}
+      onAbort      = {abort}
+      onPrCreated  = {onPrCreated}
     />
   );
 }

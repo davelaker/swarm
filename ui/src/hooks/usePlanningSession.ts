@@ -104,6 +104,7 @@ const DEFAULT_REASON = 'Complete the planning conversation to unlock Execute';
 export function usePlanningSession(
   onExecutable: (v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => void,
   project = 'default',
+  recapMessage?: string | null,
 ) {
   // Lazy initializer — runs once, restores persisted session if available.
   const [state, setState] = useState<SessionState>(() => {
@@ -163,6 +164,41 @@ export function usePlanningSession(
       setTimeout(() => setState(prev => fn(prev)), offset);
     });
   }, []);
+
+  // ─── Post-run recap injection ─────────────────────────────────────────────
+  // When a recap message arrives (after a PR is created), append a system chip
+  // and have the PM ask what's next. recapRef prevents re-injection on re-renders.
+
+  const recapRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!recapMessage || recapMessage === recapRef.current) return;
+    recapRef.current = recapMessage;
+    // recapMessage is the PR URL. Show a plain system chip then a PM message
+    // with a clickable link (PM bubbles render ReactMarkdown).
+    const prUrl = recapMessage;
+    setState(prev => ({
+      ...prev,
+      executable:       false,
+      executableReason: DEFAULT_REASON,
+      messages: [
+        ...prev.messages,
+        { from: 'system' as const, text: '✓ Run complete · PR opened', time: now() },
+      ],
+    }));
+    schedule([
+      { delay: 600,  fn: p => ({ ...p, typing: 'pm' }) },
+      { delay: 1500, fn: p => ({
+          ...p,
+          typing:   null,
+          messages: [...p.messages, {
+            from: 'pm' as const,
+            text: `[View PR ↗](${prUrl})\n\nWhat would you like to work on next?`,
+            time: now(),
+          }],
+        }),
+      },
+    ]);
+  }, [recapMessage, schedule]);
 
   // ─── Apply a real PM API response to state ────────────────────────────────
 

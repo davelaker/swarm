@@ -8,14 +8,15 @@ import { IconSend }           from '../common/icons';
 import type { ServerStatus, RunCharter } from '../../App';
 
 interface PlanningProps {
-  onExecute?: () => void;
-  onExecutable: (v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => void;
+  onExecute?:    () => void;
+  onExecutable:  (v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => void;
   serverStatus?: ServerStatus;
+  recapMessage?: string | null;
 }
 
-export function Planning({ onExecutable, serverStatus = 'probing' }: PlanningProps) {
+export function Planning({ onExecutable, serverStatus = 'probing', recapMessage }: PlanningProps) {
   const [projectName, setProjectName] = useState<string | undefined>();
-  const session    = usePlanningSession(onExecutable, projectName ?? 'default');
+  const session    = usePlanningSession(onExecutable, projectName ?? 'default', recapMessage);
   const context    = useContextFiles();
   const [input, setInput]           = useState('');
   const scrollRef   = useRef<HTMLDivElement>(null);

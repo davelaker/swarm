@@ -3,7 +3,7 @@ import type { Surface } from './types';
 import { Planning }   from './components/planning/Planning';
 import { Running }    from './components/running/Running';
 import { Marketplace } from './components/marketplace/Marketplace';
-import { IconPlay }   from './components/common/icons';
+import { IconPlay, IconGitHub } from './components/common/icons';
 
 export type ServerStatus = 'probing' | 'up' | 'down';
 
@@ -33,10 +33,12 @@ export function App() {
   const [runGoal,           setRunGoal]           = useState('');
   const [runCharter,        setRunCharter]        = useState<RunCharter | null>(null);
   const [runTeam,           setRunTeam]           = useState<string[]>([]);
-  const [serverStatus,  setServerStatus]  = useState<ServerStatus>('probing');
-  const [projectName,   setProjectName]   = useState<string | null>(null);
-  const [modelLabel,    setModelLabel]    = useState<string | null>(null);
-  const [executeError,  setExecuteError]  = useState<string | null>(null);
+  const [serverStatus,    setServerStatus]    = useState<ServerStatus>('probing');
+  const [projectName,     setProjectName]     = useState<string | null>(null);
+  const [modelLabel,      setModelLabel]      = useState<string | null>(null);
+  const [executeError,    setExecuteError]    = useState<string | null>(null);
+  const [completionRecap, setCompletionRecap] = useState<string | null>(null);
+  const [repoUrl,         setRepoUrl]         = useState<string | null>(null);
 
   // Single server probe — retries every 3s, also reads project name when up.
   useEffect(() => {
@@ -46,10 +48,11 @@ export function App() {
     const probe = () => {
       fetch('/state', { signal: AbortSignal.timeout(2000) })
         .then(r => { if (!r.ok) throw new Error(); return r.json(); })
-        .then((s: { project?: string; driver?: string; model?: string | null; activeRun?: boolean }) => {
+        .then((s: { project?: string; driver?: string; model?: string | null; activeRun?: boolean; repoUrl?: string | null }) => {
           if (!mounted) return;
           setServerStatus('up');
           if (s.project) setProjectName(s.project);
+          if (s.repoUrl) setRepoUrl(s.repoUrl);
           // If the server says a run is active, snap to the Running tab regardless
           // of what localStorage says — guards against the page being closed and
           // reopened mid-run without localStorage being set.
@@ -130,6 +133,14 @@ export function App() {
       });
   }, [runGoal, runCharter, runTeam]);
 
+  // Called by Running when a PR is successfully created.
+  // The URL flows down to Planning as recapMessage, where usePlanningSession
+  // injects a completion chip and a PM "what's next?" prompt.
+  const onPrCreated = useCallback((url: string) => {
+    setCompletionRecap(url);
+    setSurface('planning');
+  }, []);
+
   const serverDot = serverStatus === 'up'      ? 'var(--green)'
                   : serverStatus === 'probing' ? 'var(--tx-3)'
                   : 'var(--amber)';
@@ -148,6 +159,23 @@ export function App() {
               <span className="sep">/</span>
               <span className="proj">{projectName}</span>
             </>
+          )}
+          {repoUrl && (
+            <a
+              href={repoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={repoUrl}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--tx-3)',
+                textDecoration: 'none', marginLeft: 6,
+              }}
+              onMouseEnter={e => (e.currentTarget.style.color = 'var(--tx-1)')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'var(--tx-3)')}
+            >
+              <GitHubIcon />
+            </a>
           )}
         </div>
         <div className="nav">
@@ -222,9 +250,9 @@ export function App() {
           height:  '100%',
           display: surface === 'planning' ? 'block' : 'none',
         }}>
-          <Planning onExecute={goExecute} onExecutable={handleExecutable} serverStatus={serverStatus} />
+          <Planning onExecute={goExecute} onExecutable={handleExecutable} serverStatus={serverStatus} recapMessage={completionRecap} />
         </div>
-        {surface === 'running'     && <Running />}
+        {surface === 'running'     && <Running onPrCreated={onPrCreated} />}
         {surface === 'marketplace' && <Marketplace />}
       </div>
     </div>

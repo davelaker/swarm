@@ -34,6 +34,31 @@ const clients = new Set<SseClient>();
 // still enabled — a second click would spawn duplicate agents.
 let activeRun = false;
 
+// ─── GitHub URL detection ─────────────────────────────────────────────────────
+// Reads the `origin` remote once and converts SSH or HTTPS git URLs to a
+// browser-accessible https://github.com URL. Cached so the server probe
+// loop (every 3 s) doesn't shell out repeatedly.
+
+let githubUrl: string | null | undefined = undefined; // undefined = not yet fetched
+
+async function getGithubUrl(): Promise<string | null> {
+  if (githubUrl !== undefined) return githubUrl;
+  try {
+    const cwd = path.dirname(swarmDir());
+    const { stdout } = await execFileAsync('git', ['remote', 'get-url', 'origin'], { cwd });
+    const raw = stdout.trim();
+    // SSH:   git@github.com:user/repo.git
+    // HTTPS: https://github.com/user/repo.git  (or without .git)
+    const sshMatch   = raw.match(/^git@github\.com:(.+?)(?:\.git)?$/);
+    const httpsMatch = raw.match(/^https?:\/\/github\.com\/(.+?)(?:\.git)?$/);
+    const slug = sshMatch?.[1] ?? httpsMatch?.[1];
+    githubUrl = slug ? `https://github.com/${slug}` : null;
+  } catch {
+    githubUrl = null;
+  }
+  return githubUrl;
+}
+
 function sendSse(res: SseClient, event: SwarmEvent): void {
   res.write(`data: ${JSON.stringify(event)}\n\n`);
 }
@@ -167,7 +192,8 @@ function startFileWatcher(): void {
 
 function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
   if (url.pathname === '/state') {
-    try {
+    // async block so we can await getGithubUrl() without making the whole handler async
+    (async () => { try {
       const state  = getState();
       const driver = getDriverMode();
       const cfg    = getConfigOptional();
@@ -198,15 +224,19 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
         } catch { return t; }
       });
 
+      const repoUrl = await getGithubUrl();
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ ...state, tasks: enrichedTasks, driver, model, activeRun }));
+      res.end(JSON.stringify({ ...state, tasks: enrichedTasks, driver, model, activeRun, repoUrl }));
     } catch {
       // No state.json yet (no run started) — still return 200 so the UI
       // recognises the server as up and shows "agents ready" instead of "offline".
-      const driver = getDriverMode();
+      const driver  = getDriverMode();
+      const repoUrl = await getGithubUrl();
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ project: '', goal: '', tier: '', tasks: [], log: [], driver, model: null, activeRun: false }));
-    }
+      res.end(JSON.stringify({ project: '', goal: '', tier: '', tasks: [], log: [], driver, model: null, activeRun: false, repoUrl }));
+    } })().catch(() => {
+      res.writeHead(500); res.end('{}');
+    });
     return;
   }
 
