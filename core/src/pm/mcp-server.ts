@@ -93,6 +93,14 @@ const SUBMIT_TOOL = {
         type: 'boolean',
         description: 'Set true when the charter is ready and Execute should be enabled.',
       },
+      disable_execute: {
+        type: 'boolean',
+        description: 'Set true to re-disable Execute if new information reveals a blocker after it was already enabled.',
+      },
+      disable_reason: {
+        type: 'string',
+        description: 'Brief reason why Execute is being disabled (shown as tooltip on the button). Required if disable_execute is true.',
+      },
       suggest_compact: {
         type: 'boolean',
         description: 'Set true once when the conversation is getting long. Never set twice.',

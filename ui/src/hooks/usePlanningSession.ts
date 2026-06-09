@@ -11,26 +11,28 @@ function now(): string {
 type Phase = 'start' | 'goal' | 'scope' | 'nongoals' | 'questions' | 'team' | 'ready';
 
 interface SessionState {
-  messages:      ChatMessage[];
-  charter:       CharterData;
-  team:          string[];
-  typing:        string | null;
-  executable:    boolean;
-  phase:         Phase;
-  suggestCompact: boolean;
+  messages:        ChatMessage[];
+  charter:         CharterData;
+  team:            string[];
+  typing:          string | null;
+  executable:      boolean;
+  executableReason: string;   // tooltip shown on disabled Execute button
+  phase:           Phase;
+  suggestCompact:  boolean;
 }
 
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
-export function usePlanningSession(onExecutable: (v: boolean, goal?: string, charter?: RunCharter, team?: string[]) => void) {
+export function usePlanningSession(onExecutable: (v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => void) {
   const [state, setState] = useState<SessionState>({
-    messages:       [],
-    charter:        { goal: '', constraints: [], nongoals: [], questions: [] },
-    team:           [],
-    typing:         null,
-    executable:     false,
-    phase:          'start',
-    suggestCompact: false,
+    messages:        [],
+    charter:         { goal: '', constraints: [], nongoals: [], questions: [] },
+    team:            [],
+    typing:          null,
+    executable:      false,
+    executableReason: 'Complete the planning conversation to unlock Execute',
+    phase:           'start',
+    suggestCompact:  false,
   });
 
   // Schedule a sequence of state mutations with delays — used only for init()
@@ -55,7 +57,9 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
       resolvedQuestion?: { index: number; answer: string };
     };
     teamAdd?: string[];
-    enableExecute?: boolean;
+    enableExecute?:  boolean;
+    disableExecute?: boolean;
+    disableReason?:  string;
   }): SessionState => {
     const cu = resp.charterUpdates ?? {};
     const respondedAt = now();
@@ -82,19 +86,32 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
       ? [...prev.team, ...resp.teamAdd.filter(t => !prev.team.includes(t))]
       : prev.team;
 
+    // Executable state: enable → true, disable → false, otherwise keep current
+    const newExecutable = resp.enableExecute  ? true
+                        : resp.disableExecute ? false
+                        : prev.executable;
+
+    const newReason = resp.disableExecute
+      ? (resp.disableReason || 'PM needs more information before proceeding')
+      : resp.enableExecute
+        ? ''
+        : prev.executableReason;
+
     const newPhase: Phase = resp.enableExecute ? 'ready'
-      : cu.goal && prev.phase === 'goal'         ? 'scope'
+      : resp.disableExecute                    ? 'scope'
+      : cu.goal && prev.phase === 'goal'        ? 'scope'
       : cu.newConstraints?.length && prev.phase === 'scope' ? 'nongoals'
       : cu.newQuestions?.length   && prev.phase === 'nongoals' ? 'questions'
       : prev.phase;
 
     return {
       ...prev,
-      typing:  null,
-      phase:   newPhase,
-      messages: [...prev.messages, ...newMessages],
-      executable: resp.enableExecute || prev.executable,
-      team: newTeam,
+      typing:           null,
+      phase:            newPhase,
+      messages:         [...prev.messages, ...newMessages],
+      executable:       newExecutable,
+      executableReason: newReason,
+      team:             newTeam,
       charter: {
         ...prev.charter,
         goal: cu.goal ?? prev.charter.goal,
@@ -163,23 +180,16 @@ export function usePlanningSession(onExecutable: (v: boolean, goal?: string, cha
         if (resp.enableExecute) {
           const cu   = resp.charterUpdates ?? {};
           const goal = cu.goal ?? state.charter.goal ?? trimmed;
-          // Build the full charter from current state + this response's updates
           const charter: RunCharter = {
-            constraints: [
-              ...state.charter.constraints.map(c => c.text),
-              ...(cu.newConstraints ?? []),
-            ],
-            nongoals: [
-              ...state.charter.nongoals.map(n => n.text),
-              ...(cu.newNongoals ?? []),
-            ],
-            questions: [
-              ...state.charter.questions.map(q => q.text),
-              ...(cu.newQuestions ?? []),
-            ],
+            constraints: [...state.charter.constraints.map(c => c.text), ...(cu.newConstraints ?? [])],
+            nongoals:    [...state.charter.nongoals.map(n => n.text),    ...(cu.newNongoals    ?? [])],
+            questions:   [...state.charter.questions.map(q => q.text),   ...(cu.newQuestions   ?? [])],
           };
           const team = [...state.team, ...(resp.teamAdd?.filter(t => !state.team.includes(t)) ?? [])];
           onExecutable(true, goal, charter, team);
+        } else if (resp.disableExecute) {
+          onExecutable(false, undefined, undefined, undefined,
+            resp.disableReason || 'PM needs more information before proceeding');
         }
       })
       .catch((err: Error) => {

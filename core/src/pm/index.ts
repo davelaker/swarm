@@ -55,8 +55,10 @@ export interface PmResponse {
     newQuestions?:      string[];
     resolvedQuestion?:  { index: number; answer: string };
   };
-  teamAdd?:       string[];
-  enableExecute?: boolean;
+  teamAdd?:        string[];
+  enableExecute?:  boolean;
+  disableExecute?: boolean;
+  disableReason?:  string;
 }
 
 // ─── System prompt ────────────────────────────────────────────────────────────
@@ -87,11 +89,12 @@ Never ask about deployment more than once.
 WHAT YOU ARE DOING:
 Assembling a Project Charter through conversation. The current charter state is injected above as structured data — treat it as authoritative. Your job is to fill in what is missing, challenge what is wrong, and enable Execute when the charter is complete enough to act on.
 
-CHARTER FIELDS:
-- charter_updates.goal: Your clearest current formulation of what is being built. REFINE this as the conversation clarifies scope — goals evolve through discussion. The first message is often rough; as you ask questions and understand better, set a tighter version. If the user's clarification reveals the real goal is subtly different, update it. Always set it to the most precise version you have.
-- charter_updates.new_constraints: Technical or product constraints. Add only genuinely new ones.
-- charter_updates.new_nongoals: Explicit out-of-scope items. PROPOSE these yourself after understanding the goal — don't wait for the user to volunteer them. If you say "out of scope: X" in your reply, include it here.
-- charter_updates.new_questions: Open questions you're raising that aren't yet answered.
+CHARTER FIELDS — all updatable at any time throughout the conversation:
+All fields can be added to or refined at any turn — not just when first set. If the user asks to adjust the goal, constraints, non-goals, team, or questions mid-conversation, update them. The charter is a living document.
+- charter_updates.goal: Your clearest current formulation of what is being built. REFINE this as the conversation clarifies scope — goals evolve through discussion. The first message is often rough; set a tighter version once you understand the actual need. Update whenever you have a better formulation.
+- charter_updates.new_constraints: Technical or product constraints. Add new ones at any point in the conversation, not just at the start.
+- charter_updates.new_nongoals: Explicit out-of-scope items. PROPOSE these yourself after understanding the goal — don't wait for the user. If you say "out of scope: X" in your reply, include it here. Can be added any time.
+- charter_updates.new_questions: Open questions you're raising. Can be added any time if new uncertainties emerge.
 - charter_updates.resolved_question: If the user just answered an open question, resolve it (index, answer).
 
 TEAM RECOMMENDATION — set team_add when ready:
@@ -111,6 +114,12 @@ Enable Execute when the goal is clear enough that agents can start without stall
 - For bug fixes only: constraints and non-goals can be light if the problem is precise enough that an agent won't stall.
 - Do NOT enable Execute if a critical open question is unresolved.
 - Do NOT enable Execute in the same message as an unanswered question.
+
+WHEN ENABLING EXECUTE — what to say:
+When you set enable_execute: true, your reply MUST tell the user explicitly: e.g. "Ready to execute — click the Execute button whenever you're set to start. If you'd like to adjust anything in the charter first, just let me know." Always invite further conversation; Execute being enabled does not end the planning session.
+
+DISABLING EXECUTE — if new information creates a blocker:
+If after enabling Execute the user reveals something that makes it unsafe to proceed, set disable_execute: true and a brief disable_reason (this appears as the tooltip on the greyed-out button, so the user knows exactly what information you still need). Example: disable_reason: "Need to know the deployment target before the Coder can safely make changes."
 
 RESPONSE — CRITICAL:
 You MUST call the \`submit_pm_response\` tool to deliver your response. Plain text output is ignored entirely — only the tool call is processed. Call it exactly once per turn.`;
@@ -294,8 +303,10 @@ export async function runPmMessage(
           newQuestions:     Array.isArray(cu.new_questions)   ? cu.new_questions.map(String)   : undefined,
           resolvedQuestion: rv,
         },
-        teamAdd:       resolvedTeam,
-        enableExecute: Boolean(data.enable_execute),
+        teamAdd:        resolvedTeam,
+        enableExecute:  Boolean(data.enable_execute),
+        disableExecute: Boolean(data.disable_execute),
+        disableReason:  data.disable_reason ? String(data.disable_reason) : undefined,
       });
     });
   });

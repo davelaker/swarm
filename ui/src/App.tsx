@@ -15,10 +15,11 @@ export interface RunCharter {
 
 export function App() {
   const [surface,      setSurface]      = useState<Surface>('planning');
-  const [executable,   setExecutable]   = useState(false);
-  const [runGoal,      setRunGoal]      = useState('');
-  const [runCharter,   setRunCharter]   = useState<RunCharter | null>(null);
-  const [runTeam,      setRunTeam]      = useState<string[]>([]);
+  const [executable,        setExecutable]        = useState(false);
+  const [executableReason,  setExecutableReason]  = useState('Complete the planning conversation to unlock Execute');
+  const [runGoal,           setRunGoal]           = useState('');
+  const [runCharter,        setRunCharter]        = useState<RunCharter | null>(null);
+  const [runTeam,           setRunTeam]           = useState<string[]>([]);
   const [serverStatus, setServerStatus] = useState<ServerStatus>('probing');
   const [projectName,  setProjectName]  = useState<string | null>(null);
   const [modelLabel,   setModelLabel]   = useState<string | null>(null);
@@ -51,11 +52,13 @@ export function App() {
     return () => { mounted = false; if (timer) clearTimeout(timer); };
   }, []);
 
-  const handleExecutable = useCallback((v: boolean, goal?: string, charter?: RunCharter, team?: string[]) => {
+  const handleExecutable = useCallback((v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => {
     setExecutable(v);
-    if (goal)    setRunGoal(goal);
-    if (charter) setRunCharter(charter);
-    if (team)    setRunTeam(team);
+    if (!v && reason) setExecutableReason(reason);
+    if (v)            setExecutableReason('');
+    if (goal)         setRunGoal(goal);
+    if (charter)      setRunCharter(charter);
+    if (team)         setRunTeam(team);
   }, []);
 
   const goExecute = useCallback(() => {
@@ -120,9 +123,21 @@ export function App() {
               <span className="dot" style={{ background: 'var(--amber)' }} />
               PLANNING
             </span>
-            <button className="btn primary" disabled={!executable} onClick={goExecute}>
-              Execute <IconPlay />
-            </button>
+            {/* Wrapper span carries the tooltip — disabled buttons swallow pointer events
+                in Chrome so `title` never fires directly on the button. */}
+            <span
+              title={!executable ? executableReason : undefined}
+              style={{ display: 'inline-flex', cursor: !executable ? 'not-allowed' : 'default' }}
+            >
+              <button
+                className="btn primary"
+                disabled={!executable}
+                onClick={goExecute}
+                style={{ pointerEvents: !executable ? 'none' : 'auto' }}
+              >
+                Execute <IconPlay />
+              </button>
+            </span>
           </>
         )}
       </div>

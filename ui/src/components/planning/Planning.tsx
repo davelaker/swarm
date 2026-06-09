@@ -9,7 +9,7 @@ import type { ServerStatus, RunCharter } from '../../App';
 
 interface PlanningProps {
   onExecute?: () => void;
-  onExecutable: (v: boolean, goal?: string, charter?: RunCharter, team?: string[]) => void;
+  onExecutable: (v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => void;
   serverStatus?: ServerStatus;
 }
 
