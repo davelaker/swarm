@@ -60,7 +60,11 @@ export function App() {
           setServerStatus('up');
           if (s.project) setProjectName(s.project);
           if (s.repoUrl) setRepoUrl(s.repoUrl);
-          if (s.root)    setProjectRoot(s.root);
+          if (s.root) {
+            setProjectRoot(s.root);
+            // Keep swarm-active-root in sync so usePlanningSession uses the right key.
+            try { localStorage.setItem('swarm-active-root', s.root); } catch { /* ok */ }
+          }
           setBranchName(s.branchName ?? null);
           // If the server says a run is active, snap to the Running tab regardless
           // of what localStorage says — guards against the page being closed and

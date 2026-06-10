@@ -51,12 +51,22 @@ const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 // real project name once it loaded — so the next refresh would find nothing under
 // 'default' and start a fresh session.
 //
-// For a single-user localhost tool this is fine. When multi-project isolation
-// becomes necessary, the right fix is to put the project name in the URL so it's
-// available synchronously before any rendering.
-const STORAGE_KEY = 'swarm-session-v1';
+// Project-scoped session key.
+// ProjectSwitcher writes 'swarm-active-root' before window.location.reload()
+// so the correct key is available synchronously here — no async /state fetch needed.
+// Falls back to the passed projectName for sessions that predate the root stamp.
+const ROOT_KEY = 'swarm-active-root';
 function storageKey(_project: string): string {
-  return STORAGE_KEY;
+  try {
+    const root = localStorage.getItem(ROOT_KEY);
+    if (root) {
+      // Derive a safe suffix from the full path, e.g. "/Users/david/Sites/foo" → "foo-a3b"
+      const name   = root.split('/').filter(Boolean).pop() ?? 'default';
+      const suffix = root.length.toString(36); // cheap disambiguator for same-name projects
+      return `swarm-session-v2-${name}-${suffix}`;
+    }
+  } catch { /* private mode */ }
+  return `swarm-session-v1`; // legacy fallback
 }
 
 type PersistedState = Pick<SessionState,

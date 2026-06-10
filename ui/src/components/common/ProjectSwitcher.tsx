@@ -152,7 +152,12 @@ export function ProjectSwitcher({ currentRoot, onClose }: Props) {
     })
       .then(r => r.json() as Promise<{ ok: boolean; error?: string }>)
       .then(d => {
-        if (d.ok) { window.location.reload(); }
+        if (d.ok) {
+          // Stamp the new root BEFORE reloading so usePlanningSession picks up
+          // the right project-scoped storage key synchronously on mount.
+          try { localStorage.setItem('swarm-active-root', browsePath); } catch { /* ok */ }
+          window.location.reload();
+        }
         else      { setSwitchErr(d.error ?? 'Switch failed'); setSwitching(false); }
       })
       .catch(() => { setSwitchErr('Network error'); setSwitching(false); });
