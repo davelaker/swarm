@@ -419,15 +419,24 @@ export function usePlanningSession(
 
   const started = useRef(loadPersisted(project) !== null);
 
-  const init = useCallback((projectName?: string, projectStack?: string) => {
+  const init = useCallback((projectName?: string, projectStack?: string, switchedPath?: string) => {
     if (started.current) return;
     started.current = true;
 
-    const greeting = projectName
-      ? projectStack
+    let greeting: string;
+    if (switchedPath) {
+      const name = projectName ?? switchedPath.split('/').filter(Boolean).pop() ?? 'this project';
+      const parts = [`Switched to **${name}** — \`${switchedPath}\``];
+      if (projectStack) parts.push(projectStack);
+      parts.push("What are we building?");
+      greeting = parts.join('\n\n');
+    } else if (projectName) {
+      greeting = projectStack
         ? `I can see this is **${projectName}** (${projectStack}). What are we building this session?`
-        : `I can see this is **${projectName}**. What are we building this session?`
-      : "Before I staff anything — what are we building?";
+        : `I can see this is **${projectName}**. What are we building this session?`;
+    } else {
+      greeting = "Before I staff anything — what are we building?";
+    }
 
     schedule([
       { delay: 400, fn: p => ({ ...p, typing: 'pm' }) },

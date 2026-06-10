@@ -17,6 +17,16 @@ interface PlanningProps {
 
 export function Planning({ onExecutable, serverStatus = 'probing', recapMessage, planNextKey }: PlanningProps) {
   const [projectName, setProjectName] = useState<string | undefined>();
+
+  // Consume the one-shot switch flag set by ProjectSwitcher before reload.
+  const [justSwitchedPath] = useState<string | null>(() => {
+    try {
+      const v = localStorage.getItem('swarm-just-switched');
+      if (v) { localStorage.removeItem('swarm-just-switched'); return v; }
+    } catch { /* private mode */ }
+    return null;
+  });
+
   const session    = usePlanningSession(onExecutable, projectName ?? 'default', recapMessage);
   const context    = useContextFiles();
   const [input, setInput]           = useState('');
@@ -47,20 +57,20 @@ export function Planning({ onExecutable, serverStatus = 'probing', recapMessage,
       : undefined;
     if (projectName || context.projectMd) {
       initFired.current = true;
-      session.init(projectName, stackHint);
+      session.init(projectName, stackHint, justSwitchedPath ?? undefined);
     }
-  }, [projectName, context.projectMd]);
+  }, [projectName, context.projectMd, justSwitchedPath]);
 
   // Fallback: fire after 1.5s even if context never arrives
   useEffect(() => {
     const t = setTimeout(() => {
       if (!initFired.current) {
         initFired.current = true;
-        session.init();
+        session.init(undefined, undefined, justSwitchedPath ?? undefined);
       }
     }, 1500);
     return () => clearTimeout(t);
-  }, []);
+  }, [justSwitchedPath]);
 
   // Try to fetch the real project name from the backend
   useEffect(() => {

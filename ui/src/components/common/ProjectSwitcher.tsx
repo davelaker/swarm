@@ -155,7 +155,11 @@ export function ProjectSwitcher({ currentRoot, onClose }: Props) {
         if (d.ok) {
           // Stamp the new root BEFORE reloading so usePlanningSession picks up
           // the right project-scoped storage key synchronously on mount.
-          try { localStorage.setItem('swarm-active-root', browsePath); } catch { /* ok */ }
+          try {
+            localStorage.setItem('swarm-active-root', browsePath);
+            // One-shot flag so the PM greeting acknowledges the switch.
+            localStorage.setItem('swarm-just-switched', browsePath);
+          } catch { /* ok */ }
           window.location.reload();
         }
         else      { setSwitchErr(d.error ?? 'Switch failed'); setSwitching(false); }
