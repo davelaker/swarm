@@ -14,6 +14,8 @@ export default defineConfig({
       '/run':     { target: 'http://127.0.0.1:7000', changeOrigin: true },
       '/context':  { target: 'http://127.0.0.1:7000', changeOrigin: true },
       '/findings': { target: 'http://127.0.0.1:7000', changeOrigin: true },
+      '/fs':       { target: 'http://127.0.0.1:7000', changeOrigin: true },
+      '/project':  { target: 'http://127.0.0.1:7000', changeOrigin: true },
     },
   },
 })
