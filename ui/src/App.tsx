@@ -3,7 +3,8 @@ import type { Surface } from './types';
 import { Planning }   from './components/planning/Planning';
 import { Running }    from './components/running/Running';
 import { Marketplace } from './components/marketplace/Marketplace';
-import { IconPlay, IconGitHub } from './components/common/icons';
+import { ProjectSwitcher } from './components/common/ProjectSwitcher';
+import { IconPlay, IconGitHub, IconFolder } from './components/common/icons';
 
 export type ServerStatus = 'probing' | 'up' | 'down';
 
@@ -43,6 +44,8 @@ export function App() {
   const [runDone,         setRunDone]         = useState(false);
   const [planNextKey,     setPlanNextKey]     = useState(0);
   const [branchName,      setBranchName]      = useState<string | null>(null);
+  const [projectRoot,     setProjectRoot]     = useState<string | null>(null);
+  const [showSwitcher,    setShowSwitcher]    = useState(false);
 
   // Single server probe — retries every 3s, also reads project name when up.
   useEffect(() => {
@@ -52,11 +55,12 @@ export function App() {
     const probe = () => {
       fetch('/state', { signal: AbortSignal.timeout(2000) })
         .then(r => { if (!r.ok) throw new Error(); return r.json(); })
-        .then((s: { project?: string; driver?: string; model?: string | null; activeRun?: boolean; repoUrl?: string | null; branchName?: string | null }) => {
+        .then((s: { project?: string; driver?: string; model?: string | null; activeRun?: boolean; repoUrl?: string | null; branchName?: string | null; root?: string }) => {
           if (!mounted) return;
           setServerStatus('up');
           if (s.project) setProjectName(s.project);
           if (s.repoUrl) setRepoUrl(s.repoUrl);
+          if (s.root)    setProjectRoot(s.root);
           setBranchName(s.branchName ?? null);
           // If the server says a run is active, snap to the Running tab regardless
           // of what localStorage says — guards against the page being closed and
@@ -193,6 +197,13 @@ export function App() {
               ⎇ {branchName.replace(/^swarm\//, '')}
             </span>
           )}
+          <button
+            className="folder-switch-btn"
+            onClick={() => setShowSwitcher(true)}
+            title="Switch project folder"
+          >
+            <IconFolder size={13} />
+          </button>
         </div>
         <div className="nav">
           <button className={surface === 'planning'    ? 'on' : ''} onClick={() => setSurface('planning')}>Planning</button>
@@ -269,6 +280,13 @@ export function App() {
           </>
         )}
       </div>
+
+      {showSwitcher && (
+        <ProjectSwitcher
+          currentRoot={projectRoot}
+          onClose={() => setShowSwitcher(false)}
+        />
+      )}
 
       <div className="surface">
         <div style={{

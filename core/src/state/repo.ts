@@ -8,8 +8,17 @@ import path  from 'node:path';
 import { bus }           from './events.js';
 import type { SwarmState, Task, TaskStatus, LogEntry } from './types.js';
 
+// ─── Mutable project root ─────────────────────────────────────────────────────
+// Initialised from process.cwd() at startup; can be changed at runtime via
+// setRoot() so the server can switch working folders without restarting.
+
+let _root: string = process.cwd();
+
+export function getRoot(): string { return _root; }
+export function setRoot(r: string): void { _root = r; }
+
 export function swarmDir(): string {
-  return path.join(process.cwd(), '.swarm');
+  return path.join(_root, '.swarm');
 }
 
 export function stateFile(): string {
@@ -46,7 +55,7 @@ export function writeDeploymentInfo(info: string): void {
   const file = projectContextFile();
 
   if (!fs.existsSync(file)) {
-    const project = path.basename(process.cwd());
+    const project = path.basename(_root);
     const content = [
       '<!-- swarm:context — read this file at the start of every task, update it when architecture or conventions change -->',
       `# Project: ${project}`,

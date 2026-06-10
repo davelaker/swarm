@@ -606,3 +606,122 @@ input, textarea, select { font-family: inherit; }
 }
 .ship-or::before { left: 0; }
 .ship-or::after  { right: 0; }
+
+/* ─── Folder switch button (topbar brand area) ──────────────────────────── */
+.folder-switch-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 5px;
+  color: var(--tx-3); background: transparent; border: none;
+  cursor: pointer; margin-left: 6px; flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+.folder-switch-btn:hover { color: var(--tx-1); background: var(--bg-3); }
+
+/* ─── Project switcher dialog ───────────────────────────────────────────── */
+.ps-backdrop {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,0.55);
+  display: flex; align-items: center; justify-content: center;
+  animation: fadeIn 0.12s ease;
+}
+.ps-modal {
+  width: 520px; max-height: 560px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.4);
+  display: flex; flex-direction: column;
+  animation: slideUp 0.18s ease;
+  overflow: hidden;
+}
+.ps-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 14px 16px 13px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px; font-weight: 600; color: var(--tx-1);
+}
+.ps-head > span { flex: 1; }
+.ps-close {
+  width: 24px; height: 24px; border-radius: 5px;
+  color: var(--tx-3); font-size: 16px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: color 0.1s, background 0.1s; flex-shrink: 0;
+}
+.ps-close:hover { color: var(--tx-1); background: var(--bg-3); }
+.ps-pathbar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.ps-up {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; flex-shrink: 0;
+  color: var(--tx-2); border-radius: 5px;
+  transition: color 0.1s, background 0.1s;
+}
+.ps-up:hover { color: var(--tx-1); background: var(--bg-3); }
+.ps-pathinput {
+  flex: 1; min-width: 0;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 5px 9px;
+  font-size: 11px; font-family: var(--mono);
+  color: var(--tx-1);
+}
+.ps-pathinput:focus { outline: none; border-color: var(--blue); }
+.ps-go {
+  padding: 5px 12px; font-size: 11px; border-radius: 5px;
+  background: var(--bg-3); color: var(--tx-2);
+  border: 1px solid var(--border); flex-shrink: 0;
+  transition: color 0.1s, background 0.1s;
+}
+.ps-go:not(:disabled):hover { color: var(--tx-1); background: var(--bg-4, var(--bg-3)); }
+.ps-go:disabled { opacity: 0.4; cursor: default; }
+.ps-list {
+  flex: 1; overflow-y: auto;
+  padding: 4px 0;
+  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+  min-height: 120px;
+}
+.ps-loading, .ps-empty {
+  padding: 18px 16px;
+  font-size: 12px; color: var(--tx-3); font-family: var(--mono);
+}
+.ps-entry {
+  width: 100%; display: flex; align-items: center; gap: 8px;
+  padding: 7px 14px;
+  font-size: 12px; color: var(--tx-2);
+  transition: background 0.1s, color 0.1s;
+  text-align: left;
+}
+.ps-entry:hover { background: var(--bg-2); color: var(--tx-1); }
+.ps-entry-icon { color: var(--tx-3); flex-shrink: 0; display: flex; align-items: center; }
+.ps-entry-name { flex: 1; font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ps-swarm-badge {
+  font-size: 10px; font-family: var(--mono); font-weight: 600;
+  color: var(--green); background: rgba(52,207,138,0.1);
+  border-radius: 3px; padding: 1px 5px; flex-shrink: 0;
+}
+.ps-entry-chevron { color: var(--tx-3); flex-shrink: 0; display: flex; align-items: center; opacity: 0.5; }
+.ps-footer {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.ps-selection { flex: 1; min-width: 0; }
+.ps-selection-path {
+  font-family: var(--mono); font-size: 11px; color: var(--tx-1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ps-selection-meta { font-size: 11px; margin-top: 2px; }
+.ps-meta-current { color: var(--tx-3); }
+.ps-meta-ok      { color: var(--green); }
+.ps-meta-new     { color: var(--tx-3); }
+.ps-footer-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.ps-err {
+  font-size: 11px; font-family: var(--mono); color: var(--red);
+  max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}

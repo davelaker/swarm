@@ -16,7 +16,7 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 import { bus }      from '../state/events.js';
-import { getState, swarmDir, stateFile, projectContextFile, writeDeploymentInfo, appendLog } from '../state/repo.js';
+import { getRoot, setRoot, getState, swarmDir, stateFile, projectContextFile, writeDeploymentInfo, appendLog } from '../state/repo.js';
 import { runPmMessage } from '../pm/index.js';
 import { runNew }       from '../commands/new.js';
 import { pauseRun, resumeRun, abortRun } from '../loop-control.js';
@@ -34,6 +34,16 @@ const clients = new Set<SseClient>();
 // still enabled — a second click would spawn duplicate agents.
 let activeRun = false;
 
+// ─── File-watcher lifecycle ───────────────────────────────────────────────────
+// Module-level ref so /project/switch can stop & restart the watcher when
+// the root directory changes.
+let stopCurrentWatcher: (() => void) = () => {};
+
+function restartWatcher(): void {
+  stopCurrentWatcher();
+  stopCurrentWatcher = startFileWatcher();
+}
+
 // ─── GitHub URL detection ─────────────────────────────────────────────────────
 // Reads `origin` once at startup and caches the result. The /state handler
 // reads the cached value synchronously — no async needed there.
@@ -41,8 +51,7 @@ let activeRun = false;
 let githubUrl: string | null = null;
 
 function detectGithubUrl(): void {
-  // Use process.cwd() directly; swarmDir() may not resolve until a run exists.
-  execFileAsync('git', ['remote', 'get-url', 'origin'], { cwd: process.cwd() })
+  execFileAsync('git', ['remote', 'get-url', 'origin'], { cwd: getRoot() })
     .then(({ stdout }) => {
       const raw = stdout.trim();
       // SSH:   git@github.com:user/repo.git
@@ -137,9 +146,11 @@ function diffAndEmit(prev: SwarmState | null, next: SwarmState): void {
   }
 }
 
-function startFileWatcher(): void {
+// Returns a stop() fn that closes all watchers — call before switching root.
+function startFileWatcher(): () => void {
   let lastState: SwarmState | null = null;
   let watcher:   ReturnType<typeof fs.watch> | null = null;
+  let stopped = false;
 
   const tryRead = (): SwarmState | null => {
     try { return JSON.parse(fs.readFileSync(stateFile(), 'utf8')); }
@@ -147,7 +158,7 @@ function startFileWatcher(): void {
   };
 
   const attach = (): void => {
-    if (watcher) return;
+    if (stopped || watcher) return;
     const sf = stateFile();
     if (!fs.existsSync(sf)) return;
 
@@ -157,7 +168,7 @@ function startFileWatcher(): void {
     watcher = fs.watch(sf, () => {
       // A rename (atomic write) closes the old inode — re-attach
       watcher?.close(); watcher = null;
-      setTimeout(attach, 50);
+      if (!stopped) setTimeout(attach, 50);
 
       const next = tryRead();
       if (!next) return;
@@ -168,22 +179,30 @@ function startFileWatcher(): void {
 
   // Also watch the .swarm/ directory in case state.json is created after the server starts
   const dir = swarmDir();
+  let dirWatcher: ReturnType<typeof fs.watch> | null = null;
   if (fs.existsSync(dir)) {
     attach();
-    fs.watch(dir, (_ev, name) => { if (name === 'state.json') attach(); });
+    dirWatcher = fs.watch(dir, (_ev, name) => { if (name === 'state.json') attach(); });
   } else {
     // Watch parent until .swarm/ is created
     const parent = path.dirname(dir);
     if (fs.existsSync(parent)) {
       const pw = fs.watch(parent, (_ev, name) => {
+        if (stopped) { pw.close(); return; }
         if (name === path.basename(dir) && fs.existsSync(dir)) {
           pw.close();
           attach();
-          fs.watch(dir, (_ev2, name2) => { if (name2 === 'state.json') attach(); });
+          dirWatcher = fs.watch(dir, (_ev2, name2) => { if (name2 === 'state.json') attach(); });
         }
       });
     }
   }
+
+  return () => {
+    stopped = true;
+    watcher?.close();   watcher    = null;
+    dirWatcher?.close(); dirWatcher = null;
+  };
 }
 
 function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
@@ -220,13 +239,13 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       });
 
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ ...state, tasks: enrichedTasks, driver, model, activeRun, repoUrl: githubUrl }));
+      res.end(JSON.stringify({ ...state, tasks: enrichedTasks, driver, model, activeRun, repoUrl: githubUrl, root: getRoot() }));
     } catch {
       // No state.json yet (no run started) — still return 200 so the UI
       // recognises the server as up and shows "agents ready" instead of "offline".
       const driver = getDriverMode();
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ project: '', goal: '', tier: '', tasks: [], log: [], driver, model: null, activeRun: false, repoUrl: githubUrl }));
+      res.end(JSON.stringify({ project: '', goal: '', tier: '', tasks: [], log: [], driver, model: null, activeRun: false, repoUrl: githubUrl, root: getRoot() }));
     }
     return;
   }
@@ -245,12 +264,12 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
         } else if (e.isFile() && e.name === 'CONTEXT.md') {
           try {
             const abs = path.join(dir, e.name);
-            contextFiles.push({ relPath: path.relative(process.cwd(), abs), content: fs.readFileSync(abs, 'utf8') });
+            contextFiles.push({ relPath: path.relative(getRoot(), abs), content: fs.readFileSync(abs, 'utf8') });
           } catch { /* skip unreadable */ }
         }
       }
     };
-    scan(process.cwd(), 0);
+    scan(getRoot(), 0);
     contextFiles.sort((a, b) => a.relPath.localeCompare(b.relPath));
 
     const pcf  = projectContextFile();
@@ -341,6 +360,30 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       res.end(content);
     } catch {
       res.writeHead(404); res.end('not found');
+    }
+    return;
+  }
+
+  if (url.pathname === '/fs') {
+    // Returns subdirectories of a given path for the project-switcher browser.
+    const rawPath = url.searchParams.get('path') || getRoot();
+    const target  = path.resolve(rawPath);
+    try {
+      const entries = fs.readdirSync(target, { withFileTypes: true });
+      const dirs = entries
+        .filter(e => e.isDirectory() && !e.name.startsWith('.'))
+        .map(e => {
+          const full = path.join(target, e.name);
+          const hasSwarm = fs.existsSync(path.join(full, '.swarm', 'state.json'));
+          return { name: e.name, path: full, hasSwarm };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name));
+      const parent = path.dirname(target) !== target ? path.dirname(target) : null;
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ path: target, parent, entries: dirs }));
+    } catch {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ path: target, parent: null, entries: [], error: 'Cannot read directory' }));
     }
     return;
   }
@@ -527,6 +570,41 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
       return;
     }
 
+    if (route === '/project/switch') {
+      if (activeRun) {
+        res.writeHead(409); res.end(JSON.stringify({ error: 'Cannot switch projects while a run is in progress' })); return;
+      }
+      const { path: newPath } = payload as { path?: string };
+      if (!newPath?.trim()) {
+        res.writeHead(400); res.end(JSON.stringify({ error: 'path required' })); return;
+      }
+      const resolved = path.resolve(newPath.trim());
+      if (!fs.existsSync(resolved)) {
+        res.writeHead(400); res.end(JSON.stringify({ error: `Directory not found: ${resolved}` })); return;
+      }
+      try {
+        const stat = fs.statSync(resolved);
+        if (!stat.isDirectory()) {
+          res.writeHead(400); res.end(JSON.stringify({ error: 'Path is not a directory' })); return;
+        }
+      } catch {
+        res.writeHead(400); res.end(JSON.stringify({ error: 'Cannot access path' })); return;
+      }
+
+      // Switch root, restart watcher, refresh GitHub URL
+      setRoot(resolved);
+      restartWatcher();
+      githubUrl = null;
+      detectGithubUrl();
+
+      const project  = path.basename(resolved);
+      const hasSwarm = fs.existsSync(path.join(resolved, '.swarm', 'state.json'));
+      console.log(`  ▸ switched   → ${resolved}`);
+
+      res.writeHead(200); res.end(JSON.stringify({ ok: true, project, hasSwarm, repoUrl: githubUrl }));
+      return;
+    }
+
     res.writeHead(404); res.end(JSON.stringify({ error: 'unknown route' }));
   });
 }
@@ -554,7 +632,7 @@ export function startServer(port: number): http.Server {
   bus.on('swarm', fanout);
 
   // Source 2: file watcher (agent-sdk driver writes state.json as subprocess)
-  startFileWatcher();
+  stopCurrentWatcher = startFileWatcher();
 
   server.listen(port, '127.0.0.1', () => {
     console.log(`  ▸ server     → http://localhost:${port}`);
