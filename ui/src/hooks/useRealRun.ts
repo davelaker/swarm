@@ -96,8 +96,9 @@ export interface RealRunState {
   connected:  boolean;
   spend:      number;
   spendCap:   number;
-  pushed:     boolean;    // true if a successful push was logged this run
-  branchName?: string;   // set when the run was started on a feature branch
+  pushed:     boolean;      // true if a successful push was logged this run
+  branchName?: string;     // set when the run was started on a feature branch
+  elapsedMs:  number | null; // wall-clock duration of the run (null while in progress)
 }
 
 export type ServerStatus = 'probing' | 'down' | 'up';
@@ -105,8 +106,9 @@ export type ServerStatus = 'probing' | 'down' | 'up';
 export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState | null } {
   const [serverStatus, setServerStatus] = useState<ServerStatus>('probing');
   const [state, setState]               = useState<RealRunState | null>(null);
-  const esRef    = useRef<EventSource | null>(null);
-  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const esRef      = useRef<EventSource | null>(null);
+  const retryRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startedAtRef = useRef<number | null>(null); // wall-clock when first agent started
 
   const connect = (mounted: { current: boolean }) => {
     fetch('/state', { signal: AbortSignal.timeout(2000) })
@@ -162,6 +164,15 @@ export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState 
           e => e.actor === 'pm' && e.event.includes('Pushed to remote successfully'),
         );
 
+        // Compute elapsed wall-clock from log timestamps (ISO 8601).
+        // Only meaningful when the run is done — while in progress this stays null.
+        const logTs = snap.log
+          .map(e => new Date(e.ts).getTime())
+          .filter(t => !isNaN(t));
+        const elapsedMs = allDone && logTs.length >= 2
+          ? logTs[logTs.length - 1] - logTs[0]
+          : null;
+
         setServerStatus('up');
         setState({
           project:    snap.project,
@@ -176,6 +187,7 @@ export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState 
           spendCap:   2,  // default; overridden by run.cost_updated events
           pushed,
           branchName: snap.branchName,
+          elapsedMs,
         });
       })
       .catch(() => {
@@ -192,7 +204,19 @@ export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState 
       if (!mounted.current) return;
       let ev: SwarmEvent;
       try { ev = JSON.parse(e.data); } catch { return; }
-      setState(prev => prev ? applyEvent(prev, ev) : prev);
+      // Track wall-clock start on first agent activity.
+      if (ev.type === 'agent.started' && !startedAtRef.current) {
+        startedAtRef.current = Date.now();
+      }
+      setState(prev => {
+        if (!prev) return prev;
+        const next = applyEvent(prev, ev);
+        // Stamp elapsed time when the run completes (live, not via reload).
+        if (ev.type === 'run.completed' && startedAtRef.current && next.elapsedMs === null) {
+          return { ...next, elapsedMs: Date.now() - startedAtRef.current };
+        }
+        return next;
+      });
     };
 
     es.onerror = () => {

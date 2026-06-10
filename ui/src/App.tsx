@@ -42,6 +42,7 @@ export function App() {
   const [repoUrl,         setRepoUrl]         = useState<string | null>(null);
   const [runDone,         setRunDone]         = useState(false);
   const [planNextKey,     setPlanNextKey]     = useState(0);
+  const [branchName,      setBranchName]      = useState<string | null>(null);
 
   // Single server probe — retries every 3s, also reads project name when up.
   useEffect(() => {
@@ -51,11 +52,12 @@ export function App() {
     const probe = () => {
       fetch('/state', { signal: AbortSignal.timeout(2000) })
         .then(r => { if (!r.ok) throw new Error(); return r.json(); })
-        .then((s: { project?: string; driver?: string; model?: string | null; activeRun?: boolean; repoUrl?: string | null }) => {
+        .then((s: { project?: string; driver?: string; model?: string | null; activeRun?: boolean; repoUrl?: string | null; branchName?: string | null }) => {
           if (!mounted) return;
           setServerStatus('up');
           if (s.project) setProjectName(s.project);
           if (s.repoUrl) setRepoUrl(s.repoUrl);
+          setBranchName(s.branchName ?? null);
           // If the server says a run is active, snap to the Running tab regardless
           // of what localStorage says — guards against the page being closed and
           // reopened mid-run without localStorage being set.
@@ -185,6 +187,11 @@ export function App() {
             >
               <IconGitHub />
             </a>
+          )}
+          {branchName && (
+            <span className="branch-chip" title={branchName}>
+              ⎇ {branchName.replace(/^swarm\//, '')}
+            </span>
           )}
         </div>
         <div className="nav">

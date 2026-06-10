@@ -24,9 +24,52 @@ interface RunViewProps {
   connected?:    boolean;
   alreadyPushed?: boolean;
   branchName?:   string;
+  elapsedMs?:    number | null;
   onPause?:      () => void;
   onAbort?:      () => void;
   onPrCreated?:  (url: string) => void;
+}
+
+// ─── Run summary strip ────────────────────────────────────────────────────────
+// Shown below the run header when all agents finish.
+
+function formatElapsed(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
+}
+
+function RunSummary({ tasks, findings, spend, elapsedMs }: {
+  tasks:     RunViewProps['tasks'];
+  findings:  RunViewProps['findings'];
+  spend:     number;
+  elapsedMs: number | null | undefined;
+}) {
+  const total  = tasks.length;
+  const failed = tasks.filter(t => t.status === 'failed' || t.status === 'blocked').length;
+  const allOk  = failed === 0;
+  const findingsFailed = findings.filter(f => f.verdict === 'fail' || f.verdict === 'changes').length;
+  const overallOk = allOk && findingsFailed === 0;
+
+  return (
+    <div className={`run-summary ${overallOk ? 'ok' : 'warn'}`}>
+      <span className="run-summary-icon">{overallOk ? '✓' : '⚠'}</span>
+      <span>
+        {total} task{total !== 1 ? 's' : ''} ·{' '}
+        {failed > 0
+          ? <span style={{ color: 'var(--red)' }}>{failed} failed</span>
+          : 'all passed'}
+      </span>
+      {elapsedMs != null && (
+        <><span className="run-summary-sep">·</span><span>{formatElapsed(elapsedMs)}</span></>
+      )}
+      {spend > 0 && (
+        <><span className="run-summary-sep">·</span><span>${spend.toFixed(4)}</span></>
+      )}
+    </div>
+  );
 }
 
 // ─── Post-run actions ─────────────────────────────────────────────────────────
@@ -440,7 +483,7 @@ function PmChat({ pmMsgs, status }: { pmMsgs: RunViewProps['pmMsgs']; status: Ru
 function RunView({
   project, tier, tasks, agents, findings, pmMsgs,
   spend, spendCap, status, connected = true,
-  alreadyPushed, branchName,
+  alreadyPushed, branchName, elapsedMs,
   onPause, onAbort, onPrCreated,
 }: RunViewProps) {
   const [showChanges, setShowChanges] = useState(false);
@@ -492,6 +535,10 @@ function RunView({
           </div>
         </div>
       </div>
+
+      {status === 'done' && (
+        <RunSummary tasks={tasks} findings={findings} spend={spend} elapsedMs={elapsedMs} />
+      )}
 
       {showChanges ? (
         <ChangesPanel />
@@ -655,6 +702,7 @@ export function Running({ onPrCreated, onRunDone }: { onPrCreated?: (url: string
       connected      = {state.connected}
       alreadyPushed  = {state.pushed}
       branchName     = {state.branchName}
+      elapsedMs      = {state.elapsedMs}
       onPause        = {state.status === 'paused' ? resume : pause}
       onAbort        = {abort}
       onPrCreated    = {onPrCreated}
