@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import type { Surface } from './types';
 import { Planning }   from './components/planning/Planning';
 import { Running }    from './components/running/Running';
+import { Branches }   from './components/branches/Branches';
 import { Marketplace } from './components/marketplace/Marketplace';
 import { ProjectSwitcher } from './components/common/ProjectSwitcher';
 import { IconPlay, IconGitHub, IconFolder } from './components/common/icons';
@@ -23,7 +24,7 @@ const SURFACE_KEY = 'swarm-surface-v1';
 function loadSurface(): Surface {
   try {
     const v = localStorage.getItem(SURFACE_KEY);
-    if (v === 'running' || v === 'planning' || v === 'marketplace') return v as Surface;
+    if (v === 'running' || v === 'planning' || v === 'branches' || v === 'marketplace') return v as Surface;
   } catch { /* private mode or quota — ignore */ }
   return 'planning';
 }
@@ -246,6 +247,7 @@ export function App() {
         <div className="nav">
           <button className={surface === 'planning'    ? 'on' : ''} onClick={() => setSurface('planning')}>Planning</button>
           <button className={surface === 'running'     ? 'on' : ''} onClick={() => setSurface('running')}>Running</button>
+          <button className={surface === 'branches'    ? 'on' : ''} onClick={() => setSurface('branches')}>Branches</button>
           <button className={surface === 'marketplace' ? 'on' : ''} onClick={() => setSurface('marketplace')}>Marketplace</button>
         </div>
         {surface === 'running' && runDone && (
@@ -337,6 +339,7 @@ export function App() {
           <Planning onExecute={goExecute} onExecutable={handleExecutable} serverStatus={serverStatus} recapMessage={completionRecap} planNextKey={planNextKey} runBlockedReason={executeError} />
         </div>
         {surface === 'running'     && <Running onPrCreated={onPrCreated} onRunDone={() => setRunDone(true)} isInitiating={isInitiating} />}
+        {surface === 'branches'    && <Branches />}
         {surface === 'marketplace' && <Marketplace />}
       </div>
     </div>

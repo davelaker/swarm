@@ -348,6 +348,65 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     return;
   }
 
+  if (url.pathname === '/branches') {
+    (async () => {
+      const cwd = getRoot();
+      const git = (args: string[]) =>
+        execFileAsync('git', args, { cwd, encoding: 'utf8' })
+          .then(r => (r.stdout as string).trim())
+          .catch(() => '');
+
+      // Detect default branch (main / master / etc.)
+      const defaultBranchRaw = await git(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
+      const defaultBranch    = defaultBranchRaw.replace('origin/', '') || 'main';
+
+      const currentBranch = await git(['branch', '--show-current']);
+      const rawList       = await git(['branch', '--list', 'swarm/*', '--format=%(refname:short)']);
+      const branchNames   = rawList.split('\n').filter(Boolean);
+
+      const mergedRaw = await git(['branch', '--merged', defaultBranch, '--list', 'swarm/*', '--format=%(refname:short)']);
+      const mergedSet = new Set(mergedRaw.split('\n').filter(Boolean));
+
+      // PR info from gh CLI — best-effort, skip if not available
+      type GhPr = { number: number; title: string; url: string; state: string; headRefName: string };
+      const prMap = new Map<string, GhPr>();
+      await execFileAsync(
+        'gh', ['pr', 'list', '--json', 'number,title,url,state,headRefName', '--limit', '100', '--state', 'all'],
+        { cwd, encoding: 'utf8' },
+      ).then(r => {
+        const prs = JSON.parse(r.stdout as string) as GhPr[];
+        for (const pr of prs) prMap.set(pr.headRefName, pr);
+      }).catch(() => { /* gh not available or not authenticated */ });
+
+      const branches = await Promise.all(branchNames.map(async name => {
+        const log  = await git(['log', '-1', '--format=%h|%s|%aI', name]);
+        const [hash = '', message = '', date = ''] = log.split('|');
+        const aheadRaw = await git(['rev-list', '--count', `${defaultBranch}..${name}`]);
+        const ahead    = parseInt(aheadRaw) || 0;
+        const pr       = prMap.get(name) ?? prMap.get(name.replace(/^swarm\//, ''));
+        return {
+          name,
+          shortName:  name.replace(/^swarm\//, ''),
+          isCurrent:  name === currentBranch,
+          merged:     mergedSet.has(name),
+          lastCommit: { hash, message, date },
+          ahead,
+          pr: pr ? { number: pr.number, url: pr.url, title: pr.title, state: pr.state.toLowerCase() } : null,
+        };
+      }));
+
+      branches.sort((a, b) => {
+        if (a.isCurrent && !b.isCurrent) return -1;
+        if (b.isCurrent && !a.isCurrent) return  1;
+        return b.lastCommit.date.localeCompare(a.lastCommit.date);
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ branches, defaultBranch }));
+    })().catch(err => { res.writeHead(500); res.end(String(err)); });
+    return;
+  }
+
   if (url.pathname === '/findings') {
     const relPath = url.searchParams.get('path');
     if (!relPath) { res.writeHead(400); res.end('path required'); return; }

@@ -1,4 +1,21 @@
-export type Surface = 'planning' | 'running' | 'marketplace';
+export type Surface = 'planning' | 'running' | 'branches' | 'marketplace';
+
+export interface BranchPr {
+  number: number;
+  url:    string;
+  title:  string;
+  state:  'open' | 'merged' | 'closed';
+}
+
+export interface SwarmBranch {
+  name:       string;
+  shortName:  string;
+  isCurrent:  boolean;
+  merged:     boolean;
+  ahead:      number;
+  lastCommit: { hash: string; message: string; date: string };
+  pr:         BranchPr | null;
+}
 
 export type TaskStatus = 'pending' | 'in_progress' | 'done' | 'changes_requested' | 'failed' | 'blocked';
 export type Verdict = 'complete' | 'pass' | 'changes' | 'fail';
