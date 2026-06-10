@@ -51,6 +51,7 @@ export function App() {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let mounted = true;
+    let autoSyncDone = false;
 
     const probe = () => {
       fetch('/state', { signal: AbortSignal.timeout(2000) })
@@ -60,12 +61,40 @@ export function App() {
           setServerStatus('up');
           if (s.project) setProjectName(s.project);
           if (s.repoUrl) setRepoUrl(s.repoUrl);
-          if (s.root) {
-            setProjectRoot(s.root);
-            // Keep swarm-active-root in sync so usePlanningSession uses the right key.
-            try { localStorage.setItem('swarm-active-root', s.root); } catch { /* ok */ }
-          }
+          if (s.root)    setProjectRoot(s.root);
           setBranchName(s.branchName ?? null);
+
+          // Auto-sync: if the user previously switched to a different project,
+          // the server may have lost that on restart (process.cwd() resets).
+          // Push the remembered root to the server once per page-load — silently,
+          // no reload needed because the planning session key is already correct.
+          // Note: we intentionally do NOT overwrite swarm-active-root here;
+          // localStorage is the source of truth for "which project the user wants".
+          if (!autoSyncDone && s.root) {
+            autoSyncDone = true;
+            let localRoot: string | null = null;
+            try { localRoot = localStorage.getItem('swarm-active-root'); } catch {}
+            if (localRoot && localRoot !== s.root) {
+              fetch('/project/switch', {
+                method:  'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body:    JSON.stringify({ path: localRoot }),
+              })
+                .then(r => r.json() as Promise<{ ok: boolean; project?: string; repoUrl?: string | null }>)
+                .then(d => {
+                  if (!mounted) return;
+                  if (d.ok) {
+                    if (d.project) setProjectName(d.project);
+                    if (d.repoUrl !== undefined) setRepoUrl(d.repoUrl);
+                    setProjectRoot(localRoot!);
+                  } else {
+                    // Saved path no longer valid — forget it so we stop retrying
+                    try { localStorage.removeItem('swarm-active-root'); } catch {}
+                  }
+                })
+                .catch(() => {});
+            }
+          }
           // If the server says a run is active, snap to the Running tab regardless
           // of what localStorage says — guards against the page being closed and
           // reopened mid-run without localStorage being set.
