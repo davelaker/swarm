@@ -454,9 +454,14 @@ export function usePlanningSession(
   // Clears persisted state and resets to blank. Exposed so the UI can offer
   // a "New session" button.
 
+  // sessionKey increments each time the session is reset. Planning.tsx watches
+  // it to know when to reset initFired and re-fire the greeting.
+  const [sessionKey, setSessionKey] = useState(0);
+
   const newSession = useCallback(() => {
     clearPersisted(project);
     started.current = false;
+    setSessionKey(k => k + 1);
     setState({
       messages:        [],
       charter:         { goal: '', constraints: [], nongoals: [], questions: [] },
@@ -470,5 +475,5 @@ export function usePlanningSession(
     onExecutable(false);
   }, [onExecutable]);
 
-  return { ...state, send, init, compact, newSession };
+  return { ...state, send, init, compact, newSession, sessionKey };
 }

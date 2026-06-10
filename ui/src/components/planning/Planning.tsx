@@ -46,6 +46,13 @@ export function Planning({ onExecutable, serverStatus = 'probing', recapMessage,
   // We wait up to 1.5s for /state and /context to load before falling back
   // to the generic greeting so the PM can reference the existing project.
   const initFired = useRef(false);
+
+  // When the user hits "New session", sessionKey increments — reset the guard
+  // BEFORE the init effect runs (React fires effects in definition order).
+  useEffect(() => {
+    initFired.current = false;
+  }, [session.sessionKey]);
+
   useEffect(() => {
     if (initFired.current) return;
     // Extract a short stack summary from PROJECT.md (first tech stack bullet)
@@ -59,7 +66,7 @@ export function Planning({ onExecutable, serverStatus = 'probing', recapMessage,
       initFired.current = true;
       session.init(projectName, stackHint, justSwitchedPath ?? undefined);
     }
-  }, [projectName, context.projectMd, justSwitchedPath]);
+  }, [projectName, context.projectMd, justSwitchedPath, session.sessionKey]);
 
   // Fallback: fire after 1.5s even if context never arrives
   useEffect(() => {
@@ -70,7 +77,7 @@ export function Planning({ onExecutable, serverStatus = 'probing', recapMessage,
       }
     }, 1500);
     return () => clearTimeout(t);
-  }, [justSwitchedPath]);
+  }, [justSwitchedPath, session.sessionKey]);
 
   // Try to fetch the real project name from the backend
   useEffect(() => {
