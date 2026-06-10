@@ -16,6 +16,7 @@ export default defineConfig({
       '/findings': { target: 'http://127.0.0.1:7000', changeOrigin: true },
       '/fs':       { target: 'http://127.0.0.1:7000', changeOrigin: true },
       '/project':  { target: 'http://127.0.0.1:7000', changeOrigin: true },
+      '/branches': { target: 'http://127.0.0.1:7000', changeOrigin: true },
     },
   },
 })
