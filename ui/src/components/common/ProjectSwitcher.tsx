@@ -56,7 +56,10 @@ export function ProjectSwitcher({ currentRoot, onClose }: Props) {
     setFocusIdx(-1);
     setPathMode(false);
     fetch(`/fs?path=${encodeURIComponent(p)}`)
-      .then(r => r.json() as Promise<FsResponse>)
+      .then(r => {
+        if (!r.ok) throw new Error(r.status === 404 ? 'Restart swarm dev to enable folder browsing' : `Server error ${r.status}`);
+        return r.json() as Promise<FsResponse>;
+      })
       .then(d => {
         setBrowsePath(d.path);
         setRawPath(d.path);
@@ -67,7 +70,7 @@ export function ProjectSwitcher({ currentRoot, onClose }: Props) {
         // Focus filter after navigation
         setTimeout(() => filterRef.current?.focus(), 60);
       })
-      .catch(() => setFsError('Could not list directory'))
+      .catch((err: Error) => setFsError(err.message || 'Could not list directory'))
       .finally(() => setLoading(false));
   }, []);
 
