@@ -237,8 +237,8 @@ input, textarea, select { font-family: inherit; }
 .spend-top .cap { color: var(--tx-3); }
 .spend-bar { height: 4px; border-radius: 3px; background: var(--bg-3); overflow: hidden; }
 .spend-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--blue), #6aa6f8); border-radius: 3px; transition: width 0.2s linear; }
-.run-graph { grid-column: 1; grid-row: 3; border-right: 1px solid var(--border); background: var(--bg-1); display: flex; flex-direction: column; min-height: 0; }
-.run-right { grid-column: 2; grid-row: 3; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.run-graph { grid-column: 2; grid-row: 3; border-right: 1px solid var(--border); background: var(--bg-1); display: flex; flex-direction: column; min-height: 0; }
+.run-right { grid-column: 1; grid-row: 3; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .run-agents { flex: 0 0 auto; max-height: 46%; overflow-y: auto; border-bottom: 1px solid var(--border); }
 .run-agents .panel-head { position: sticky; top: 0; z-index: 1; background: var(--bg-1); }
 .run-findings { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
