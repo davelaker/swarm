@@ -57,7 +57,10 @@ export function ProjectSwitcher({ currentRoot, onClose }: Props) {
     setPathMode(false);
     fetch(`/fs?path=${encodeURIComponent(p)}`)
       .then(r => {
-        if (!r.ok) throw new Error(r.status === 404 ? 'Restart swarm dev to enable folder browsing' : `Server error ${r.status}`);
+        const ct = r.headers.get('content-type') ?? '';
+        if (!r.ok || ct.includes('text/html')) {
+          throw new Error('Restart swarm dev to enable folder browsing');
+        }
         return r.json() as Promise<FsResponse>;
       })
       .then(d => {
