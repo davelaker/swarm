@@ -20,7 +20,7 @@ import * as os              from 'node:os';
 import * as path            from 'node:path';
 import { fileURLToPath }    from 'node:url';
 import { getConfigOptional } from '../config.js';
-import { loadProjectContext } from '../state/repo.js';
+import { loadProjectContext, getRoot } from '../state/repo.js';
 
 // ─── MCP server path ──────────────────────────────────────────────────────────
 // The server can run two ways:
@@ -74,7 +74,7 @@ export interface PmResponse {
 // ─── System prompt ────────────────────────────────────────────────────────────
 
 const PM_SYSTEM = `\
-You are the Project Manager (PM) for Agent Swarm, a multi-agent AI coding system.
+You are a Project Manager (PM) for a multi-agent AI coding system.
 Your role during Planning mode is to be a CRITICAL PARTNER — challenging, precise, and opinionated.
 
 PERSONA:
@@ -184,7 +184,9 @@ export async function runPmMessage(
   team?:    string[],
 ): Promise<PmResponse> {
   getConfigOptional();
-  const projectCtx = loadProjectContext();
+  const projectCtx  = loadProjectContext();
+  const projectRoot = getRoot();
+  const projectName = path.basename(projectRoot);
 
   const recentHistory   = charter ? history.slice(-6) : history;
   const exchangeCount   = history.filter(m => m.from === 'you').length;
@@ -193,7 +195,8 @@ export async function runPmMessage(
   const ctxNote         = contextNote(estimatedTokens, exchangeCount);
 
   const conversationPrompt = [
-    projectCtx   ? `Project context (.swarm/PROJECT.md):\n${projectCtx}\n`  : '',
+    `Current project: ${projectName} (${projectRoot})`,
+    projectCtx   ? `\nProject context (CLAUDE.md):\n${projectCtx}\n`  : '',
     charterBlock ? `${charterBlock}\n`                                        : '',
     recentHistory.length
       ? `Recent conversation:\n${formatHistory(recentHistory)}\n`
@@ -240,7 +243,7 @@ export async function runPmMessage(
     let stderr = '';
 
     const proc = spawn('claude', args, {
-      cwd:   process.cwd(),
+      cwd:   projectRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 

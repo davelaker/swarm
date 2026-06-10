@@ -8,6 +8,7 @@ import fsp       from 'node:fs/promises';
 import path      from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { getConfig }             from '../config.js';
+import { getRoot }               from '../state/repo.js';
 import { CODER_SYSTEM }          from './prompts.js';
 import { buildCachedSystem, logCacheStats, CACHE_BETA } from './cache.js';
 import type { Task, SwarmState } from '../state/types.js';
@@ -86,7 +87,7 @@ const TOOLS: Anthropic.Tool[] = [
 
 // ─── Tool execution ───────────────────────────────────────────────────────────
 
-const projectRoot = () => process.cwd();
+const projectRoot = () => getRoot();
 
 function safeJoin(rel: string): string {
   const abs = path.resolve(projectRoot(), rel);

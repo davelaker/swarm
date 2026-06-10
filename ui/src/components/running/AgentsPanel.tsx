@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { AgentState, RunStatus } from '../../types';
+import type { AgentState, RunStatus, Task } from '../../types';
 import { PERSONAS } from '../../data/personas';
 import { VerdictChip } from '../common/VerdictChip';
 
@@ -37,12 +37,17 @@ function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
-function AgentRow({ id, a, idleLabel }: { id: string; a: AgentState; idleLabel: string }) {
+function AgentRow({ id, a, idleLabel, tasks }: { id: string; a: AgentState; idleLabel: string; tasks: Task[] }) {
   const p          = PERSONAS[id];
   const now        = useNow(a.active);
   const elapsed    = a.active && a.activeAt ? now - a.activeAt : 0;
   const hasMetrics = a.costUsd != null && a.costUsd > 0;
   const hasTokens  = a.inputTokens != null;
+
+  // If any task assigned to this agent is blocked and the agent is idle,
+  // show BLOCKED (amber) regardless of the stored verdict — the finding may
+  // have been written with "complete" before the PM decided to block the task.
+  const isBlocked = !a.active && tasks.some(t => t.assignee === id && t.status === 'blocked');
 
   return (
     <div className="agent-row">
@@ -63,11 +68,13 @@ function AgentRow({ id, a, idleLabel }: { id: string; a: AgentState; idleLabel: 
                     </span>
                   )}
                 </span>
-              : a.verdict
-                ? <VerdictChip verdict={a.verdict} />
-                : idleLabel
-                  ? <span className="agent-sub mono">{idleLabel}</span>
-                  : null}
+              : isBlocked
+                ? <span className="vchip changes">BLOCKED</span>
+                : a.verdict
+                  ? <VerdictChip verdict={a.verdict} />
+                  : idleLabel
+                    ? <span className="agent-sub mono">{idleLabel}</span>
+                    : null}
           </span>
         </div>
         {!a.active && hasMetrics && (
@@ -89,7 +96,7 @@ function AgentRow({ id, a, idleLabel }: { id: string; a: AgentState; idleLabel: 
   );
 }
 
-export function AgentsPanel({ agents, status }: { agents: Record<string, AgentState>; status: RunStatus }) {
+export function AgentsPanel({ agents, status, tasks }: { agents: Record<string, AgentState>; status: RunStatus; tasks: Task[] }) {
   const idleLabel = (id: string) => {
     const map = (status === 'done' || status === 'aborted') ? DONE_LABEL : IDLE_LABEL;
     return map[id] ?? 'idle';
@@ -97,7 +104,7 @@ export function AgentsPanel({ agents, status }: { agents: Record<string, AgentSt
   return (
     <div className="run-agents">
       <div className="panel-head"><span>Agents</span></div>
-      {ORDER.map(id => <AgentRow key={id} id={id} a={agents[id]} idleLabel={idleLabel(id)} />)}
+      {ORDER.map(id => <AgentRow key={id} id={id} a={agents[id]} idleLabel={idleLabel(id)} tasks={tasks} />)}
     </div>
   );
 }

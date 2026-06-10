@@ -9,15 +9,25 @@ function Avatar({ from }: { from: string }) {
 
 export function Message({ m }: { m: ChatMessage }) {
   if (m.from === 'system') {
+    const isError = m.text.startsWith('✗');
     return (
       <div className="anim-in" style={{
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: '6px 0',
       }}>
         <span style={{
-          fontFamily: 'var(--mono)', fontSize: 11.5, color: 'var(--tx-3)',
-          background: 'var(--bg-2)', border: '1px solid var(--border)',
-          borderRadius: 6, padding: '5px 12px', lineHeight: 1.5,
+          fontFamily: 'var(--mono)', fontSize: 11.5, lineHeight: 1.5,
+          borderRadius: 6, padding: '5px 12px',
+          ...(isError ? {
+            color:      'var(--red)',
+            background: 'var(--red-d)',
+            border:     '1px solid rgba(240,90,82,0.25)',
+            whiteSpace: 'pre-wrap' as const,
+          } : {
+            color:      'var(--tx-3)',
+            background: 'var(--bg-2)',
+            border:     '1px solid var(--border)',
+          }),
         }}>
           {m.text}
         </span>

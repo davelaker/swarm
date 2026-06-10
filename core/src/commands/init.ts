@@ -1,6 +1,7 @@
 import fs   from 'node:fs';
 import path  from 'node:path';
-import { swarmDir, stateFile, initWorkspace, projectContextFile } from '../state/repo.js';
+import { swarmDir, stateFile, initWorkspace, projectContextFile, getRoot } from '../state/repo.js';
+// projectContextFile() now returns <root>/CLAUDE.md
 
 const TEAM_CONFIG = `# team.config.yaml — installed agent team
 # See MARKETPLACE.md for the full schema.
@@ -129,12 +130,34 @@ function buildProjectMd(project: string): string {
   ].join('\n');
 }
 
+// ─── .gitignore helper ────────────────────────────────────────────────────────
+
+function ensureGitignore(): void {
+  const root      = getRoot();
+  const gitignore = path.join(root, '.gitignore');
+  const entry     = '.swarm/';
+
+  const existing = fs.existsSync(gitignore)
+    ? fs.readFileSync(gitignore, 'utf8')
+    : '';
+
+  const lines = existing.split('\n').map(l => l.trim());
+  if (lines.some(l => l === entry || l === '.swarm' || l === '/.swarm/' || l === '/.swarm')) return;
+
+  const block = `\n# Agent Swarm — run artefacts (state, findings, team config)\n${entry}\n`;
+  fs.writeFileSync(gitignore, existing + block, 'utf8');
+  console.log('  ✓ .gitignore — added .swarm/');
+}
+
 export function runInit(): void {
   const dir = swarmDir();
   const existed = fs.existsSync(dir);
 
   // Create directory structure
   fs.mkdirSync(path.join(dir, 'findings'), { recursive: true });
+
+  // Keep swarm artefacts out of the project's git history
+  ensureGitignore();
 
   // Write team config if absent
   const teamFile = path.join(dir, 'team.config.yaml');
@@ -152,14 +175,16 @@ export function runInit(): void {
     console.log('  · .swarm/state.json  (already exists — left untouched)');
   }
 
-  // Write PROJECT.md if absent — pre-filled with detected tech stack
+  // Write CLAUDE.md at the project root if absent — pre-filled with detected tech stack.
+  // Lives at the root so any Claude Code session or Claude-based agent can read it
+  // without knowing about swarm's internal structure.
   const ctxFile = projectContextFile();
   if (!fs.existsSync(ctxFile)) {
-    const project = path.basename(process.cwd());
+    const project = path.basename(getRoot());
     fs.writeFileSync(ctxFile, buildProjectMd(project), 'utf8');
-    console.log('  ✓ .swarm/PROJECT.md  (edit this to add architecture and conventions)');
+    console.log('  ✓ CLAUDE.md  (edit this to add architecture, conventions, and deployment info)');
   } else {
-    console.log('  · .swarm/PROJECT.md  (already exists — left untouched)');
+    console.log('  · CLAUDE.md  (already exists — left untouched)');
   }
 
   if (existed) {

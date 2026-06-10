@@ -117,6 +117,7 @@ export function usePlanningSession(
   onExecutable: (v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => void,
   project = 'default',
   recapMessage?: string | null,
+  runBlockedReason?: string | null,
 ) {
   // Lazy initializer — runs once, restores persisted session if available.
   const [state, setState] = useState<SessionState>(() => {
@@ -214,6 +215,23 @@ export function usePlanningSession(
       },
     ]);
   }, [recapMessage, schedule]);
+
+  // ─── Run-blocked injection ────────────────────────────────────────────────
+  // When the server rejects a run (e.g. uncommitted changes), surface the reason
+  // in the PM chat as a system chip so the user can't miss it.
+
+  const blockedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!runBlockedReason || runBlockedReason === blockedRef.current) return;
+    blockedRef.current = runBlockedReason;
+    setState(prev => ({
+      ...prev,
+      messages: [
+        ...prev.messages,
+        { from: 'system' as const, text: `✗ Run blocked — ${runBlockedReason}`, time: now() },
+      ],
+    }));
+  }, [runBlockedReason]);
 
   // ─── Apply a real PM API response to state ────────────────────────────────
 
@@ -313,6 +331,11 @@ export function usePlanningSession(
 
     const historySnapshot = state.messages;
 
+    // Include the client's known active root so the server can self-heal if it was
+    // restarted and hasn't yet received the auto-sync POST /project/switch.
+    let activeRoot: string | undefined;
+    try { activeRoot = localStorage.getItem(ROOT_KEY) ?? undefined; } catch { /* ok */ }
+
     fetch('/pm/message', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -326,8 +349,9 @@ export function usePlanningSession(
           questions:   state.charter.questions.map(q => q.text),
         },
         team: state.team,
+        activeRoot,
       }),
-      signal:  AbortSignal.timeout(45_000),
+      signal:  AbortSignal.timeout(120_000),
     })
       .then(r => r.json().then((body: Record<string, unknown>) => {
         if (!r.ok) throw new Error(typeof body.error === 'string' ? body.error : `server ${r.status}`);
@@ -362,7 +386,7 @@ export function usePlanningSession(
       .catch((err: Error) => {
         const isTimeout = err.name === 'TimeoutError' || err.name === 'AbortError';
         const notice = isTimeout
-          ? 'PM took too long to respond (>45s). Try again or check the server logs.'
+          ? 'PM took too long to respond (>120s). Try again or check the server logs.'
           : err.message.startsWith('server ') || err.message === 'Failed to fetch'
             ? 'PM server not reachable. Run `swarm dev` in the core/ directory, then resend.'
             : `PM error: ${err.message}`;
@@ -396,7 +420,7 @@ export function usePlanningSession(
         },
         team: state.team,
       }),
-      signal:  AbortSignal.timeout(45_000),
+      signal:  AbortSignal.timeout(120_000),
     })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`${r.status}`)))
       .then(resp => {

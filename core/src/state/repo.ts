@@ -29,27 +29,32 @@ export function findingsDir(): string {
   return path.join(swarmDir(), 'findings');
 }
 
+// CLAUDE.md lives at the project root — readable by any Claude Code session
+// or Claude-based agent without knowing about swarm's internal structure.
 export function projectContextFile(): string {
-  return path.join(swarmDir(), 'PROJECT.md');
+  return path.join(_root, 'CLAUDE.md');
 }
 
-// Returns the content of .swarm/PROJECT.md, or null if it doesn't exist yet.
+// Returns the content of CLAUDE.md, or null if it doesn't exist yet.
 export function loadProjectContext(): string | null {
   const file = projectContextFile();
-  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+  if (fs.existsSync(file)) return fs.readFileSync(file, 'utf8');
+  // Fallback: legacy .swarm/PROJECT.md so existing projects still work.
+  const legacy = path.join(swarmDir(), 'PROJECT.md');
+  return fs.existsSync(legacy) ? fs.readFileSync(legacy, 'utf8') : null;
 }
 
-// Bounded loader — caps output to maxChars to prevent large PROJECT.md files
+// Bounded loader — caps output to maxChars to prevent large CLAUDE.md files
 // from ballooning every agent call. Appends a truncation notice when cut.
 export function loadProjectContextBounded(maxChars = 8192): string | null {
   const full = loadProjectContext();
   if (!full) return null;
   if (full.length <= maxChars) return full;
   return full.slice(0, maxChars) +
-    `\n\n[PROJECT.md truncated at ${maxChars} chars — edit .swarm/PROJECT.md to trim it]`;
+    `\n\n[CLAUDE.md truncated at ${maxChars} chars — edit CLAUDE.md to trim it]`;
 }
 
-// Write or update the ## Deployment section in .swarm/PROJECT.md.
+// Write or update the ## Deployment section in CLAUDE.md.
 // Creates the file if it doesn't exist yet.
 export function writeDeploymentInfo(info: string): void {
   const file = projectContextFile();
@@ -64,7 +69,6 @@ export function writeDeploymentInfo(info: string): void {
       info,
       '',
     ].join('\n');
-    fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, content, 'utf8');
     return;
   }

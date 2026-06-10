@@ -18,7 +18,7 @@ const execFileAsync = promisify(execFile);
 import { bus }      from '../state/events.js';
 import { getRoot, setRoot, getState, swarmDir, stateFile, projectContextFile, writeDeploymentInfo, appendLog } from '../state/repo.js';
 import { runPmMessage } from '../pm/index.js';
-import { runNew }       from '../commands/new.js';
+import { runNew, checkGitClean } from '../commands/new.js';
 import { pauseRun, resumeRun, abortRun } from '../loop-control.js';
 import { getConfigOptional } from '../config.js';
 import { getDriverMode }     from '../drivers/index.js';
@@ -274,7 +274,7 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
 
     const pcf  = projectContextFile();
     const projectMd = fs.existsSync(pcf)
-      ? { relPath: '.swarm/PROJECT.md', content: fs.readFileSync(pcf, 'utf8') }
+      ? { relPath: 'CLAUDE.md', content: fs.readFileSync(pcf, 'utf8') }
       : null;
 
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
@@ -435,13 +435,22 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
     const route   = url.pathname;
 
     if (route === '/pm/message') {
-      const { text, history = [], charter, team } = payload as {
-        text:     string;
-        history?: unknown[];
-        charter?: { goal?: string; constraints?: string[]; nongoals?: string[]; questions?: string[] };
-        team?:    string[];
+      const { text, history = [], charter, team, activeRoot } = payload as {
+        text:       string;
+        history?:   unknown[];
+        charter?:   { goal?: string; constraints?: string[]; nongoals?: string[]; questions?: string[] };
+        team?:      string[];
+        activeRoot?: string;  // client's localStorage swarm-active-root — used to self-heal server root on startup
       };
       if (!text) { res.writeHead(400); res.end(JSON.stringify({ error: 'text required' })); return; }
+      // If the client knows a different root than the server (e.g. after a restart before auto-sync),
+      // apply it now so this PM call — and all subsequent state — uses the correct project.
+      if (activeRoot && activeRoot !== getRoot()) {
+        const resolved = path.resolve(activeRoot.trim());
+        console.log(`[pm/message] self-healing root: ${getRoot()} → ${resolved}`);
+        setRoot(resolved);
+        restartWatcher();
+      }
       runPmMessage(text, history as any, charter, team)
         .then(result => {
           if (result.deploymentInfo) {
@@ -480,6 +489,20 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
         res.writeHead(400); res.end(JSON.stringify({ error: 'goal required' })); return;
       }
 
+      // ── Git safety check (synchronous, before 200) ───────────────────────────
+      // Must run here — not inside the async runNew() — so we can return a 4xx
+      // directly to the client. If we let it throw inside the async path the SSE
+      // run.blocked event fires after the client's EventSource connects, causing
+      // a race where the event is missed and the UI stays stuck on the Running tab.
+      // Also use getRoot() so we check the TARGET project, not the swarm repo.
+      try {
+        checkGitClean(getRoot());
+      } catch (err) {
+        const msg = (err as Error).message;
+        console.error('  ✗ execute error:', msg);
+        res.writeHead(400); res.end(JSON.stringify({ error: msg })); return;
+      }
+
       // Create a feature branch if the PM recommended one.
       let branchName: string | undefined;
       if (charter?.branchMode === 'branch') {
@@ -489,8 +512,20 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
         const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
         branchName = `swarm/${slug}-${date}`;
         try {
-          await execFileAsync('git', ['checkout', '-b', branchName], { cwd });
-          console.log(`  ▸ created branch: ${branchName}`);
+          // Try to create the branch; if it already exists (e.g. from a previously
+          // blocked run) just check it out so the user can retry without manual cleanup.
+          try {
+            await execFileAsync('git', ['checkout', '-b', branchName], { cwd });
+            console.log(`  ▸ created branch: ${branchName}`);
+          } catch (createErr) {
+            const stderr = (createErr as { stderr?: Buffer }).stderr?.toString() ?? '';
+            if (stderr.includes('already exists')) {
+              await execFileAsync('git', ['checkout', branchName], { cwd });
+              console.log(`  ▸ resumed branch: ${branchName}`);
+            } else {
+              throw createErr;
+            }
+          }
         } catch (err) {
           const msg = (err as { stderr?: Buffer; message: string }).stderr?.toString().trim() || (err as Error).message;
           res.writeHead(400); res.end(JSON.stringify({ error: `Could not create branch: ${msg}` })); return;

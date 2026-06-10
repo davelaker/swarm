@@ -8,6 +8,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { spawn }              from 'node:child_process';
 import { getConfig }          from '../config.js';
 import { getDriverMode }      from '../drivers/index.js';
+import { getRoot }            from '../state/repo.js';
 import { tokensToDollars }    from './coder.js';
 import type { Tier }          from '../state/types.js';
 
@@ -69,7 +70,7 @@ async function classifyAgentSdk(goal: string): Promise<Classification> {
 
   return new Promise((resolve) => {
     let stdout = '';
-    const proc = spawn('claude', args, { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawn('claude', args, { cwd: getRoot(), stdio: ['ignore', 'pipe', 'pipe'] });
 
     proc.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
 

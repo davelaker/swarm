@@ -70,7 +70,7 @@ export const STATUS_COLOR: Record<string, string> = {
   done:              'var(--green)',
   changes_requested: 'var(--amber)',
   failed:            'var(--red)',
-  blocked:           'var(--red)',
+  blocked:           'var(--amber)',
 };
 
 export const STATUS_LABEL: Record<string, string> = {

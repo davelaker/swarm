@@ -4,6 +4,7 @@ import fs              from 'node:fs';
 import fsp             from 'node:fs/promises';
 import path            from 'node:path';
 import { getConfig }         from '../config.js';
+import { getRoot }           from '../state/repo.js';
 import { TESTER_SYSTEM }     from './prompts.js';
 import { buildCachedSystem, logCacheStats, CACHE_BETA } from './cache.js';
 import { tokensToDollars }   from './coder.js';
@@ -107,8 +108,9 @@ const TOOLS: Anthropic.Tool[] = [
 ];
 
 function safeJoin(rel: string): string {
-  const abs = path.resolve(process.cwd(), rel);
-  if (!abs.startsWith(process.cwd())) throw new Error(`Path ${rel} is outside project root.`);
+  const root = getRoot();
+  const abs = path.resolve(root, rel);
+  if (!abs.startsWith(root)) throw new Error(`Path ${rel} is outside project root.`);
   return abs;
 }
 
@@ -125,7 +127,7 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
       return entries.map(e => e.name + (e.isDirectory() ? '/' : '')).join('\n');
     }
     case 'run_tests':
-      return await detectAndRunTests(process.cwd(), input.command ? String(input.command) : undefined);
+      return await detectAndRunTests(getRoot(), input.command ? String(input.command) : undefined);
     case 'done':
       return 'acknowledged';
     default:

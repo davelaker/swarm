@@ -14,7 +14,7 @@ import { spawn }        from 'node:child_process';
 import { getConfig }    from '../config.js';
 import { CODER_SYSTEM, TESTER_SYSTEM, SECURITY_SYSTEM, REVIEWER_SYSTEM } from '../agents/prompts.js';
 import { coderFinding, testerFinding, securityFinding, reviewerFinding } from './findings.js';
-import { loadProjectContextBounded } from '../state/repo.js';
+import { loadProjectContextBounded, getRoot } from '../state/repo.js';
 import type { AgentDriver, DriverResult, SecurityFinding, ReviewerFinding } from './types.js';
 import type { Task, SwarmState } from '../state/types.js';
 
@@ -144,7 +144,7 @@ async function runClaude(opts: {
     let stderr = '';
 
     const proc = spawn('claude', args, {
-      cwd:   process.cwd(),
+      cwd:   getRoot(),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -236,13 +236,13 @@ async function runClaude(opts: {
 // Full context (coder, security, reviewer) — 8 KB cap
 function projectCtxBlock(): string {
   const ctx = loadProjectContextBounded(8192);
-  return ctx ? `Project context (.swarm/PROJECT.md):\n${ctx}\n` : '';
+  return ctx ? `Project context (CLAUDE.md):\n${ctx}\n` : '';
 }
 
 // Lean context (tester) — 2 KB; enough for tech stack and test-runner info
 function projectCtxLean(): string {
   const ctx = loadProjectContextBounded(2048);
-  return ctx ? `Project context (.swarm/PROJECT.md):\n${ctx}\n` : '';
+  return ctx ? `Project context (CLAUDE.md):\n${ctx}\n` : '';
 }
 
 function charterBlock(state: SwarmState): string {
@@ -336,7 +336,7 @@ export const agentSdkDriver: AgentDriver = {
     if (filesChanged.length === 0) {
       try {
         const { execFileSync } = await import('node:child_process');
-        const raw = execFileSync('git', ['status', '--porcelain'], { cwd: process.cwd(), encoding: 'utf8' });
+        const raw = execFileSync('git', ['status', '--porcelain'], { cwd: getRoot(), encoding: 'utf8' });
         const detected = raw.split('\n')
           .filter(l => l.trim() && !l.startsWith('!!'))  // ignore gitignored entries
           .map(l => l.slice(3).trim().replace(/ -> .+$/, ''))  // strip rename targets

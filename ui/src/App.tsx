@@ -46,6 +46,7 @@ export function App() {
   const [branchName,      setBranchName]      = useState<string | null>(null);
   const [projectRoot,     setProjectRoot]     = useState<string | null>(null);
   const [showSwitcher,    setShowSwitcher]    = useState(false);
+  const [isInitiating,    setIsInitiating]    = useState(false);
 
   // Single server probe — retries every 3s, also reads project name when up.
   useEffect(() => {
@@ -137,6 +138,7 @@ export function App() {
     // If the POST or the early SSE watch detects a failure we snap back to
     // Planning and surface the reason.
     setSurface('running');
+    setIsInitiating(true);
 
     fetch('/run/execute', {
       method:  'POST',
@@ -159,9 +161,11 @@ export function App() {
           try { msg = JSON.parse(ev.data); } catch { return; }
 
           if (msg.type === 'task.created' || msg.type === 'run.classified') {
-            clearTimeout(timer); finish();                 // run started — stop watching
+            setIsInitiating(false);                        // first task landed — hide spinner
+            clearTimeout(timer); finish();
           } else if (msg.type === 'run.blocked') {
             clearTimeout(timer); finish();
+            setIsInitiating(false);
             setExecuteError(msg.reason ?? 'Run was blocked before it could start');
             setSurface('planning');
           }
@@ -170,6 +174,7 @@ export function App() {
       })
       .catch((err: Error) => {
         // POST failed (409 conflict, network error, etc.) — snap back to Planning.
+        setIsInitiating(false);
         setExecuteError(err.message);
         setSurface('planning');
       });
@@ -275,14 +280,17 @@ export function App() {
         {surface === 'planning' && (
           <>
             {executeError ? (
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: 7,
-                fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--red)',
-                background: 'var(--red-d)', border: '1px solid rgba(240,90,82,0.25)',
-                borderRadius: 6, padding: '4px 10px', maxWidth: 380,
-              }}>
+              <span
+                title={executeError}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 7,
+                  fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--red)',
+                  background: 'var(--red-d)', border: '1px solid rgba(240,90,82,0.25)',
+                  borderRadius: 6, padding: '4px 10px', maxWidth: 420,
+                }}
+              >
                 <span style={{ flexShrink: 0 }}>✗</span>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{executeError}</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{executeError.split('\n')[0]}</span>
                 <button
                   onClick={() => setExecuteError(null)}
                   style={{ flexShrink: 0, color: 'var(--red)', opacity: 0.7, fontSize: 13, lineHeight: 1 }}
@@ -326,9 +334,9 @@ export function App() {
           height:  '100%',
           display: surface === 'planning' ? 'block' : 'none',
         }}>
-          <Planning onExecute={goExecute} onExecutable={handleExecutable} serverStatus={serverStatus} recapMessage={completionRecap} planNextKey={planNextKey} />
+          <Planning onExecute={goExecute} onExecutable={handleExecutable} serverStatus={serverStatus} recapMessage={completionRecap} planNextKey={planNextKey} runBlockedReason={executeError} />
         </div>
-        {surface === 'running'     && <Running onPrCreated={onPrCreated} onRunDone={() => setRunDone(true)} />}
+        {surface === 'running'     && <Running onPrCreated={onPrCreated} onRunDone={() => setRunDone(true)} isInitiating={isInitiating} />}
         {surface === 'marketplace' && <Marketplace />}
       </div>
     </div>

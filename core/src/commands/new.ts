@@ -16,19 +16,22 @@ function pmProgress(step: string): void {
 // ─── Git safety fence ─────────────────────────────────────────────────────────
 // Refuses to run if the working tree has uncommitted changes that could be
 // clobbered by the Coder. Set SWARM_SKIP_GIT_CHECK=1 to bypass.
+// Exported so the server can call it synchronously before returning 200,
+// avoiding a race where the SSE run.blocked event fires before the client
+// EventSource connects.
 
-function checkGitClean(): void {
+export function checkGitClean(cwd: string): void {
   if (process.env.SWARM_SKIP_GIT_CHECK === '1') return;
 
   try {
-    execSync('git rev-parse --git-dir', { cwd: process.cwd(), stdio: 'ignore' });
+    execSync('git rev-parse --git-dir', { cwd, stdio: 'ignore' });
   } catch {
     return; // not a git repo — no fence needed
   }
 
   let status: string;
   try {
-    status = execSync('git status --porcelain', { cwd: process.cwd(), encoding: 'utf8' });
+    status = execSync('git status --porcelain', { cwd, encoding: 'utf8' });
   } catch {
     return; // git status failed — proceed cautiously
   }
@@ -93,10 +96,7 @@ export async function runNew(
   // Signal PM is active — visible immediately in the agents panel before
   // any state.json changes land (classification can take 5–15s).
   bus.emit('swarm', { type: 'agent.started', agent_id: 'pm' });
-  pmProgress('checking working tree…');
-
-  // ── Git safety check ───────────────────────────────────────────────────────
-  checkGitClean();
+  pmProgress('bootstrapping…');
 
   // ── Bootstrap workspace ────────────────────────────────────────────────────
   if (!fs.existsSync(stateFile())) {

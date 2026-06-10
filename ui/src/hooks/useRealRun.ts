@@ -147,6 +147,13 @@ export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState 
           const v: Finding['verdict'] = verdictMap[rawVerdict] ?? 'complete';
           if (agents[t.assignee]) agents[t.assignee] = { ...agents[t.assignee], verdict: v };
         });
+        // Mark agents whose tasks are currently in_progress as active so the
+        // agents panel stays consistent with the task graph on mount / reconnect.
+        snap.tasks.filter(t => t.status === 'in_progress').forEach(t => {
+          if (agents[t.assignee]) {
+            agents[t.assignee] = { ...agents[t.assignee], active: true, step: 'working…', activeAt: Date.now() };
+          }
+        });
 
         // Reconstruct PM chat history from the persisted log (actor 'pm' | 'user').
         // The goal line is always the first message; log entries follow in order.

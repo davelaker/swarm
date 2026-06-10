@@ -7,6 +7,7 @@ import fs                from 'node:fs';
 import fsp               from 'node:fs/promises';
 import path              from 'node:path';
 import { getConfig }          from '../config.js';
+import { getRoot }            from '../state/repo.js';
 import { REVIEWER_SYSTEM }    from './prompts.js';
 import { buildCachedSystem, logCacheStats, CACHE_BETA } from './cache.js';
 import { tokensToDollars }    from './coder.js';
@@ -75,8 +76,9 @@ const TOOLS: Anthropic.Tool[] = [
 ];
 
 function safeJoin(rel: string): string {
-  const abs = path.resolve(process.cwd(), rel);
-  if (!abs.startsWith(process.cwd())) throw new Error(`Path outside project root: ${rel}`);
+  const root = getRoot();
+  const abs = path.resolve(root, rel);
+  if (!abs.startsWith(root)) throw new Error(`Path outside project root: ${rel}`);
   return abs;
 }
 

@@ -4,8 +4,8 @@
 // Strategy:
 //   1. System prompt — marked ephemeral; cached for 5 min across parallel agents
 //      in the same run and across sequential runs.
-//   2. PROJECT.md — appended to the system array, also marked ephemeral.
-//      Cache key = exact text, so hits when PROJECT.md hasn't changed.
+//   2. CLAUDE.md — appended to the system array, also marked ephemeral.
+//      Cache key = exact text, so hits when CLAUDE.md hasn't changed.
 //
 // Minimum eligible sizes: 1024 tokens (Sonnet/Opus), 2048 tokens (Haiku).
 // The API ignores cache_control silently if the block is too short — no error.
@@ -29,7 +29,7 @@ export function buildCachedSystem(
   if (ctx) {
     blocks.push({
       type:          'text',
-      text:          `Project context (.swarm/PROJECT.md):\n${ctx}`,
+      text:          `Project context (CLAUDE.md):\n${ctx}`,
       cache_control: { type: 'ephemeral' },
     } as BetaTextBlockParam);
   }

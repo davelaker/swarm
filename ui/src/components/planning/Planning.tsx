@@ -8,15 +8,26 @@ import { IconSend }           from '../common/icons';
 import type { ServerStatus, RunCharter } from '../../App';
 
 interface PlanningProps {
-  onExecute?:    () => void;
-  onExecutable:  (v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => void;
-  serverStatus?: ServerStatus;
-  recapMessage?: string | null;
-  planNextKey?:  number;
+  onExecute?:         () => void;
+  onExecutable:       (v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => void;
+  serverStatus?:      ServerStatus;
+  recapMessage?:      string | null;
+  planNextKey?:       number;
+  runBlockedReason?:  string | null;
 }
 
-export function Planning({ onExecutable, serverStatus = 'probing', recapMessage, planNextKey }: PlanningProps) {
-  const [projectName, setProjectName] = useState<string | undefined>();
+export function Planning({ onExecutable, serverStatus = 'probing', recapMessage, planNextKey, runBlockedReason }: PlanningProps) {
+  // Derive project name synchronously from localStorage (source of truth for active root).
+  // This avoids a race with App.tsx's auto-sync: if the server has been restarted and
+  // still points at the old project, a /state fetch would return the wrong name before
+  // the auto-sync fires. Reading localStorage directly is always instantaneous and correct.
+  const [projectName] = useState<string | undefined>(() => {
+    try {
+      const root = localStorage.getItem('swarm-active-root');
+      if (root) return root.split('/').filter(Boolean).pop() ?? undefined;
+    } catch { /* private mode */ }
+    return undefined;
+  });
 
   // Consume the one-shot switch flag set by ProjectSwitcher before reload.
   const [justSwitchedPath] = useState<string | null>(() => {
@@ -27,7 +38,7 @@ export function Planning({ onExecutable, serverStatus = 'probing', recapMessage,
     return null;
   });
 
-  const session    = usePlanningSession(onExecutable, projectName ?? 'default', recapMessage);
+  const session    = usePlanningSession(onExecutable, projectName ?? 'default', recapMessage, runBlockedReason);
   const context    = useContextFiles();
   const [input, setInput]           = useState('');
   const scrollRef   = useRef<HTMLDivElement>(null);
@@ -78,14 +89,6 @@ export function Planning({ onExecutable, serverStatus = 'probing', recapMessage,
     }, 1500);
     return () => clearTimeout(t);
   }, [justSwitchedPath, session.sessionKey]);
-
-  // Try to fetch the real project name from the backend
-  useEffect(() => {
-    fetch('/state')
-      .then(r => r.ok ? r.json() : null)
-      .then(s => { if (s?.project) setProjectName(s.project); })
-      .catch(() => {});
-  }, []);
 
   // Auto-scroll on new messages / typing indicator
   useEffect(() => {

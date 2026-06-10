@@ -288,8 +288,9 @@ function PostRunActions({ onToggleChanges, showChanges, onPrCreated, alreadyPush
 
 // ─── Run controls ─────────────────────────────────────────────────────────────
 
-function RunControls({ status, onPause, onAbort, onToggleChanges, showChanges, onPrCreated, alreadyPushed, branchName }: {
+function RunControls({ status, tasks, onPause, onAbort, onToggleChanges, showChanges, onPrCreated, alreadyPushed, branchName }: {
   status:           RunStatus;
+  tasks?:           RunViewProps['tasks'];
   onPause?:         () => void;
   onAbort?:         () => void;
   onToggleChanges?: () => void;
@@ -375,8 +376,22 @@ function RunControls({ status, onPause, onAbort, onToggleChanges, showChanges, o
     ? 'Resume the run — agents will continue from where they left off.'
     : 'Pause after the current agent task completes. Does not interrupt a running agent — it will finish first.';
 
+  const coderDone = tasks?.some(t => t.assignee === 'coder' && t.status === 'done') ?? false;
+
   return (
-    <div style={{ display: 'flex', gap: 6 }}>
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      {coderDone && onToggleChanges && (
+        <>
+          <button
+            className={`btn sm${showChanges ? ' active' : ''}`}
+            onClick={onToggleChanges}
+            title="Review code changes made by the coder so far"
+          >
+            {showChanges ? 'Hide changes' : 'View changes'}
+          </button>
+          <span style={{ width: 1, height: 16, background: 'var(--border-1)', flexShrink: 0 }} />
+        </>
+      )}
       {onPause && (
         <button
           className="btn sm"
@@ -517,6 +532,7 @@ function RunView({
         <div className="spacer" />
         <RunControls
           status           = {status}
+          tasks            = {tasks}
           onPause          = {onPause}
           onAbort          = {onAbort}
           onToggleChanges  = {() => setShowChanges(v => !v)}
@@ -546,7 +562,7 @@ function RunView({
         <>
           <TaskGraph tasks={tasks} agentSteps={agentSteps} />
           <div className="run-right">
-            <AgentsPanel agents={agents} status={status} />
+            <AgentsPanel agents={agents} status={status} tasks={tasks} />
             <FindingsFeed findings={findings} tasks={tasks} />
           </div>
         </>
@@ -639,7 +655,7 @@ function Code({ children }: { children: React.ReactNode }) {
 
 // ─── Running: real backend or server-down screen ──────────────────────────────
 
-export function Running({ onPrCreated, onRunDone }: { onPrCreated?: (url: string) => void; onRunDone?: () => void }) {
+export function Running({ onPrCreated, onRunDone, isInitiating }: { onPrCreated?: (url: string) => void; onRunDone?: () => void; isInitiating?: boolean }) {
   const { serverStatus, state } = useRealRun();
 
   // Notify parent once when the run transitions to done.
@@ -667,6 +683,23 @@ export function Running({ onPrCreated, onRunDone }: { onPrCreated?: (url: string
 
   // Server is up but no run has been started yet (state.json doesn't exist or tasks is empty).
   if (state.tasks.length === 0 && state.status === 'running') {
+    if (isInitiating) {
+      // Execute was just clicked — classifier is running, first task hasn't landed yet.
+      return (
+        <div style={{
+          height: '100%', display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center', gap: 16, padding: 40,
+        }}>
+          <span className="ps-spinner" style={{ width: 22, height: 22, borderWidth: 2.5 }} />
+          <div style={{ color: 'var(--tx-2)', fontSize: 13, fontFamily: 'var(--mono)' }}>
+            Initialising run…
+          </div>
+          <div style={{ color: 'var(--tx-3)', fontSize: 12, maxWidth: 300, textAlign: 'center', lineHeight: 1.6 }}>
+            Classifying goal and building task graph
+          </div>
+        </div>
+      );
+    }
     return (
       <div style={{
         height: '100%', display: 'flex', flexDirection: 'column',
