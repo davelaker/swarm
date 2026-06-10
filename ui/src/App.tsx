@@ -40,6 +40,8 @@ export function App() {
   const [executeError,    setExecuteError]    = useState<string | null>(null);
   const [completionRecap, setCompletionRecap] = useState<string | null>(null);
   const [repoUrl,         setRepoUrl]         = useState<string | null>(null);
+  const [runDone,         setRunDone]         = useState(false);
+  const [planNextKey,     setPlanNextKey]     = useState(0);
 
   // Single server probe — retries every 3s, also reads project name when up.
   useEffect(() => {
@@ -134,6 +136,12 @@ export function App() {
       });
   }, [runGoal, runCharter, runTeam]);
 
+  const handlePlanNext = useCallback(() => {
+    setRunDone(false);
+    setPlanNextKey(k => k + 1);
+    setSurface('planning');
+  }, []);
+
   // Called by Running when a PR is successfully created.
   // The URL flows down to Planning as recapMessage, where usePlanningSession
   // injects a completion chip and a PM "what's next?" prompt.
@@ -184,6 +192,15 @@ export function App() {
           <button className={surface === 'running'     ? 'on' : ''} onClick={() => setSurface('running')}>Running</button>
           <button className={surface === 'marketplace' ? 'on' : ''} onClick={() => setSurface('marketplace')}>Marketplace</button>
         </div>
+        {surface === 'running' && runDone && (
+          <button
+            className="btn primary"
+            onClick={handlePlanNext}
+            style={{ marginLeft: 10 }}
+          >
+            ← Plan next task
+          </button>
+        )}
         <div className="spacer" />
 
         <span style={{
@@ -251,9 +268,9 @@ export function App() {
           height:  '100%',
           display: surface === 'planning' ? 'block' : 'none',
         }}>
-          <Planning onExecute={goExecute} onExecutable={handleExecutable} serverStatus={serverStatus} recapMessage={completionRecap} />
+          <Planning onExecute={goExecute} onExecutable={handleExecutable} serverStatus={serverStatus} recapMessage={completionRecap} planNextKey={planNextKey} />
         </div>
-        {surface === 'running'     && <Running onPrCreated={onPrCreated} />}
+        {surface === 'running'     && <Running onPrCreated={onPrCreated} onRunDone={() => setRunDone(true)} />}
         {surface === 'marketplace' && <Marketplace />}
       </div>
     </div>

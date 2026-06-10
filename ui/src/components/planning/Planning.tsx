@@ -12,15 +12,25 @@ interface PlanningProps {
   onExecutable:  (v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => void;
   serverStatus?: ServerStatus;
   recapMessage?: string | null;
+  planNextKey?:  number;
 }
 
-export function Planning({ onExecutable, serverStatus = 'probing', recapMessage }: PlanningProps) {
+export function Planning({ onExecutable, serverStatus = 'probing', recapMessage, planNextKey }: PlanningProps) {
   const [projectName, setProjectName] = useState<string | undefined>();
   const session    = usePlanningSession(onExecutable, projectName ?? 'default', recapMessage);
   const context    = useContextFiles();
   const [input, setInput]           = useState('');
   const scrollRef   = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // When App asks us to start a fresh session (after a run completes), call
+  // newSession(). The planNextKey increments each time — skip the initial 0.
+  const prevPlanNextKey = useRef(planNextKey ?? 0);
+  useEffect(() => {
+    if (!planNextKey || planNextKey === prevPlanNextKey.current) return;
+    prevPlanNextKey.current = planNextKey;
+    session.newSession();
+  }, [planNextKey, session.newSession]);
 
   // Start the PM opening message once we have project context.
   // We wait up to 1.5s for /state and /context to load before falling back

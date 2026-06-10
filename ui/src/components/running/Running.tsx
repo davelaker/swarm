@@ -592,8 +592,17 @@ function Code({ children }: { children: React.ReactNode }) {
 
 // ─── Running: real backend or server-down screen ──────────────────────────────
 
-export function Running({ onPrCreated }: { onPrCreated?: (url: string) => void }) {
+export function Running({ onPrCreated, onRunDone }: { onPrCreated?: (url: string) => void; onRunDone?: () => void }) {
   const { serverStatus, state } = useRealRun();
+
+  // Notify parent once when the run transitions to done.
+  const runDoneNotified = useRef(false);
+  useEffect(() => {
+    if (state?.status === 'done' && !runDoneNotified.current) {
+      runDoneNotified.current = true;
+      onRunDone?.();
+    }
+  }, [state?.status, onRunDone]);
 
   if (serverStatus === 'probing') {
     return (
