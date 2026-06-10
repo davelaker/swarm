@@ -19,6 +19,7 @@ interface SessionState {
   executableReason: string;
   phase:           Phase;
   suggestCompact:  boolean;
+  branchMode?:     'branch' | 'main';
 }
 
 // ─── localStorage persistence ─────────────────────────────────────────────────
@@ -59,7 +60,7 @@ function storageKey(_project: string): string {
 }
 
 type PersistedState = Pick<SessionState,
-  'messages' | 'charter' | 'team' | 'phase' | 'executable' | 'executableReason'
+  'messages' | 'charter' | 'team' | 'phase' | 'executable' | 'executableReason' | 'branchMode'
 > & { savedAt: number };
 
 function loadPersisted(project: string): Omit<PersistedState, 'savedAt'> | null {
@@ -87,6 +88,7 @@ function persist(s: SessionState, project: string) {
       phase:            s.phase,
       executable:       s.executable,
       executableReason: s.executableReason,
+      branchMode:       s.branchMode,
       savedAt:          Date.now(),
     };
     localStorage.setItem(storageKey(project), JSON.stringify(p));
@@ -119,6 +121,7 @@ export function usePlanningSession(
         executableReason: p.executableReason ?? DEFAULT_REASON,
         phase:           p.phase   ?? 'goal',
         suggestCompact:  false,
+        branchMode:      p.branchMode,
       };
     }
     return {
@@ -130,6 +133,7 @@ export function usePlanningSession(
       executableReason: DEFAULT_REASON,
       phase:           'start',
       suggestCompact:  false,
+      branchMode:      undefined,
     };
   });
 
@@ -150,6 +154,7 @@ export function usePlanningSession(
         constraints: (p.charter.constraints ?? []).map((c: { text: string }) => c.text),
         nongoals:    (p.charter.nongoals    ?? []).map((n: { text: string }) => n.text),
         questions:   (p.charter.questions   ?? []).map((q: { text: string }) => q.text),
+        branchMode:  p.branchMode,
       };
       onExecutableRef.current(true, p.charter.goal, charter, p.team ?? []);
     }
@@ -211,6 +216,7 @@ export function usePlanningSession(
       newNongoals?: string[];
       newQuestions?: string[];
       resolvedQuestion?: { index: number; answer: string };
+      branchMode?: 'branch' | 'main';
     };
     teamAdd?: string[];
     enableExecute?:  boolean;
@@ -267,6 +273,7 @@ export function usePlanningSession(
       executable:       newExecutable,
       executableReason: newReason,
       team:             newTeam,
+      branchMode:       cu.branchMode ?? prev.branchMode,
       charter: {
         ...prev.charter,
         goal: cu.goal ?? prev.charter.goal,
@@ -316,27 +323,30 @@ export function usePlanningSession(
         if (!r.ok) throw new Error(typeof body.error === 'string' ? body.error : `server ${r.status}`);
         return body;
       }))
-      .then(resp => {
+      .then((resp: Record<string, unknown>) => {
+        type PmResp = Parameters<typeof applyPmResponse>[1];
+        type Cu = NonNullable<PmResp['charterUpdates']>;
+        const cu = (resp.charterUpdates ?? {}) as Cu;
         setState(prev => {
-          const next = applyPmResponse(prev, resp);
+          const next = applyPmResponse(prev, resp as PmResp);
           const withExtras = resp.deploymentInfo
             ? { ...next, messages: [...next.messages, { from: 'system' as const, text: 'Deployment method saved to .swarm/PROJECT.md' }] }
             : next;
           return resp.suggestCompact ? { ...withExtras, suggestCompact: true } : withExtras;
         });
         if (resp.enableExecute) {
-          const cu   = resp.charterUpdates ?? {};
           const goal = cu.goal ?? state.charter.goal ?? trimmed;
           const charter: RunCharter = {
             constraints: [...state.charter.constraints.map(c => c.text), ...(cu.newConstraints ?? [])],
             nongoals:    [...state.charter.nongoals.map(n => n.text),    ...(cu.newNongoals    ?? [])],
             questions:   [...state.charter.questions.map(q => q.text),   ...(cu.newQuestions   ?? [])],
+            branchMode:  cu.branchMode ?? state.branchMode,
           };
-          const team = [...state.team, ...(resp.teamAdd?.filter(t => !state.team.includes(t)) ?? [])];
+          const team = [...state.team, ...((resp.teamAdd as string[] | undefined)?.filter(t => !state.team.includes(t)) ?? [])];
           onExecutable(true, goal, charter, team);
         } else if (resp.disableExecute) {
           onExecutable(false, undefined, undefined, undefined,
-            resp.disableReason || 'PM needs more information before proceeding');
+            (resp.disableReason as string | undefined) || 'PM needs more information before proceeding');
         }
       })
       .catch((err: Error) => {

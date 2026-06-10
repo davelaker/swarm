@@ -83,9 +83,10 @@ function buildTaskGraph(goal: string, tier: Tier, sensitive: boolean, cfg: Retur
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 export async function runNew(
-  goal:     string,
-  charter?: RunCharter,
-  _team?:   string[],   // informational — graph is built from tier, not PM team list
+  goal:        string,
+  charter?:    RunCharter,
+  _team?:      string[],   // informational — graph is built from tier, not PM team list
+  branchName?: string,
 ): Promise<void> {
   const cfg = getConfig();
 
@@ -120,10 +121,11 @@ export async function runNew(
   const freshState = {
     ...getState(),
     goal,
-    tier:    cls.tier,
-    charter: charter ?? { constraints: [], nongoals: [], questions: [] },
-    tasks:   [],
-    log:     [],
+    tier:       cls.tier,
+    charter:    charter ?? { constraints: [], nongoals: [], questions: [] },
+    branchName: branchName,
+    tasks:      [],
+    log:        [],
   };
   const fsFresh = await import('node:fs');
   const tmp = stateFile() + '.tmp';

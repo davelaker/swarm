@@ -11,6 +11,7 @@ export interface RunCharter {
   constraints: string[];
   nongoals:    string[];
   questions:   string[];
+  branchMode?: 'branch' | 'main';
 }
 
 // ─── Surface persistence ──────────────────────────────────────────────────────

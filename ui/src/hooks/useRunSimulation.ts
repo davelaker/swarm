@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Task, AgentState, Finding, ChatMessage, RunStatus } from '../types';
 import { INIT_TASKS, LATE_TASKS, RUN_SCRIPT, RUN_TOTAL, SPEND_CAP, SPEND_END } from '../data/runScript';
 
-const BLANK: AgentState = { active: false, step: '', verdict: null, inputTokens: null, outputTokens: null, costUsd: null, contextPct: null };
+const BLANK: AgentState = { active: false, step: '', verdict: null, activeAt: null, inputTokens: null, outputTokens: null, costUsd: null, contextPct: null };
 
 function makeInitAgents(): Record<string, AgentState> {
   return {
@@ -31,10 +31,10 @@ export function useRunSimulation() {
         setTasks(ts => ts.map(t => t.id === ev.id ? { ...t, status: ev.status as Task['status'] } : t));
         break;
       case 'agent':
-        setAgents(a => ({ ...a, [ev.who]: { active: true, step: ev.step, verdict: null } }));
+        setAgents(a => ({ ...a, [ev.who]: { ...BLANK, active: true, step: ev.step, activeAt: Date.now(), verdict: null } }));
         break;
       case 'idle':
-        setAgents(a => ({ ...a, [ev.who]: { active: false, step: '', verdict: ev.verdict as Finding['verdict'] } }));
+        setAgents(a => ({ ...a, [ev.who]: { ...BLANK, active: false, step: '', activeAt: null, verdict: ev.verdict as Finding['verdict'] } }));
         break;
       case 'finding':
         setFindings(f => [{ key: ev.key, agent: ev.agent, task: ev.task, verdict: ev.verdict as Finding['verdict'], summary: ev.summary }, ...f]);

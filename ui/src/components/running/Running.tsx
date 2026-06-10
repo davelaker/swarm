@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { useRunSimulation }  from '../../hooks/useRunSimulation';
 import { useRealRun }        from '../../hooks/useRealRun';
 import { TaskGraph }         from './TaskGraph';
@@ -23,6 +23,7 @@ interface RunViewProps {
   status:        RunStatus;
   connected?:    boolean;
   alreadyPushed?: boolean;
+  branchName?:   string;
   onPause?:      () => void;
   onAbort?:      () => void;
   onPrCreated?:  (url: string) => void;
@@ -32,30 +33,35 @@ interface RunViewProps {
 
 type ActionState = 'idle' | 'pending' | 'ok' | 'err';
 
-function PostRunActions({ onToggleChanges, showChanges, onPrCreated, alreadyPushed }: {
-  onToggleChanges: () => void;
-  showChanges:     boolean;
-  onPrCreated?:    (url: string) => void;
-  alreadyPushed?:  boolean;
+// ── Ship modal ────────────────────────────────────────────────────────────────
+// Shown when the user clicks "Ship →". Content is contextual:
+//   • feature branch → recommend PR, offer push-only fallback
+//   • main branch    → single push button
+
+function ShipModal({ branchName, onClose, onShipped, onPrCreated }: {
+  branchName?:  string;
+  onClose:      () => void;
+  onShipped:    () => void;
+  onPrCreated?: (url: string) => void;
 }) {
-  const [pushState, setPushState] = useState<ActionState>(alreadyPushed ? 'ok' : 'idle');
+  const [pushState, setPushState] = useState<ActionState>('idle');
   const [pushErr,   setPushErr]   = useState<string | null>(null);
   const [prState,   setPrState]   = useState<ActionState>('idle');
   const [prErr,     setPrErr]     = useState<string | null>(null);
   const [prUrl,     setPrUrl]     = useState<string | null>(null);
 
-  const push = () => {
+  const push = useCallback(() => {
     setPushState('pending'); setPushErr(null);
     fetch('/run/push', { method: 'POST' })
       .then(r => r.json())
       .then((d: { ok: boolean; error?: string }) => {
-        if (d.ok) { setPushState('ok'); }
+        if (d.ok) { setPushState('ok'); onShipped(); }
         else      { setPushState('err'); setPushErr(d.error ?? 'Push failed'); }
       })
       .catch((e: Error) => { setPushState('err'); setPushErr(e.message); });
-  };
+  }, [onShipped]);
 
-  const createPr = () => {
+  const createPr = useCallback(() => {
     setPrState('pending'); setPrErr(null);
     fetch('/run/pr', { method: 'POST' })
       .then(r => r.json())
@@ -63,76 +69,183 @@ function PostRunActions({ onToggleChanges, showChanges, onPrCreated, alreadyPush
         if (d.ok) {
           const url = d.url ?? null;
           setPrState('ok'); setPrUrl(url);
-          // Navigate back to Planning with a recap after a short beat
-          // so the user can see the "View PR" button briefly before leaving.
-          if (url) setTimeout(() => onPrCreated?.(url), 1200);
+          onShipped();
+          if (url) setTimeout(() => { onPrCreated?.(url); onClose(); }, 1200);
+          else     setTimeout(onClose, 800);
         } else {
           setPrState('err'); setPrErr(d.error ?? 'PR creation failed');
         }
       })
       .catch((e: Error) => { setPrState('err'); setPrErr(e.message); });
-  };
+  }, [onShipped, onPrCreated, onClose]);
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
 
   const errStyle: React.CSSProperties = {
-    fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--red)',
-    maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+    fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--red)', marginTop: 4,
   };
 
   return (
-    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-      {/* Changes toggle */}
-      <button
-        className={`btn sm${showChanges ? ' active' : ''}`}
-        onClick={onToggleChanges}
-        title="Review code changes made during this run"
-      >
-        {showChanges ? 'Hide changes' : 'View changes'}
-      </button>
+    <div className="ship-backdrop" onClick={onClose}>
+      <div className="ship-modal" onClick={e => e.stopPropagation()}>
+        <div className="ship-modal-head">
+          <span>Ship changes</span>
+          <button className="ship-modal-close" onClick={onClose} title="Close">×</button>
+        </div>
 
-      <span style={{ width: 1, height: 16, background: 'var(--border-1)', flexShrink: 0 }} />
+        {branchName ? (
+          // ── Feature branch: PR recommended, push-only fallback ─────────────
+          <div className="ship-modal-body">
+            <p className="ship-modal-context">
+              Changes are on branch <code>{branchName}</code>.
+            </p>
 
-      {/* Push — locked once a PR exists (no point re-pushing) */}
-      <button
-        className="btn sm"
-        onClick={push}
-        disabled={pushState === 'pending' || pushState === 'ok' || prState === 'ok'}
-        title={prState === 'ok' ? 'Already pushed — PR is open' : 'git push origin HEAD'}
-      >
-        {pushState === 'pending' ? 'Pushing…' : pushState === 'ok' ? '✓ Pushed' : pushState === 'err' ? 'Retry push' : 'Push'}
-      </button>
-      {pushState === 'err' && pushErr && (
-        <span style={errStyle} title={pushErr}>⚠ {pushErr}</span>
-      )}
+            {/* Primary: Create PR */}
+            <div className="ship-option primary">
+              <div className="ship-option-head">
+                <div>
+                  <div className="ship-option-title">
+                    Create pull request
+                    <span className="ship-option-badge">Recommended</span>
+                  </div>
+                  <div className="ship-option-desc">
+                    Opens a PR on GitHub so changes can be reviewed before merging into main.
+                  </div>
+                </div>
+                {prState === 'ok' && prUrl ? (
+                  <a href={prUrl} target="_blank" rel="noopener noreferrer"
+                     className="btn sm primary" style={{ textDecoration: 'none', flexShrink: 0 }}>
+                    View PR ↗
+                  </a>
+                ) : (
+                  <button
+                    className="btn sm primary"
+                    onClick={createPr}
+                    disabled={prState === 'pending' || prState === 'ok' || pushState === 'ok'}
+                    style={{ flexShrink: 0 }}
+                  >
+                    {prState === 'pending' ? 'Creating PR…' : prState === 'ok' ? '✓ PR created' : 'Create PR →'}
+                  </button>
+                )}
+              </div>
+              {prState === 'err' && prErr && <div style={errStyle}>⚠ {prErr}</div>}
+            </div>
 
-      {/* Create PR / View PR — requires a successful push first */}
-      {prState === 'ok' && prUrl ? (
-        <a
-          href={prUrl} target="_blank" rel="noopener noreferrer"
-          className="btn sm primary"
-          style={{ textDecoration: 'none' }}
+            {/* Divider */}
+            <div className="ship-or">or</div>
+
+            {/* Secondary: Push branch only */}
+            <div className="ship-option">
+              <div className="ship-option-head">
+                <div>
+                  <div className="ship-option-title">Push branch only</div>
+                  <div className="ship-option-desc">
+                    Pushes <code>{branchName}</code> to origin without opening a PR.
+                    You can create one later from GitHub.
+                  </div>
+                </div>
+                <button
+                  className="btn sm"
+                  onClick={push}
+                  disabled={pushState === 'pending' || pushState === 'ok' || prState === 'ok'}
+                  style={{ flexShrink: 0 }}
+                >
+                  {pushState === 'pending' ? 'Pushing…' : pushState === 'ok' ? '✓ Pushed' : 'Push branch'}
+                </button>
+              </div>
+              {pushState === 'err' && pushErr && <div style={errStyle}>⚠ {pushErr}</div>}
+            </div>
+          </div>
+        ) : (
+          // ── Main branch: single push ────────────────────────────────────────
+          <div className="ship-modal-body">
+            <p className="ship-modal-context">
+              Changes were committed directly to <code>main</code>.
+            </p>
+            <div className="ship-option primary">
+              <div className="ship-option-head">
+                <div>
+                  <div className="ship-option-title">Push to origin</div>
+                  <div className="ship-option-desc">
+                    Runs <code>git push origin HEAD</code> to publish the commits.
+                  </div>
+                </div>
+                <button
+                  className="btn sm primary"
+                  onClick={push}
+                  disabled={pushState === 'pending' || pushState === 'ok'}
+                  style={{ flexShrink: 0 }}
+                >
+                  {pushState === 'pending' ? 'Pushing…' : pushState === 'ok' ? '✓ Pushed' : 'Push to origin'}
+                </button>
+              </div>
+              {pushState === 'err' && pushErr && <div style={errStyle}>⚠ {pushErr}</div>}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PostRunActions({ onToggleChanges, showChanges, onPrCreated, alreadyPushed, branchName }: {
+  onToggleChanges: () => void;
+  showChanges:     boolean;
+  onPrCreated?:    (url: string) => void;
+  alreadyPushed?:  boolean;
+  branchName?:     string;
+}) {
+  const [shipped,   setShipped]   = useState(alreadyPushed ?? false);
+  const [showShip,  setShowShip]  = useState(false);
+
+  const handleShipped = useCallback(() => setShipped(true), []);
+  const handleClose   = useCallback(() => setShowShip(false), []);
+
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        {/* Changes toggle */}
+        <button
+          className={`btn sm${showChanges ? ' active' : ''}`}
+          onClick={onToggleChanges}
+          title="Review code changes made during this run"
         >
-          View PR ↗
-        </a>
-      ) : (
+          {showChanges ? 'Hide changes' : 'View changes'}
+        </button>
+
+        <span style={{ width: 1, height: 16, background: 'var(--border-1)', flexShrink: 0 }} />
+
+        {/* Ship → opens the contextual dialog */}
         <button
           className="btn sm primary"
-          onClick={createPr}
-          disabled={prState === 'pending' || pushState !== 'ok'}
-          title={pushState !== 'ok' ? 'Push first, then create a PR' : 'gh pr create'}
+          onClick={() => setShowShip(true)}
+          disabled={shipped}
+          title={shipped ? 'Changes already shipped' : 'Push or open a pull request'}
         >
-          {prState === 'pending' ? 'Creating PR…' : prState === 'err' ? 'Retry PR' : 'Create PR'}
+          {shipped ? '✓ Shipped' : 'Ship →'}
         </button>
+      </div>
+
+      {showShip && (
+        <ShipModal
+          branchName={branchName}
+          onClose={handleClose}
+          onShipped={handleShipped}
+          onPrCreated={onPrCreated}
+        />
       )}
-      {prState === 'err' && prErr && (
-        <span style={errStyle} title={prErr}>⚠ {prErr}</span>
-      )}
-    </div>
+    </>
   );
 }
 
 // ─── Run controls ─────────────────────────────────────────────────────────────
 
-function RunControls({ status, onPause, onAbort, onToggleChanges, showChanges, onPrCreated, alreadyPushed }: {
+function RunControls({ status, onPause, onAbort, onToggleChanges, showChanges, onPrCreated, alreadyPushed, branchName }: {
   status:           RunStatus;
   onPause?:         () => void;
   onAbort?:         () => void;
@@ -140,6 +253,7 @@ function RunControls({ status, onPause, onAbort, onToggleChanges, showChanges, o
   showChanges?:     boolean;
   onPrCreated?:     (url: string) => void;
   alreadyPushed?:   boolean;
+  branchName?:      string;
 }) {
   const [confirmAbort, setConfirmAbort] = useState(false);
   const [pending, setPending] = useState<'aborting' | 'pausing' | null>(null);
@@ -209,6 +323,7 @@ function RunControls({ status, onPause, onAbort, onToggleChanges, showChanges, o
       showChanges={showChanges ?? false}
       onPrCreated={onPrCreated}
       alreadyPushed={alreadyPushed}
+      branchName={branchName}
     />
   );
 
@@ -325,7 +440,7 @@ function PmChat({ pmMsgs, status }: { pmMsgs: RunViewProps['pmMsgs']; status: Ru
 function RunView({
   project, tier, tasks, agents, findings, pmMsgs,
   spend, spendCap, status, connected = true,
-  alreadyPushed,
+  alreadyPushed, branchName,
   onPause, onAbort, onPrCreated,
 }: RunViewProps) {
   const [showChanges, setShowChanges] = useState(false);
@@ -365,6 +480,7 @@ function RunView({
           showChanges      = {showChanges}
           onPrCreated      = {onPrCreated}
           alreadyPushed    = {alreadyPushed}
+          branchName       = {branchName}
         />
         <div className="spend">
           <div className="spend-top">
@@ -529,6 +645,7 @@ export function Running({ onPrCreated }: { onPrCreated?: (url: string) => void }
       status         = {state.status}
       connected      = {state.connected}
       alreadyPushed  = {state.pushed}
+      branchName     = {state.branchName}
       onPause        = {state.status === 'paused' ? resume : pause}
       onAbort        = {abort}
       onPrCreated    = {onPrCreated}

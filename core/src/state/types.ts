@@ -51,6 +51,7 @@ export interface RunCharter {
   constraints: string[];
   nongoals:    string[];
   questions:   string[];
+  branchMode?: 'branch' | 'main';
 }
 
 export interface SwarmState {
@@ -59,6 +60,7 @@ export interface SwarmState {
   goal:       string;
   tier:       Tier;
   charter?:   RunCharter;
+  branchName?: string;  // set at run start when charter.branchMode === 'branch'
   updated_at: string;
   tasks:      Task[];
   log:        LogEntry[];

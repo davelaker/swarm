@@ -387,7 +387,7 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
 
   let body = '';
   req.on('data', d => { body += d; });
-  req.on('end', () => {
+  req.on('end', async () => {
     const payload = body ? JSON.parse(body) : {};
     const route   = url.pathname;
 
@@ -430,16 +430,34 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
       }
       const { goal, charter, team } = payload as {
         goal?:    string;
-        charter?: { constraints: string[]; nongoals: string[]; questions: string[] };
+        charter?: { constraints: string[]; nongoals: string[]; questions: string[]; branchMode?: 'branch' | 'main' };
         team?:    string[];
       };
       if (!goal?.trim()) {
         res.writeHead(400); res.end(JSON.stringify({ error: 'goal required' })); return;
       }
+
+      // Create a feature branch if the PM recommended one.
+      let branchName: string | undefined;
+      if (charter?.branchMode === 'branch') {
+        const cwd  = path.dirname(swarmDir());
+        const slug = goal.trim().toLowerCase()
+          .replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '-').slice(0, 40).replace(/-+$/, '');
+        const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        branchName = `swarm/${slug}-${date}`;
+        try {
+          await execFileAsync('git', ['checkout', '-b', branchName], { cwd });
+          console.log(`  ▸ created branch: ${branchName}`);
+        } catch (err) {
+          const msg = (err as { stderr?: Buffer; message: string }).stderr?.toString().trim() || (err as Error).message;
+          res.writeHead(400); res.end(JSON.stringify({ error: `Could not create branch: ${msg}` })); return;
+        }
+      }
+
       activeRun = true;
       res.writeHead(200); res.end(JSON.stringify({ ok: true }));
       console.log(`\n  ▸ execute: "${goal}"\n`);
-      runNew(goal.trim(), charter, team)
+      runNew(goal.trim(), charter, team, branchName)
         .catch(err => {
           const msg = (err as Error).message ?? 'Unknown error';
           console.error('  ✗ execute error:', msg);

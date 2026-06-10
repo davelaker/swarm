@@ -16,12 +16,13 @@ interface ServerTask {
 }
 
 interface ServerState {
-  project:    string;
-  goal:       string;
-  tier:       string;
-  updated_at: string;
-  tasks:      ServerTask[];
-  log:        Array<{ ts: string; actor: string; event: string }>;
+  project:     string;
+  goal:        string;
+  tier:        string;
+  updated_at:  string;
+  tasks:       ServerTask[];
+  log:         Array<{ ts: string; actor: string; event: string }>;
+  branchName?: string;
 }
 
 type SwarmEvent =
@@ -85,17 +86,18 @@ function initAgents(): Record<string, AgentState> {
 }
 
 export interface RealRunState {
-  project:   string;
-  tier:      string;
-  tasks:     Task[];
-  agents:    Record<string, AgentState>;
-  findings:  Finding[];
-  pmMsgs:    ChatMessage[];
-  status:    RunStatus;
-  connected: boolean;
-  spend:     number;
-  spendCap:  number;
-  pushed:    boolean;   // true if a successful push was logged this run
+  project:    string;
+  tier:       string;
+  tasks:      Task[];
+  agents:     Record<string, AgentState>;
+  findings:   Finding[];
+  pmMsgs:     ChatMessage[];
+  status:     RunStatus;
+  connected:  boolean;
+  spend:      number;
+  spendCap:   number;
+  pushed:     boolean;    // true if a successful push was logged this run
+  branchName?: string;   // set when the run was started on a feature branch
 }
 
 export type ServerStatus = 'probing' | 'down' | 'up';
@@ -162,17 +164,18 @@ export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState 
 
         setServerStatus('up');
         setState({
-          project:  snap.project,
-          tier:     snap.tier,
+          project:    snap.project,
+          tier:       snap.tier,
           tasks,
           agents,
           findings,
           pmMsgs,
-          status:   allDone ? 'done' : 'running',
-          connected: true,
-          spend:    0,
-          spendCap: 2,  // default; overridden by run.cost_updated events
+          status:     allDone ? 'done' : 'running',
+          connected:  true,
+          spend:      0,
+          spendCap:   2,  // default; overridden by run.cost_updated events
           pushed,
+          branchName: snap.branchName,
         });
       })
       .catch(() => {

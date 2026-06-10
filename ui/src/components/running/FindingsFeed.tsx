@@ -67,15 +67,6 @@ function deriveChip(f: Finding, tasks: Task[]): ChipState {
 }
 
 // ─── Summary sanitisation ─────────────────────────────────────────────────────
-// If enrichment hasn't run yet the summary falls back to the file path.
-// Show a cleaner placeholder in that case.
-
-function cleanSummary(summary: string): string {
-  if (!summary) return '';
-  // Looks like a path (absolute or relative ending in .md)
-  if (summary.endsWith('.md') || summary.startsWith('/')) return '';
-  return summary;
-}
 
 // ─── Time formatting ─────────────────────────────────────────────────────────
 
@@ -96,7 +87,6 @@ function FindingCard({ f, tasks }: { f: Finding; tasks: Task[] }) {
   const [loading, setLoading] = useState(false);
   const p    = PERSONAS[f.agent];
   const chip = deriveChip(f, tasks);
-  const sum  = cleanSummary(f.summary);
 
   const toggle = () => {
     const next = !open;

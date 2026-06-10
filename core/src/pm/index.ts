@@ -49,6 +49,7 @@ export interface PmCharter {
   constraints?: string[];
   nongoals?:    string[];
   questions?:   string[];
+  branchMode?:  'branch' | 'main';
 }
 
 export interface PmResponse {
@@ -62,6 +63,7 @@ export interface PmResponse {
     newNongoals?:       string[];
     newQuestions?:      string[];
     resolvedQuestion?:  { index: number; answer: string };
+    branchMode?:        'branch' | 'main';
   };
   teamAdd?:        string[];
   enableExecute?:  boolean;
@@ -104,6 +106,8 @@ All fields can be added to or refined at any turn — not just when first set. I
 - charter_updates.new_nongoals: Explicit out-of-scope items. PROPOSE these yourself after understanding the goal — don't wait for the user. If you say "out of scope: X" in your reply, include it here. Can be added any time.
 - charter_updates.new_questions: Open questions you're raising. Can be added any time if new uncertainties emerge.
 - charter_updates.resolved_question: If the user just answered an open question, resolve it (index, answer).
+
+- charter_updates.branch_mode: Git workflow for this run. Ask once, early (first or second exchange), as a simple choice. ALWAYS recommend 'branch' — it creates a named feature branch, keeps main clean, and makes the work easy to review or roll back. Only accept 'main' if the user explicitly prefers it. Once set, do not ask again.
 
 TEAM RECOMMENDATION — set team_add when ready:
 - "coder" — always
@@ -153,6 +157,7 @@ function formatCharter(charter: PmCharter | null, team: string[]): string {
   if (charter?.constraints?.length)  parts.push(`constraints=[${charter.constraints.join(' | ')}]`);
   if (charter?.nongoals?.length)     parts.push(`nongoals=[${charter.nongoals.join(' | ')}]`);
   if (charter?.questions?.length)    parts.push(`openQ=[${charter.questions.join(' | ')}]`);
+  if (charter?.branchMode)           parts.push(`branch_mode=${charter.branchMode}`);
   if (team.length)                   parts.push(`team=[${team.join(', ')}]`);
   return parts.join(' ');
 }
@@ -315,6 +320,10 @@ export async function runPmMessage(
         resolvedTeam = [...resolvedTeam, 'reviewer'];
       }
 
+      const branchModeRaw = cu.branch_mode ? String(cu.branch_mode) : undefined;
+      const branchMode: 'branch' | 'main' | undefined =
+        branchModeRaw === 'main' ? 'main' : branchModeRaw === 'branch' ? 'branch' : undefined;
+
       resolve({
         reply:              String(data.reply ?? ''),
         securityInterject:  data.security_interject ? String(data.security_interject) : undefined,
@@ -326,6 +335,7 @@ export async function runPmMessage(
           newNongoals:      Array.isArray(cu.new_nongoals)    ? cu.new_nongoals.map(String)    : undefined,
           newQuestions:     Array.isArray(cu.new_questions)   ? cu.new_questions.map(String)   : undefined,
           resolvedQuestion: rv,
+          branchMode,
         },
         teamAdd:        resolvedTeam,
         enableExecute:  Boolean(data.enable_execute),

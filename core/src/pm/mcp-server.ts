@@ -79,6 +79,11 @@ const SUBMIT_TOOL = {
             },
             required: ['index', 'answer'],
           },
+          branch_mode: {
+            type: 'string',
+            enum: ['branch', 'main'],
+            description: "Git workflow for this run. 'branch' = create a feature branch (recommended). 'main' = commit directly to main.",
+          },
         },
       },
       team_add: {
