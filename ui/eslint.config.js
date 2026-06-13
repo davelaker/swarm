@@ -18,5 +18,9 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // House style: always use curly braces, even for one-line bodies (auto-fixable).
+      curly: ['error', 'all'],
+    },
   },
 ])

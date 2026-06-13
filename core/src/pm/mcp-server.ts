@@ -22,6 +22,14 @@ if (!outputPath) {
   process.exit(1);
 }
 
+// How many times we'll reject an empty team_add before accepting the call anyway.
+// The reject path forces the model to re-submit with a team; the cap guarantees we
+// never loop until the parent's 90s timeout (which would leave the user with NO
+// response). After the cap, we accept and let parsePmData's task_graph→team
+// fallback / coder+reviewer default fill the gap, so the user is never stuck.
+const MAX_TEAM_REJECTS = 2;
+let teamRejects = 0;
+
 // ─── Tool definition ──────────────────────────────────────────────────────────
 
 const SUBMIT_TOOL = {
@@ -31,7 +39,7 @@ const SUBMIT_TOOL = {
     'to deliver your reply and charter updates. Plain text output is ignored.',
   inputSchema: {
     type: 'object',
-    required: ['reply'],
+    required: ['reply', 'team_add', 'task_graph'],
     properties: {
       reply: {
         type: 'string',
@@ -84,15 +92,16 @@ const SUBMIT_TOOL = {
             enum: ['branch', 'main'],
             description: "Git workflow for this run. 'branch' = create a feature branch (recommended). 'main' = commit directly to main.",
           },
+          branch_name: {
+            type: 'string',
+            description: "Short kebab-case slug for the feature branch (2-4 words, no numbers, max 40 chars). Set whenever branch_mode is 'branch'. E.g. 'fix-auth-redirect', 'add-stripe-webhook'.",
+          },
         },
       },
       team_add: {
         type: 'array',
-        items: {
-          type: 'string',
-          enum: ['coder', 'tester', 'security', 'reviewer', 'negotiator'],
-        },
-        description: 'Agent roles to add to the recommended team.',
+        items: { type: 'string' },
+        description: 'REQUIRED on every turn. Agent IDs for the recommended team. Re-emit the full current team every call — omitting it is a schema error. Minimum: ["coder", "reviewer"].',
       },
       enable_execute: {
         type: 'boolean',
@@ -106,9 +115,50 @@ const SUBMIT_TOOL = {
         type: 'string',
         description: 'Brief reason why Execute is being disabled (shown as tooltip on the button). Required if disable_execute is true.',
       },
+      task_graph: {
+        type: 'array',
+        description:
+          'REQUIRED on every turn — a draft is fine on early turns. ' +
+          'Each entry is a task: id (t1, t2, …), assignee, title, and depends_on (empty = runs immediately). ' +
+          'Tasks with the same or overlapping deps run in parallel once their deps complete.',
+        items: {
+          type: 'object',
+          properties: {
+            id:         { type: 'string', description: 'Unique task ID, e.g. t1, t2, t_audit.' },
+            assignee:   { type: 'string', description: 'Agent ID: builtin (coder/tester/security/reviewer) or a marketplace agent ID from the hired roster.' },
+            title:      { type: 'string', description: 'Clear instruction for the agent.' },
+            depends_on: { type: 'array', items: { type: 'string' }, description: 'IDs that must complete first.' },
+          },
+          required: ['id', 'assignee', 'title', 'depends_on'],
+        },
+      },
       suggest_compact: {
         type: 'boolean',
         description: 'Set true once when the conversation is getting long. Never set twice.',
+      },
+      research_request: {
+        type: 'object',
+        description:
+          'Set this when you need to understand the existing codebase to plan well — a read-only Scout will investigate your question and report back, and you\'ll continue planning with that context. Use a specific, answerable question (e.g. "How does the current auth middleware validate sessions, and where?"). Omit it when you already have enough context — most simple/clarifying turns need no research.',
+        properties: {
+          question: {
+            type: 'string',
+            description: 'A specific, answerable question about the existing codebase for the Scout to investigate.',
+          },
+          target: {
+            type: 'string',
+            description: 'Optional. The id of a HIRED specialist to run this research (e.g. "db" for live database questions). Omit to use the generic read-only Scout (source-code only). Only name a specialist that is shown ✓ HIRED in the marketplace list.',
+          },
+        },
+      },
+      hire_suggestion: {
+        type: 'object',
+        description:
+          'Recommend the user hire a marketplace specialist that would materially improve THIS project. Use the exact agent id from the marketplace list. The UI shows your reason as a one-click "Hire" call-to-action. Only suggest a NOT-hired agent that genuinely fits; do not suggest one already hired, and do not force-fit.',
+        properties: {
+          agent_id: { type: 'string', description: 'The marketplace agent id to recommend hiring (e.g. "product-researcher").' },
+          reason:   { type: 'string', description: 'One sentence, user-facing: why hiring this specialist would help this project.' },
+        },
       },
     },
   },
@@ -157,17 +207,40 @@ rl.on('line', (line: string) => {
   } else if (msg.method === 'tools/call') {
     const params = msg.params as { name: string; arguments: Record<string, unknown> } | undefined;
     if (params?.name === 'submit_pm_response') {
-      try {
-        fs.writeFileSync(outputPath!, JSON.stringify(params.arguments));
-        process.stderr.write('[pm-mcp] response captured\n');
-      } catch (err) {
-        process.stderr.write(`[pm-mcp] write error: ${err}\n`);
+      const args    = params.arguments ?? {};
+      const teamAdd = args.team_add as unknown[] | undefined;
+      const teamEmpty = !Array.isArray(teamAdd) || teamAdd.length === 0;
+
+      // Hard gate: team_add must be present and non-empty. Returning isError forces
+      // the model to see the failure and re-submit — up to MAX_TEAM_REJECTS times.
+      // After that we accept anyway (see counter comment) so the user is never stuck.
+      if (teamEmpty && teamRejects < MAX_TEAM_REJECTS) {
+        teamRejects++;
+        process.stderr.write(`[pm-mcp] rejected: team_add missing or empty (reject ${teamRejects}/${MAX_TEAM_REJECTS})\n`);
+        send({
+          jsonrpc: '2.0',
+          id: msg.id,
+          result: {
+            content: [{ type: 'text', text: 'REJECTED: team_add is required and must not be empty. Re-submit submit_pm_response NOW with the same reply plus team_add set to at least ["coder", "reviewer"] (add "tester"/"security" as the task warrants). This call was NOT recorded — nothing was saved until team_add is present.' }],
+            isError: true,
+          },
+        });
+      } else {
+        if (teamEmpty) {
+          process.stderr.write(`[pm-mcp] accepting despite empty team_add after ${teamRejects} rejects — downstream fallback will apply\n`);
+        }
+        try {
+          fs.writeFileSync(outputPath!, JSON.stringify(args));
+          process.stderr.write('[pm-mcp] response captured\n');
+        } catch (err) {
+          process.stderr.write(`[pm-mcp] write error: ${err}\n`);
+        }
+        send({
+          jsonrpc: '2.0',
+          id: msg.id,
+          result: { content: [{ type: 'text', text: 'Response submitted.' }] },
+        });
       }
-      send({
-        jsonrpc: '2.0',
-        id: msg.id,
-        result: { content: [{ type: 'text', text: 'Response submitted.' }] },
-      });
     } else {
       send({
         jsonrpc: '2.0',

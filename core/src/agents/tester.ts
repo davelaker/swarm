@@ -8,10 +8,11 @@ import { getRoot }           from '../state/repo.js';
 import { TESTER_SYSTEM }     from './prompts.js';
 import { buildCachedSystem, logCacheStats, CACHE_BETA } from './cache.js';
 import { tokensToDollars }   from './coder.js';
+import { requestPermission } from '../drivers/permission-broker.js';
 import type { Task, SwarmState } from '../state/types.js';
 
 export interface TesterResult {
-  verdict:      'PASS' | 'FAIL';
+  verdict:      'PASS' | 'PASS_WITH_ADVISORY' | 'FAIL';
   summary:      string;
   finding:      string;
   inputTokens:  number;
@@ -98,11 +99,11 @@ const TOOLS: Anthropic.Tool[] = [
     input_schema: {
       type: 'object',
       properties: {
-        verdict: { type: 'string', enum: ['PASS', 'FAIL'] },
+        verdict: { type: 'string', enum: ['PASS', 'PASS_WITH_ADVISORY', 'FAIL'] },
         summary: { type: 'string', description: 'One-line result summary.' },
-        detail:  { type: 'string', description: 'Explanation of failures if FAIL.' },
+        detail:  { type: 'string', description: 'Explanation of failures if FAIL, or advisory caveat if PASS_WITH_ADVISORY.' },
       },
-      required: ['verdict', 'summary'],
+      required: ['verdict', 'summary', 'detail'],
     },
   },
 ];
@@ -114,7 +115,15 @@ function safeJoin(rel: string): string {
   return abs;
 }
 
-async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {
+async function executeTool(name: string, input: Record<string, unknown>, task: Task): Promise<string> {
+  // Gate test execution — user must approve before any commands run.
+  if (name === 'run_tests') {
+    const decision = await requestPermission(task.assignee, name, {
+      command: input.command ?? '(auto-detected)',
+    });
+    if (decision === 'deny') return 'Permission denied: user rejected running the test suite.';
+  }
+
   switch (name) {
     case 'read_file': {
       const abs = safeJoin(String(input.path));
@@ -137,6 +146,21 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
 
 // ─── Build finding markdown ───────────────────────────────────────────────────
 
+const VERDICT_LABELS: Record<string, string> = {
+  PASS:              'Pass',
+  PASS_WITH_ADVISORY:'Pass with Advisory',
+  FAIL:              'Failed',
+  FAILED:            'Failed',
+};
+
+function verdictHeading(verdict: string, summary: string): string {
+  const label    = VERDICT_LABELS[verdict.toUpperCase()] ?? verdict;
+  const normSum  = summary.trim().toUpperCase().replace(/[\s_]+/g, '_');
+  const normVerd = verdict.toUpperCase().replace(/[\s_]+/g, '_');
+  const isRepeat = !summary.trim() || normSum === normVerd;
+  return isRepeat ? `## ${label}\n\n` : `## ${label}: ${summary}\n\n`;
+}
+
 function buildFinding(task: Task, verdict: string, summary: string, detail?: string): string {
   return [
     '---',
@@ -147,7 +171,7 @@ function buildFinding(task: Task, verdict: string, summary: string, detail?: str
     `summary: "${summary.replace(/"/g, '\\"')}"`,
     '---',
     '',
-    `## ${verdict}: ${summary}`,
+    verdictHeading(verdict, summary).trimEnd(),
     '',
     ...(detail ? [detail, ''] : []),
   ].join('\n');
@@ -163,7 +187,7 @@ export async function runTester(task: Task, state: SwarmState, verbose = true): 
   // Give the Tester context about what the Coder changed
   const coderTask    = state.tasks.find(t => t.assignee === 'coder' && t.status === 'done');
   const coderContext = coderTask?.result_ref
-    ? `The Coder completed task "${coderTask.title}". Findings at: ${coderTask.result_ref}`
+    ? `The Coder completed task "${coderTask.title}". Findings at: .swarm/${coderTask.result_ref}`
     : `The Coder completed task "${coderTask?.title ?? 'unknown'}" (no finding file available).`;
 
   const charter = state.charter;
@@ -215,7 +239,7 @@ export async function runTester(task: Task, state: SwarmState, verbose = true): 
         if (b.type !== 'tool_use') continue;
         if (verbose) console.log(`  [tester] ${b.name}(${JSON.stringify(b.input).slice(0, 100)})`);
 
-        const result = await executeTool(b.name, b.input as Record<string, unknown>);
+        const result = await executeTool(b.name, b.input as Record<string, unknown>, task);
 
         if (b.name === 'done') {
           const inp = b.input as { verdict: string; summary: string; detail?: string };
@@ -238,7 +262,7 @@ export async function runTester(task: Task, state: SwarmState, verbose = true): 
   if (verbose) console.log(`\n  [tester] ${verdict}: ${summary}  cost: $${costUsd.toFixed(4)}\n`);
 
   return {
-    verdict: verdict as 'PASS' | 'FAIL',
+    verdict: verdict as 'PASS' | 'PASS_WITH_ADVISORY' | 'FAIL',
     summary,
     finding: buildFinding(task, verdict, summary, detail),
     inputTokens: totalInput, outputTokens: totalOutput, costUsd,

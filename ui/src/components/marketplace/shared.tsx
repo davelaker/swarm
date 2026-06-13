@@ -1,6 +1,5 @@
-import type { Sensitivity, Provenance } from '../../types';
-import { ToolGlyph } from '../common/ToolIcon';
-import { IconLock, IconStar, IconSearch } from '../common/icons';
+import type { Sensitivity } from '../../types';
+import { IconLock, IconSearch } from '../common/icons';
 
 export function rgba(hex: string, a: number) {
   const n = parseInt(hex.slice(1), 16);
@@ -19,17 +18,23 @@ export function AgentIcon({ name, color, size = 36 }: { name: string; color: str
   );
 }
 
-export function ProvBadge({ prov }: { prov: Provenance }) {
-  const label = { first: 'First-party', community: 'Community', private: 'Private' }[prov];
-  return <span className={`prov ${prov}`}><span className="pdot" />{label}</span>;
-}
-
 export function RoleChip({ role }: { role: string }) {
   return <span className="rolechip">{role}</span>;
 }
 
 export function SensTag({ sens }: { sens: Sensitivity }) {
   return <span className={`sens-tag ${sens}`}>{sens}</span>;
+}
+
+// SQL category tools — shared across marketplace components
+export const SQL_CAT_CLS:   Record<string, string> = { read: 'read', write: 'write', delete: 'write', destructive: 'shell' };
+export const SQL_CAT_LABEL: Record<string, string> = { read: 'db·read', write: 'db·write', delete: 'db·delete', destructive: 'db·schema' };
+export const SQL_CAT_ICON:  Record<string, string> = { read: 'read', write: 'write', delete: 'write', destructive: 'shell' };
+// Risk value for sort — most dangerous (0) to safest (higher = safer)
+export const SQL_CAT_RISK:  Record<string, number> = { destructive: 0, delete: 0.5, write: 0.8, read: 1.2 };
+
+export function SqlCatTag({ category }: { category: string }) {
+  return <span className={`sens-tag ${SQL_CAT_CLS[category] ?? 'shell'}`}>{SQL_CAT_LABEL[category] ?? category}</span>;
 }
 
 export function LockChip({ label }: { label?: string }) {
@@ -40,21 +45,6 @@ export function LockBadge({ children }: { children: React.ReactNode }) {
   return <span className="lockbadge">{children}</span>;
 }
 
-export function StarRating({ rating }: { rating: number }) {
-  return <span className="stars"><IconStar />{rating.toFixed(1)}</span>;
-}
-
-export function ToolIconRow({ tools }: { tools: Array<{ sens: Sensitivity; name?: string }> }) {
-  return (
-    <span className="toolrow">
-      {tools.map((t, i) => (
-        <span key={i} className={`tool-i ${t.sens}`} title={t.name}>
-          <ToolGlyph sens={t.sens} size={12} />
-        </span>
-      ))}
-    </span>
-  );
-}
 
 export function SearchBar({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (

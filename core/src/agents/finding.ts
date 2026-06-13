@@ -21,10 +21,11 @@ const SCHEMA_RULES: Record<string, { negotiable: boolean; blocksOnVerdicts: stri
   'security-finding':   { negotiable: false, blocksOnVerdicts: ['CHANGES_REQUESTED', 'FAIL'] },
   'tester-finding':     { negotiable: false, blocksOnVerdicts: ['FAIL'] },
   'reviewer-finding':   { negotiable: true,  blocksOnVerdicts: ['CHANGES_REQUESTED'] },
-  'coder-finding':      { negotiable: false, blocksOnVerdicts: [] }, // completion report
-  'ux-finding':         { negotiable: true,  blocksOnVerdicts: ['CHANGES_REQUESTED'] },
-  'perf-finding':       { negotiable: true,  blocksOnVerdicts: ['CHANGES_REQUESTED'] },
-  'negotiation-ruling': { negotiable: false, blocksOnVerdicts: [] },
+  'coder-finding':        { negotiable: false, blocksOnVerdicts: [] }, // completion report
+  'ux-finding':           { negotiable: true,  blocksOnVerdicts: ['CHANGES_REQUESTED'] },
+  'perf-finding':         { negotiable: true,  blocksOnVerdicts: ['CHANGES_REQUESTED'] },
+  'negotiation-ruling':   { negotiable: false, blocksOnVerdicts: [] },
+  'marketplace-finding':  { negotiable: true,  blocksOnVerdicts: ['CHANGES_REQUESTED'] },
 };
 
 // ─── Frontmatter parser ───────────────────────────────────────────────────────

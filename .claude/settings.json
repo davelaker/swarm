@@ -17,5 +17,19 @@
       "Bash(node *)",
       "Bash(touch *)"
     ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "timeout": 60,
+            "statusMessage": "Typechecking (tsc -b)…",
+            "command": "cd /Users/davidlaker/Sites/swarm/ui && out=$(npx tsc -b 2>&1); [ -z \"$out\" ] && exit 0; printf '%s' \"$out\" | head -c 1500 | jq -Rs '{systemMessage: (\"\\u26a0 tsc -b found type errors (run `npm run typecheck` in ui/ for full output):\\n\" + .)}'"
+          }
+        ]
+      }
+    ]
   }
 }

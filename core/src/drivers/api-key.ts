@@ -6,14 +6,17 @@ import { runCoder }    from '../agents/coder.js';
 import { runTester }   from '../agents/tester.js';
 import { runSecurity } from '../agents/security.js';
 import { runReviewer } from '../agents/reviewer.js';
+import { runMarketplaceAgent as runMktAgent } from '../agents/marketplace.js';
 import { coderFinding, testerFinding, securityFinding, reviewerFinding } from './findings.js';
-import type { AgentDriver, DriverResult } from './types.js';
-import type { Task, SwarmState } from '../state/types.js';
+import type { AgentDriver, DriverResult, NegotiatorDecision, DeadlockContext, ScoutResult } from './types.js';
+import type { Task, SwarmState, RosterEntry } from '../state/types.js';
 
 export const apiKeyDriver: AgentDriver = {
   name: 'api-key',
 
-  async runCoder(task: Task, state: SwarmState): Promise<DriverResult> {
+  // worktreePath is ignored: the api-key path runs via the Anthropic SDK
+  // in-process (not a subprocess), so git worktrees don't apply.
+  async runCoder(task: Task, state: SwarmState, _worktreePath?: string): Promise<DriverResult> {
     const r = await runCoder(task, state);
     return {
       verdict:          'COMPLETE',
@@ -21,7 +24,7 @@ export const apiKeyDriver: AgentDriver = {
       filesChanged:     r.filesChanged,
       securityFindings: [],
       reviewerFindings: [],
-      findingMarkdown:  coderFinding(task, r.summary, r.filesChanged),
+      findingMarkdown:  coderFinding(task, r.summary, r.detail, r.filesChanged),
       costUsd:          r.costUsd,
       inputTokens:      r.inputTokens,
       outputTokens:     r.outputTokens,
@@ -70,6 +73,44 @@ export const apiKeyDriver: AgentDriver = {
       costUsd:          r.costUsd,
       inputTokens:      r.inputTokens,
       outputTokens:     r.outputTokens,
+    };
+  },
+
+  async runMarketplaceAgent(task: Task, state: SwarmState, agent: RosterEntry): Promise<DriverResult> {
+    return runMktAgent(task, state, agent);
+  },
+
+  // Minimal deterministic arbiter for the Anthropic-SDK path: always spawn a fix
+  // for the blocking finding(s). The full LLM-driven arbiter runs in the
+  // agent-sdk path (drivers/agent-sdk.ts runNegotiator).
+  async runNegotiator(ctx: DeadlockContext): Promise<NegotiatorDecision> {
+    return {
+      decision:      'SPAWN_FIX',
+      targetTaskIds: ctx.blocked.map(b => b.taskId),
+      reasoning:     'Auto-remediation: spawning a fix for the blocking finding(s).',
+    };
+  },
+
+  // The Scout's read-only investigation runs via the Claude Code CLI (agent-sdk
+  // path), which the user actually runs. The api-key path has no autonomous
+  // file-exploration agent, so return a graceful stub: non-throwing, and a digest
+  // that tells the PM scouting is unavailable here so it can plan without it.
+  async runScout(question: string): Promise<ScoutResult> {
+    return {
+      summary:       'Scouting unavailable on the api-key path.',
+      digest:        `(scout unavailable: codebase investigation is only supported on the agent-sdk/Max driver. Question was: "${question}". Proceed with planning using available context.)`,
+      relevantFiles: [],
+    };
+  },
+
+  // Specialist research, like the Scout, runs autonomously via the Claude Code CLI
+  // (agent-sdk path). The api-key path has no autonomous tool-using research agent,
+  // so return a graceful, non-throwing stub.
+  async runSpecialistResearch(agent: RosterEntry, question: string): Promise<ScoutResult> {
+    return {
+      summary:       'Specialist research unavailable on the api-key path.',
+      digest:        `(specialist research unavailable: it runs only on the agent-sdk/Max driver. Specialist "${agent.name}" was asked: "${question}". Proceed with planning using available context.)`,
+      relevantFiles: [],
     };
   },
 };

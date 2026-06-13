@@ -16,12 +16,18 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 import { bus }      from '../state/events.js';
-import { getRoot, setRoot, getState, swarmDir, stateFile, projectContextFile, writeDeploymentInfo, appendLog } from '../state/repo.js';
-import { runPmMessage } from '../pm/index.js';
+import { getRoot, setRoot, getState, swarmDir, stateFile, sessionsDir, snapshotSession, projectContextFile, writeDeploymentInfo, appendLog } from '../state/repo.js';
+import { runPmMessage, PM_SYSTEM } from '../pm/index.js';
 import { runNew, checkGitClean } from '../commands/new.js';
 import { pauseRun, resumeRun, abortRun } from '../loop-control.js';
 import { getConfigOptional } from '../config.js';
 import { getDriverMode }     from '../drivers/index.js';
+import { requestPermission, resolvePermission } from '../drivers/permission-broker.js';
+import { loadRoster, saveRoster } from '../state/roster.js';
+import { probeAvailableConnectors } from '../state/connectors.js';
+import { loadBuiltinInstructions, saveBuiltinInstructions } from '../state/builtin-instructions.js';
+import { loadBuiltinModels, saveBuiltinModels } from '../state/builtin-models.js';
+import { CODER_SYSTEM, TESTER_SYSTEM, REVIEWER_SYSTEM, SECURITY_SYSTEM } from '../agents/prompts.js';
 import type { SwarmEvent, SwarmState, Task } from '../state/types.js';
 
 type SseClient = http.ServerResponse;
@@ -85,6 +91,17 @@ function diffAndEmit(prev: SwarmState | null, next: SwarmState): void {
     return;
   }
 
+  // New run started: goal changed, or tasks were wiped from a non-empty previous run.
+  // Emit run.classified to reset the UI completely (clears old tasks, findings, agents).
+  // The return is safe — next.tasks is empty at this point; task.created events follow
+  // as each task is added by subsequent addTask() calls.
+  const isNewRun = prev.goal !== next.goal ||
+                   (prev.tasks.length > 0 && next.tasks.length === 0);
+  if (isNewRun) {
+    fanout({ type: 'run.classified', tier: next.tier, tasks: next.tasks as unknown as Task[] });
+    return;
+  }
+
   const prevById = new Map(prev.tasks.map(t => [t.id, t]));
 
   for (const task of next.tasks) {
@@ -131,10 +148,17 @@ function diffAndEmit(prev: SwarmState | null, next: SwarmState): void {
   // the bus, once from the file-watcher diff). The file-watcher path only covers
   // events that the bus cannot: task graph changes, findings, and run lifecycle.
 
-  // Run completed
-  if (next.tasks.length > 0 && next.tasks.every(t => t.status === 'done') &&
-      !prev.tasks.every(t => t.status === 'done')) {
+  // Run completed — all tasks reached a terminal state.
+  // 'blocked' counts as terminal: it means the PM decided the task can't proceed
+  // further (e.g. reviewer flagged issues that spawned separate fix/re-review tasks).
+  // Those follow-on tasks are separate entries in the task list that complete
+  // independently, leaving the original task permanently blocked.
+  // 'skipped' counts as terminal: upstream produced no artifacts so dependents were skipped.
+  const isTerminal = (s: string) => s === 'done' || s === 'blocked' || s === 'failed' || s === 'skipped';
+  if (next.tasks.length > 0 && next.tasks.every(t => isTerminal(t.status)) &&
+      !prev.tasks.every(t => isTerminal(t.status))) {
     fanout({ type: 'run.completed' });
+    snapshotSession().catch(err => console.error('[sessions] snapshot failed:', err));
   }
 
   // Run blocked / any failure
@@ -239,7 +263,7 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       });
 
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ ...state, tasks: enrichedTasks, driver, model, activeRun, repoUrl: githubUrl, root: getRoot() }));
+      res.end(JSON.stringify({ ...state, tasks: enrichedTasks, driver, model, activeRun, repoUrl: githubUrl, root: getRoot(), project: path.basename(getRoot()) }));
     } catch {
       // No state.json yet (no run started) — still return 200 so the UI
       // recognises the server as up and shows "agents ready" instead of "offline".
@@ -251,7 +275,11 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   }
 
   if (url.pathname === '/context') {
-    const SKIP = new Set(['node_modules', '.git', '.swarm', 'dist', '.next', 'build', 'coverage', '__pycache__', '.venv']);
+    const SKIP = new Set(['node_modules', '.git', '.swarm', 'dist', '.next', 'build', 'coverage',
+                          '__pycache__', '.venv', '.cache', 'tmp', 'vendor', '.turbo', '.yarn',
+                          'out', 'storybook-static']);
+    const root        = getRoot();
+    const rootClaude  = path.join(root, 'CLAUDE.md');
     const contextFiles: Array<{ relPath: string; content: string }> = [];
 
     const scan = (dir: string, depth: number): void => {
@@ -261,15 +289,16 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       for (const e of entries) {
         if (e.isDirectory() && !SKIP.has(e.name) && !e.name.startsWith('.')) {
           scan(path.join(dir, e.name), depth + 1);
-        } else if (e.isFile() && e.name === 'CONTEXT.md') {
+        } else if (e.isFile() && (e.name === 'CONTEXT.md' || e.name === 'CLAUDE.md')) {
+          const abs = path.join(dir, e.name);
+          if (abs === rootClaude) continue; // returned separately as projectMd
           try {
-            const abs = path.join(dir, e.name);
-            contextFiles.push({ relPath: path.relative(getRoot(), abs), content: fs.readFileSync(abs, 'utf8') });
+            contextFiles.push({ relPath: path.relative(root, abs), content: fs.readFileSync(abs, 'utf8') });
           } catch { /* skip unreadable */ }
         }
       }
     };
-    scan(getRoot(), 0);
+    scan(root, 0);
     contextFiles.sort((a, b) => a.relPath.localeCompare(b.relPath));
 
     const pcf  = projectContextFile();
@@ -384,11 +413,14 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
         const aheadRaw = await git(['rev-list', '--count', `${defaultBranch}..${name}`]);
         const ahead    = parseInt(aheadRaw) || 0;
         const pr       = prMap.get(name) ?? prMap.get(name.replace(/^swarm\//, ''));
+        const remoteCheck = await git(['branch', '-r', '--list', `origin/${name}`]);
+        const pushed = remoteCheck.trim().length > 0;
         return {
           name,
           shortName:  name.replace(/^swarm\//, ''),
           isCurrent:  name === currentBranch,
           merged:     mergedSet.has(name),
+          pushed,
           lastCommit: { hash, message, date },
           ahead,
           pr: pr ? { number: pr.number, url: pr.url, title: pr.title, state: pr.state.toLowerCase() } : null,
@@ -402,8 +434,162 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       });
 
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ branches, defaultBranch }));
+      res.end(JSON.stringify({ branches, defaultBranch, repoUrl: githubUrl }));
     })().catch(err => { res.writeHead(500); res.end(String(err)); });
+    return;
+  }
+
+  if (url.pathname === '/branches/commits') {
+    const branch = url.searchParams.get('branch');
+    if (!branch) { res.writeHead(400); res.end('branch required'); return; }
+    (async () => {
+      const cwd = getRoot();
+      const git = (args: string[]) =>
+        execFileAsync('git', args, { cwd, encoding: 'utf8' })
+          .then(r => (r.stdout as string).trim())
+          .catch(() => '');
+
+      const defaultBranchRaw = await git(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
+      const defaultBranch    = defaultBranchRaw.replace('origin/', '') || 'main';
+
+      // Commits in this branch not in defaultBranch, newest first
+      const raw = await git(['log', '--format=%H|%h|%s|%aI', `${defaultBranch}..${branch}`]);
+      const commits = raw.split('\n').filter(Boolean).map(line => {
+        const [hash = '', shortHash = '', message = '', date = ''] = line.split('|');
+        return { hash, shortHash, message, date };
+      });
+
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ commits }));
+    })().catch(err => { res.writeHead(500); res.end(String(err)); });
+    return;
+  }
+
+  if (url.pathname === '/run/branch-pushed') {
+    // Determines whether a branch's work has been shipped so the Ship modal
+    // can show the right state. Three independent signals, any one is enough:
+    //   1. ls-remote  — branch still exists on the remote
+    //   2. git cherry — all commits landed in default branch (detects cherry-picks)
+    //   3. gh pr      — a PR was created (implies a prior push)
+    (async () => {
+      let branchName: string | undefined;
+      try { branchName = (getState() as { branchName?: string }).branchName; } catch {}
+      if (!branchName) {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ pushed: false, alreadyInMain: false, pr: null }));
+        return;
+      }
+
+      const cwd = getRoot();
+      const git = (args: string[]) =>
+        execFileAsync('git', args, { cwd, encoding: 'utf8' })
+          .then(r => (r.stdout as string).trim())
+          .catch(() => '');
+
+      // Signal 1: ls-remote contacts GitHub directly — authoritative even after
+      // branch deletion. Fall back to local ref cache if offline.
+      let pushed = false;
+      const lsRemote = await git(['ls-remote', '--heads', 'origin', branchName]);
+      if (lsRemote.length > 0) {
+        pushed = true;
+      } else {
+        const localRef = await git(['branch', '-r', '--list', `origin/${branchName}`]);
+        pushed = localRef.trim().length > 0;
+      }
+
+      // Signal 2: git cherry compares patch content (not SHA), so it detects
+      // cherry-picks where the branch was never pushed to the remote.
+      // `git cherry <upstream> <head>` outputs "+ SHA" for commits NOT yet in
+      // upstream, "- SHA" for commits that are equivalent. If there are no "+"
+      // lines, every commit from the branch landed in the default branch.
+      let alreadyInMain = false;
+      const defaultBranchRaw = await git(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
+      const defaultBranch    = defaultBranchRaw.replace('origin/', '') || 'main';
+      const cherryOut = await git(['cherry', defaultBranch, branchName]);
+      if (cherryOut.length > 0) {
+        // Any line starting with "+" means that commit is not yet in main
+        alreadyInMain = !cherryOut.split('\n').some(l => l.startsWith('+ '));
+      }
+
+      // Signal 3: PR existence (implies a prior push even if branch is now deleted)
+      let pr: { url: string; state: string } | null = null;
+      await execFileAsync(
+        'gh', ['pr', 'list', '--head', branchName, '--json', 'url,state', '--limit', '1', '--state', 'all'],
+        { cwd, encoding: 'utf8' },
+      ).then(r => {
+        const prs = JSON.parse(r.stdout as string) as Array<{ url: string; state: string }>;
+        if (prs.length > 0) {
+          pr = { url: prs[0].url, state: prs[0].state.toLowerCase() };
+          pushed = true;
+        }
+      }).catch(() => { /* gh not available */ });
+
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ pushed, alreadyInMain, pr }));
+    })().catch(err => { res.writeHead(500); res.end(String(err)); });
+    return;
+  }
+
+  if (url.pathname === '/sessions') {
+    const dir = sessionsDir();
+    if (!fs.existsSync(dir)) {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ sessions: [] }));
+      return;
+    }
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      const verdictMap: Record<string, string> = {
+        COMPLETE: 'complete', PASS: 'pass', APPROVED: 'pass',
+        FAILED: 'fail', FAIL: 'fail', CHANGES_REQUESTED: 'changes',
+      };
+      const sessions = entries
+        .filter(e => e.isDirectory())
+        .map(e => {
+          try {
+            const snap = JSON.parse(fs.readFileSync(path.join(dir, e.name, 'index.json'), 'utf8'));
+            let passCount = 0, failCount = 0;
+            for (const t of snap.tasks ?? []) {
+              const v = verdictMap[(t.finding_verdict ?? '').toUpperCase()];
+              if (v === 'pass' || v === 'complete') passCount++;
+              if (v === 'fail' || v === 'changes') failCount++;
+            }
+            return {
+              id:         snap.id,
+              savedAt:    snap.savedAt,
+              project:    snap.project,
+              goal:       snap.goal,
+              tier:       snap.tier,
+              branchName: snap.branchName,
+              taskCount:  (snap.tasks ?? []).length,
+              passCount,
+              failCount,
+              elapsedMs:  snap.elapsedMs,
+            };
+          } catch { return null; }
+        })
+        .filter(Boolean)
+        .sort((a, b) => b!.savedAt.localeCompare(a!.savedAt));
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ sessions }));
+    } catch (err) {
+      res.writeHead(500); res.end(String(err));
+    }
+    return;
+  }
+
+  if (url.pathname.startsWith('/sessions/')) {
+    const id  = url.pathname.slice('/sessions/'.length).split('/')[0];
+    if (!id) { res.writeHead(400); res.end('session id required'); return; }
+    const indexPath = path.join(sessionsDir(), id, 'index.json');
+    if (!fs.existsSync(indexPath)) { res.writeHead(404); res.end('session not found'); return; }
+    try {
+      const snap = fs.readFileSync(indexPath, 'utf8');
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(snap);
+    } catch (err) {
+      res.writeHead(500); res.end(String(err));
+    }
     return;
   }
 
@@ -444,6 +630,43 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({ path: target, parent: null, entries: [], error: 'Cannot read directory' }));
     }
+    return;
+  }
+
+  if (url.pathname === '/marketplace/roster') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(loadRoster()));
+    return;
+  }
+
+  if (url.pathname === '/marketplace/connectors/available') {
+    probeAvailableConnectors()
+      .then(available => {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ available: [...available] }));
+      })
+      .catch(() => {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ available: [] }));
+      });
+    return;
+  }
+
+  if (url.pathname === '/agent-prompts') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({ pm: PM_SYSTEM, coder: CODER_SYSTEM, tester: TESTER_SYSTEM, reviewer: REVIEWER_SYSTEM, security: SECURITY_SYSTEM }));
+    return;
+  }
+
+  if (url.pathname === '/agent-instructions') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(loadBuiltinInstructions()));
+    return;
+  }
+
+  if (url.pathname === '/agent-models') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(loadBuiltinModels()));
     return;
   }
 
@@ -493,6 +716,37 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
     const payload = body ? JSON.parse(body) : {};
     const route   = url.pathname;
 
+    if (route === '/marketplace/roster') {
+      try {
+        const roster = Array.isArray(payload) ? payload : [];
+        saveRoster(roster);
+        res.writeHead(200); res.end(JSON.stringify({ ok: true }));
+      } catch (err) {
+        res.writeHead(500); res.end(JSON.stringify({ error: (err as Error).message }));
+      }
+      return;
+    }
+
+    if (route === '/agent-instructions') {
+      try {
+        saveBuiltinInstructions(payload as Record<string, string>);
+        res.writeHead(200); res.end(JSON.stringify({ ok: true }));
+      } catch (err) {
+        res.writeHead(500); res.end(JSON.stringify({ error: (err as Error).message }));
+      }
+      return;
+    }
+
+    if (route === '/agent-models') {
+      try {
+        saveBuiltinModels(payload as Record<string, string>);
+        res.writeHead(200); res.end(JSON.stringify({ ok: true }));
+      } catch (err) {
+        res.writeHead(500); res.end(JSON.stringify({ error: (err as Error).message }));
+      }
+      return;
+    }
+
     if (route === '/pm/message') {
       const { text, history = [], charter, team, activeRoot } = payload as {
         text:       string;
@@ -510,16 +764,31 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
         setRoot(resolved);
         restartWatcher();
       }
-      runPmMessage(text, history as any, charter, team)
+      // Respond as SSE so the UI can stream reply text as it arrives.
+      res.writeHead(200, {
+        'Content-Type':                'text/event-stream',
+        'Cache-Control':               'no-cache',
+        'Connection':                  'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+      });
+
+      const sendPmEvent = (data: unknown) => {
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+      };
+
+      runPmMessage(
+        text, history as any, charter, team,
+        (chunk: string) => { sendPmEvent({ type: 'chunk', text: chunk }); },
+        ({ phase, question, summary, agent }) => { sendPmEvent({ type: 'research', phase, question, summary, agent }); },
+      )
         .then(result => {
-          if (result.deploymentInfo) {
-            try { writeDeploymentInfo(result.deploymentInfo); } catch { /* non-fatal */ }
-          }
-          res.writeHead(200); res.end(JSON.stringify(result));
+          sendPmEvent({ type: 'result', ...result });
+          res.end();
         })
         .catch(err => {
           console.error('[pm/message] error:', (err as Error).message);
-          res.writeHead(500); res.end(JSON.stringify({ error: (err as Error).message }));
+          sendPmEvent({ type: 'error', error: (err as Error).message });
+          res.end();
         });
       return;
     }
@@ -535,13 +804,49 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
       return;
     }
 
+    // ── Permission gates ────────────────────────────────────────────────────────
+    // POST /run/permission/request  — MCP proxy long-polls here; returns when user decides
+    // POST /run/permission/:id      — UI sends the user's allow/deny decision
+    if (route === '/run/permission/request') {
+      const { agent_id, tool, input } = payload as {
+        agent_id: string;
+        tool:     string;
+        input:    Record<string, unknown>;
+      };
+      if (!agent_id || !tool) {
+        res.writeHead(400); res.end(JSON.stringify({ error: 'agent_id and tool required' })); return;
+      }
+      // Keep connection open until user decides (up to 10 min — broker auto-denies at that point).
+      // No socket timeout here; the broker's internal timer handles the limit.
+      req.socket.setTimeout(0);
+      requestPermission(agent_id, tool, input ?? {})
+        .then(decision => {
+          res.writeHead(200); res.end(JSON.stringify({ decision }));
+        })
+        .catch(() => {
+          res.writeHead(200); res.end(JSON.stringify({ decision: 'deny' }));
+        });
+      return;
+    }
+
+    if (route.startsWith('/run/permission/')) {
+      const requestId = route.slice('/run/permission/'.length);
+      const { decision } = payload as { decision?: string };
+      if (decision !== 'allow' && decision !== 'deny') {
+        res.writeHead(400); res.end(JSON.stringify({ error: 'decision must be allow or deny' })); return;
+      }
+      const ok = resolvePermission(requestId, decision);
+      res.writeHead(ok ? 200 : 404); res.end(JSON.stringify({ ok }));
+      return;
+    }
+
     if (route === '/run/execute') {
       if (activeRun) {
         res.writeHead(409); res.end(JSON.stringify({ error: 'A run is already in progress' })); return;
       }
       const { goal, charter, team } = payload as {
         goal?:    string;
-        charter?: { constraints: string[]; nongoals: string[]; questions: string[]; branchMode?: 'branch' | 'main' };
+        charter?: import('../state/types.js').RunCharter;
         team?:    string[];
       };
       if (!goal?.trim()) {
@@ -566,25 +871,18 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
       let branchName: string | undefined;
       if (charter?.branchMode === 'branch') {
         const cwd  = path.dirname(swarmDir());
-        const slug = goal.trim().toLowerCase()
-          .replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '-').slice(0, 40).replace(/-+$/, '');
-        const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-        branchName = `swarm/${slug}-${date}`;
+        // Use the user-set slug if provided; otherwise derive from goal + timestamp.
+        let slug = charter.branchName?.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '') || '';
+        if (!slug) {
+          const goalSlug = goal.trim().toLowerCase()
+            .replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '-').slice(0, 40).replace(/-+$/, '');
+          const ts = new Date().toISOString().slice(0, 16).replace(/[^0-9]/g, ''); // YYYYMMDDHHmm
+          slug = `${goalSlug}-${ts}`;
+        }
+        branchName = `swarm/${slug}`;
         try {
-          // Try to create the branch; if it already exists (e.g. from a previously
-          // blocked run) just check it out so the user can retry without manual cleanup.
-          try {
-            await execFileAsync('git', ['checkout', '-b', branchName], { cwd });
-            console.log(`  ▸ created branch: ${branchName}`);
-          } catch (createErr) {
-            const stderr = (createErr as { stderr?: Buffer }).stderr?.toString() ?? '';
-            if (stderr.includes('already exists')) {
-              await execFileAsync('git', ['checkout', branchName], { cwd });
-              console.log(`  ▸ resumed branch: ${branchName}`);
-            } else {
-              throw createErr;
-            }
-          }
+          await execFileAsync('git', ['checkout', '-b', branchName], { cwd });
+          console.log(`  ▸ created branch: ${branchName}`);
         } catch (err) {
           const msg = (err as { stderr?: Buffer; message: string }).stderr?.toString().trim() || (err as Error).message;
           res.writeHead(400); res.end(JSON.stringify({ error: `Could not create branch: ${msg}` })); return;
@@ -594,7 +892,31 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
       activeRun = true;
       res.writeHead(200); res.end(JSON.stringify({ ok: true }));
       console.log(`\n  ▸ execute: "${goal}"\n`);
+      const capturedBranch = branchName;
       runNew(goal.trim(), charter, team, branchName)
+        .then(async () => {
+          // If we created a branch but the run produced no commits, clean it up.
+          // This happens when the coder skipped (no files changed) or every task
+          // failed before writing anything. Leaving an empty branch around is noise.
+          if (capturedBranch) {
+            const cwd = path.dirname(swarmDir());
+            try {
+              const defaultBranch = (
+                await execFileAsync('git', ['symbolic-ref', 'refs/remotes/origin/HEAD'], { cwd })
+                  .then(r => r.stdout.trim().split('/').pop() ?? 'main')
+                  .catch(() => execFileAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd }).then(r => r.stdout.trim()).catch(() => 'main'))
+              );
+              const ahead = await execFileAsync('git', ['log', '--oneline', `${defaultBranch}..${capturedBranch}`], { cwd })
+                .then(r => r.stdout.trim()).catch(() => '');
+              if (!ahead) {
+                await execFileAsync('git', ['checkout', defaultBranch], { cwd });
+                await execFileAsync('git', ['branch', '-d', capturedBranch], { cwd });
+                console.log(`  ▸ empty branch deleted: ${capturedBranch}`);
+                fanout({ type: 'log.appended', actor: 'pm', event: `Branch ${capturedBranch} had no commits — deleted` });
+              }
+            } catch { /* non-fatal — branch cleanup is best-effort */ }
+          }
+        })
         .catch(err => {
           const msg = (err as Error).message ?? 'Unknown error';
           console.error('  ✗ execute error:', msg);
@@ -650,16 +972,32 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
       parts.push('🤖 Generated with Agent Swarm');
       const body = parts.join('\n\n');
 
-      execFileAsync('gh', ['pr', 'create', '--title', title, '--body', body], { cwd })
+      // Safety net: commit any changes the coder left uncommitted before pushing.
+      const autoCommit = execFileAsync('git', ['status', '--porcelain'], { cwd })
+        .then(({ stdout }) => {
+          if (!stdout.trim()) return;
+          return execFileAsync('git', ['add', '-A'], { cwd })
+            .then(() => execFileAsync('git', ['commit', '-m', `swarm: ${state.goal.slice(0, 72)}`], { cwd }));
+        })
+        .catch(() => { /* no git repo or nothing to commit — ignore */ });
+
+      // Push the branch first so `gh pr create` always finds it on the remote.
+      autoCommit
+        .then(() => execFileAsync('git', ['push', '--set-upstream', 'origin', 'HEAD'], { cwd }))
+        .catch(() => { /* already pushed — ignore */ })
+        .then(() => execFileAsync('gh', ['pr', 'create', '--title', title, '--body', body], { cwd }))
         .then(({ stdout }) => {
           const url = stdout.trim().match(/https:\/\/\S+/)?.[0] ?? undefined;
           appendLog('pm', `⬆ PR created${url ? `: ${url}` : ''}`);
           res.writeHead(200); res.end(JSON.stringify({ ok: true, url: url ?? null }));
         })
-        .catch((err: { stderr?: Buffer; message: string }) => {
-          const msg = (err.stderr?.toString().trim() || err.message).slice(0, 300);
+        .catch((err: { stderr?: Buffer; message: string; code?: string }) => {
+          const isEnoent = (err as { code?: string }).code === 'ENOENT';
+          const msg = isEnoent
+            ? 'GitHub CLI (gh) not installed — install it with: brew install gh  then run: gh auth login'
+            : (err.stderr?.toString().trim() || err.message).slice(0, 300);
           appendLog('pm', `✗ PR creation failed: ${msg}`);
-          res.writeHead(200); res.end(JSON.stringify({ ok: false, error: msg }));
+          res.writeHead(200); res.end(JSON.stringify({ ok: false, error: msg, ghNotInstalled: isEnoent }));
         });
       return;
     }

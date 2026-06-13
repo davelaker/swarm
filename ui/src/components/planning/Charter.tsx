@@ -1,6 +1,6 @@
 import type { CharterData } from '../../types';
 import type { ContextFile } from '../../hooks/useContextFiles';
-import { PERSONAS } from '../../data/personas';
+import { resolveAgentPersona } from '../../data/personas';
 import { ContextFiles } from './ContextFiles';
 
 function renderText(t: string) {
@@ -13,16 +13,24 @@ function renderText(t: string) {
 }
 
 interface CharterProps {
-  charter:      CharterData;
-  team:         string[];
-  phase:        string;        // planning phase — controls empty-state copy
-  projectName?: string;
-  projectMd:    ContextFile | null;
-  contextFiles: ContextFile[];
-  onAskPm:      (message: string) => void;
+  charter:            CharterData;
+  team:               string[];
+  phase:              string;        // planning phase — controls empty-state copy
+  branchMode?:        'branch' | 'main';
+  branchName?:        string;        // user-set slug (no swarm/ prefix)
+  onBranchNameChange?: (slug: string) => void;
+  projectName?:       string;
+  projectMd:          ContextFile | null;
+  contextFiles:       ContextFile[];
 }
 
-export function Charter({ charter, team, phase, projectName, projectMd, contextFiles, onAskPm }: CharterProps) {
+function slugify(text: string): string {
+  return text.toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-')
+    .slice(0, 50).replace(/^-+|-+$/g, '');
+}
+
+export function Charter({ charter, team, phase, branchMode, branchName, onBranchNameChange, projectName, projectMd, contextFiles }: CharterProps) {
   const title = charter.goal
     ? charter.goal.replace(/[.,].*$/, '').trim().slice(0, 48)
     : 'New project';
@@ -68,20 +76,53 @@ export function Charter({ charter, team, phase, projectName, projectMd, contextF
           </div>
           {team.length
             ? <div className="team-chips">
-                {team.map(id => (
-                  <span key={id} className="agent-chip anim-in">
-                    <span className="pdot" style={{ background: PERSONAS[id]?.color }} />
-                    {PERSONAS[id]?.name ?? id}
-                  </span>
-                ))}
+                {team.map(id => {
+                  const p = resolveAgentPersona(id);
+                  return (
+                    <span key={id} className="agent-chip anim-in">
+                      <span className="pdot" style={{ background: p.color }} />
+                      {p.name}
+                    </span>
+                  );
+                })}
               </div>
             : <div className="empty">Waiting on PM…</div>}
+        </div>
+
+        <div className="csec">
+          <div className="csec-label">
+            <span className="num">06</span> Branch mode
+            <span className="field-opt">optional</span>
+          </div>
+          {branchMode
+            ? <div className="branch-mode-row anim-in">
+                {branchMode === 'branch' ? (
+                  <>
+                    <div className="branch-name-field">
+                      <span className="branch-prefix">swarm /</span>
+                      <input
+                        className="branch-slug-input"
+                        value={branchName ?? ''}
+                        onChange={e => onBranchNameChange?.(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-'))}
+                        placeholder={slugify(charter.goal) || 'feature-name'}
+                        spellCheck={false}
+                      />
+                    </div>
+                    <span className="branch-hint">Feature branch — created when you Execute, deleted if no changes are made.</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="branch-mode-chip" data-mode="main">⎇  Committing to main</span>
+                    <span className="branch-hint">Changes go directly to the default branch — ensure CI is in place.</span>
+                  </>
+                )}
+              </div>
+            : <div className="empty">{active ? 'Not specified — ask the PM to set a branch mode' : 'Waiting on PM…'}</div>}
         </div>
 
         <ContextFiles
           projectMd={projectMd}
           contextFiles={contextFiles}
-          onAskPm={onAskPm}
         />
       </div>
     </div>

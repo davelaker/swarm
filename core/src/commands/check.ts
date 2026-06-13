@@ -38,7 +38,7 @@ export async function runCheck(): Promise<void> {
   try {
     // init workspace
     const { initWorkspace } = await import('../state/repo.js');
-    initWorkspace('check-project', 'Phase 0 exit-criteria test', 'tweak');
+    initWorkspace('check-project', 'Phase 0 exit-criteria test', 'bugfix');
     ok('.swarm/state.json created');
 
     // read
@@ -98,7 +98,7 @@ export async function runCheck(): Promise<void> {
       depends_on: [], artifacts: [], result_ref: null, attempts: 0,
     };
     const stubState = {
-      project: 'test', owner: 'me', goal: '', tier: 'tweak' as const,
+      project: 'test', owner: 'me', goal: '', tier: 'bugfix' as const,
       updated_at: new Date().toISOString(), tasks: [stubTask], log: [],
     };
     const result = await dispatch(stubTask, stubState);

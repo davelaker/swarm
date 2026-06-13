@@ -1,4 +1,4 @@
-export type Surface = 'planning' | 'running' | 'branches' | 'marketplace';
+export type Surface = 'planning' | 'running' | 'branches' | 'marketplace' | 'history';
 
 export interface BranchPr {
   number: number;
@@ -7,21 +7,28 @@ export interface BranchPr {
   state:  'open' | 'merged' | 'closed';
 }
 
+export interface BranchCommit {
+  hash:      string;
+  shortHash: string;
+  message:   string;
+  date:      string;
+}
+
 export interface SwarmBranch {
   name:       string;
   shortName:  string;
   isCurrent:  boolean;
   merged:     boolean;
+  pushed:     boolean;
   ahead:      number;
   lastCommit: { hash: string; message: string; date: string };
   pr:         BranchPr | null;
 }
 
-export type TaskStatus = 'pending' | 'in_progress' | 'done' | 'changes_requested' | 'failed' | 'blocked';
+export type TaskStatus = 'pending' | 'in_progress' | 'done' | 'changes_requested' | 'failed' | 'blocked' | 'skipped';
 export type Verdict = 'complete' | 'pass' | 'changes' | 'fail';
 export type RunStatus = 'running' | 'paused' | 'done' | 'aborted';
 export type Sensitivity = 'read' | 'write' | 'shell' | 'network';
-export type Provenance = 'first' | 'community' | 'private';
 
 export interface Persona {
   id: string;
@@ -39,6 +46,7 @@ export interface Task {
   lane: number;
   status: TaskStatus;
   late?: boolean;
+  skip_reason?: string;
 }
 
 export interface AgentState {
@@ -68,39 +76,63 @@ export interface ChatMessage {
   time?: string;
 }
 
+export interface PermissionRequest {
+  requestId: string;
+  agentId:   string;
+  tool:      string;
+  input:     Record<string, unknown>;
+}
+
+export type SqlCategory = 'read' | 'write' | 'delete' | 'destructive';
+
 export interface MarketTool {
   name: string;
   sens: Sensitivity;
   desc: string;
   locked?: boolean;
   scope?: string;
+  sqlCategory?: SqlCategory;
 }
 
 export interface MarketAgent {
   id: string;
   name: string;
   role: string;
-  prov: Provenance;
   rating: number;
   version: string;
   desc: string;
   changelog: string;
   prompt: string;
   tools: MarketTool[];
-  routing: Array<string[]>;
-  tiers: string[];
+  connectors?: Array<{ id: string; tools: string[] }>;
   color: string;
 }
 
+export interface GrantedTool {
+  name: string;
+  sens: string;
+  scope?: string;
+  mode?: 'allow' | 'ask';
+  sqlCategory?: string;
+}
+
+export interface ConnectorGrant {
+  server: string;  // connector id, e.g. 'supabase'
+  tool:   string;  // tool name, e.g. 'list_tables'
+  mode?:  'allow' | 'ask';
+}
+
 export interface HiredAgent {
-  id: string;
-  version: string;
-  enabled: boolean;
-  grantedTools: string[];
-  tiers: string[];
-  model: string;
-  instructions: string;
-  upgradeAvailable: boolean;
+  id:                string;
+  version:           string;
+  enabled:           boolean;
+  grantedTools:      GrantedTool[];
+  grantedConnectors: ConnectorGrant[];
+  model:             string;  // claude model id, e.g. 'claude-sonnet-4-6'
+  instructions:      string;
+  upgradeAvailable:  boolean;
+  name?:             string;  // display label — persisted to roster.json so the PM/loader can name the agent
+  prompt?:           string;  // full system prompt — stored in roster.json for server-side execution
 }
 
 export interface CharterData {
@@ -108,6 +140,47 @@ export interface CharterData {
   constraints: Array<{ text: string; resolved?: boolean }>;
   nongoals: Array<{ text: string; resolved?: boolean }>;
   questions: Array<{ text: string; resolved?: boolean }>;
+}
+
+export interface SessionMeta {
+  id:         string;
+  savedAt:    string;
+  project:    string;
+  goal:       string;
+  tier:       string;
+  branchName?: string;
+  taskCount:  number;
+  passCount:  number;
+  failCount:  number;
+  elapsedMs?: number;
+}
+
+export interface SessionSnapshot {
+  id:         string;
+  savedAt:    string;
+  project:    string;
+  goal:       string;
+  tier:       string;
+  branchName?: string;
+  charter?: {
+    constraints:      string[];
+    nongoals:         string[];
+    questions:        string[];
+    branchMode?:      string;
+    planningHistory?: Array<{ from: 'pm' | 'you'; text: string }>;
+  };
+  tasks: Array<{
+    id:              string;
+    title:           string;
+    assignee:        string;
+    status:          string;
+    depends_on:      string[];
+    result_ref:      string | null;
+    finding_verdict?: string;
+    finding_summary?: string;
+  }>;
+  log:        Array<{ ts: string; actor: string; event: string }>;
+  elapsedMs?: number;
 }
 
 export interface FindingBody {

@@ -2,19 +2,64 @@ import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import type { Finding, Task } from '../../types';
-import { PERSONAS } from '../../data/personas';
+import { resolveAgentPersona } from '../../data/personas';
+import { IconReport } from '../common/icons';
 
 // ─── Custom markdown renderers ────────────────────────────────────────────────
 
 const SEVERITY_RE = /\b(CRITICAL|HIGH|MEDIUM|LOW)\b/i;
 
+const VERDICT_LABELS: Record<string, string> = {
+  CHANGES_REQUESTED:  'Changes Requested',
+  APPROVED:           'Approved',
+  COMPLETE:           'Complete',
+  PASS:               'Pass',
+  PASS_WITH_ADVISORY: 'Pass with Advisory',
+  FAILED:             'Failed',
+  FAIL:               'Failed',
+};
+
+// Normalise a heading that may contain raw verdict codes or label-form repeats:
+//   "CHANGES_REQUESTED: CHANGES_REQUESTED" → "Changes Requested"
+//   "CHANGES_REQUESTED: something real"    → "Changes Requested: something real"
+//   "Complete: Completed"                  → "Complete"  (label-form repeat)
+//   "Changes Requested: ..."               → unchanged
+function normH2(text: string): string {
+  // Raw-code form: all-caps with underscores (e.g. COMPLETE, CHANGES_REQUESTED)
+  const m = text.match(/^([A-Z][A-Z_]+?)(?::\s*(.*))?$/);
+  if (m) {
+    const [, code, rest] = m;
+    const label = VERDICT_LABELS[code.toUpperCase()];
+    if (label) {
+      const restNorm = (rest ?? '').trim().toUpperCase().replace(/[\s_]+/g, '_');
+      const codeNorm = code.toUpperCase().replace(/[\s_]+/g, '_');
+      if (!rest || restNorm === codeNorm || restNorm.startsWith(codeNorm)) return label;
+      return `${label}: ${rest.trim()}`;
+    }
+  }
+  // Label-form: heading already uses the human label (e.g. "Complete: Completed").
+  // Happens when server-generated finding files are re-read in the modal.
+  for (const [code, label] of Object.entries(VERDICT_LABELS)) {
+    if (text === label) return label;
+    if (text.startsWith(`${label}: `)) {
+      const rest = text.slice(label.length + 2).trim();
+      const restNorm = rest.toUpperCase().replace(/[\s_]+/g, '_');
+      const codeNorm = code.toUpperCase().replace(/[\s_]+/g, '_');
+      if (!rest || restNorm === codeNorm || restNorm.startsWith(codeNorm)) return label;
+      return `${label}: ${rest}`;
+    }
+  }
+  return text;
+}
+
 const mdComponents: Components = {
   h2({ children }) {
-    const text = String(children ?? '');
-    const isPass = /^(COMPLETE|PASS|APPROVED)/i.test(text);
-    const isBad  = /^(FAILED?|FAIL|CHANGES_REQUESTED)/i.test(text);
+    const text   = String(children ?? '');
+    const normal = normH2(text);
+    const isPass = /^(Complete|Pass|Approved)/i.test(normal);
+    const isBad  = /^(Failed|Changes Requested)/i.test(normal);
     const color  = isPass ? 'var(--green)' : isBad ? 'var(--amber)' : 'var(--tx)';
-    return <h2 style={{ color }}>{children}</h2>;
+    return <h2 style={{ color }}>{normal}</h2>;
   },
   h3({ children }) {
     const text  = String(children ?? '');
@@ -38,17 +83,24 @@ type ChipState = { label: string; cls: string };
 
 function deriveChip(f: Finding, tasks: Task[]): ChipState {
   const task = tasks.find(t => t.id === f.task);
-  if (task?.status === 'blocked') return { label: 'BLOCKED', cls: 'changes' };
+  // Only show BLOCKED when the finding itself signalled problems (changes/fail).
+  // If the agent approved (pass/complete) but the PM blocked the task for workflow
+  // reasons, the chip should reflect what the agent actually found — not the PM's
+  // workflow decision. The task graph already shows the workflow state.
+  if (task?.status === 'blocked' && (f.verdict === 'changes' || f.verdict === 'fail')) {
+    return { label: 'CHANGES REQ', cls: 'changes' };
+  }
   const fixing = tasks.find(
     t => t.id === `t_fix_${f.task}` &&
          (t.status === 'pending' || t.status === 'in_progress'),
   );
   if (fixing) return { label: 'FIXING…', cls: 'changes' };
   const MAP: Record<string, ChipState> = {
-    complete: { label: 'COMPLETE', cls: 'complete' },
-    pass:     { label: 'PASS',     cls: 'pass'     },
-    changes:  { label: 'CHANGES',  cls: 'changes'  },
-    fail:     { label: 'FAIL',     cls: 'fail'     },
+    complete:          { label: 'COMPLETE',  cls: 'complete' },
+    pass:              { label: 'PASS',      cls: 'pass'     },
+    pass_with_advisory:{ label: 'PASS+ADV',  cls: 'pass'     },
+    changes:           { label: 'CHANGES',   cls: 'changes'  },
+    fail:              { label: 'FAIL',      cls: 'fail'     },
   };
   return MAP[f.verdict] ?? { label: f.verdict.toUpperCase(), cls: f.verdict };
 }
@@ -65,7 +117,7 @@ function fmtTime(ts: number): string {
 function FindingModal({ f, onClose }: { f: Finding; onClose: () => void }) {
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const p    = PERSONAS[f.agent];
+  const p    = resolveAgentPersona(f.agent);
   const chip = deriveChip(f, []);   // tasks not needed inside modal (chip already chosen)
 
   useEffect(() => {
@@ -147,9 +199,9 @@ function FindingModal({ f, onClose }: { f: Finding; onClose: () => void }) {
 
 // ─── Card ─────────────────────────────────────────────────────────────────────
 
-function FindingCard({ f, tasks }: { f: Finding; tasks: Task[] }) {
+function FindingCard({ f, tasks, dimmed, highlighted }: { f: Finding; tasks: Task[]; dimmed?: boolean; highlighted?: boolean }) {
   const [showModal, setShowModal] = useState(false);
-  const p    = PERSONAS[f.agent];
+  const p    = resolveAgentPersona(f.agent);
   const chip = deriveChip(f, tasks);
 
   // Trim summary to one line, don't show if it's just a path
@@ -159,7 +211,12 @@ function FindingCard({ f, tasks }: { f: Finding; tasks: Task[] }) {
 
   return (
     <>
-      <div className="finding">
+      <div className="finding" style={{
+        opacity: dimmed ? 0.15 : 1,
+        transition: 'opacity 0.15s, box-shadow 0.15s',
+        boxShadow: highlighted ? 'inset 2px 0 0 rgba(77,141,244,0.6)' : 'none',
+        background: highlighted ? 'rgba(77,141,244,0.04)' : 'transparent',
+      }}>
         <div className="finding-head" style={{ cursor: 'default' }}>
           <span className="finding-agent">
             <span className="pdot" style={{ background: p?.color }} />
@@ -188,13 +245,15 @@ function FindingCard({ f, tasks }: { f: Finding; tasks: Task[] }) {
           {f.path && (
             <button
               onClick={() => setShowModal(true)}
+              title="View full report"
               style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
                 fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--blue)',
-                textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0,
+                whiteSpace: 'nowrap', flexShrink: 0,
                 background: 'none', border: 'none', cursor: 'pointer', padding: 0,
               }}
             >
-              View full report →
+              <IconReport size={11} />report
             </button>
           )}
         </div>
@@ -209,7 +268,11 @@ function FindingCard({ f, tasks }: { f: Finding; tasks: Task[] }) {
 
 // ─── Feed ─────────────────────────────────────────────────────────────────────
 
-export function FindingsFeed({ findings, tasks }: { findings: Finding[]; tasks: Task[] }) {
+export function FindingsFeed({ findings, tasks, hoveredTaskId }: {
+  findings: Finding[];
+  tasks: Task[];
+  hoveredTaskId?: string | null;
+}) {
   return (
     <div className="run-findings">
       <div className="panel-head">
@@ -221,7 +284,13 @@ export function FindingsFeed({ findings, tasks }: { findings: Finding[]; tasks: 
       </div>
       <div className="feed-scroll">
         {findings.length === 0 && <div className="feed-empty">waiting for the first finding…</div>}
-        {findings.map(f => <FindingCard key={f.key} f={f} tasks={tasks} />)}
+        {findings.map(f => (
+          <FindingCard
+            key={f.key} f={f} tasks={tasks}
+            highlighted={hoveredTaskId != null && f.task === hoveredTaskId}
+            dimmed={hoveredTaskId != null && f.task !== hoveredTaskId}
+          />
+        ))}
       </div>
     </div>
   );

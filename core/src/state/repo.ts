@@ -54,10 +54,71 @@ export function loadProjectContextBounded(maxChars = 8192): string | null {
     `\n\n[CLAUDE.md truncated at ${maxChars} chars — edit CLAUDE.md to trim it]`;
 }
 
-// Write or update the ## Deployment section in CLAUDE.md.
-// Creates the file if it doesn't exist yet.
+// ─── Subdirectory context files ───────────────────────────────────────────────
+// Scans for CLAUDE.md and CONTEXT.md files in subdirectories (not the root
+// CLAUDE.md, which is loaded separately). Used to give the PM product-level
+// context from monorepos and multi-package projects before planning begins.
+
+const SUBDIR_CTX_NAMES = new Set(['CLAUDE.md', 'CONTEXT.md']);
+const SUBDIR_SKIP_DIRS = new Set([
+  'node_modules', '.git', '.swarm', 'dist', '.next', 'build',
+  'coverage', '__pycache__', '.venv', '.cache', 'tmp', 'vendor',
+  '.turbo', '.yarn', 'out', 'storybook-static',
+]);
+
+export interface SubdirFile { relPath: string; content: string; truncated: boolean; }
+
+function scanSubdirContextFiles(): Array<{ relPath: string; full: string }> {
+  const root        = _root;
+  const rootClaude  = path.join(root, 'CLAUDE.md');
+  const results: Array<{ relPath: string; full: string }> = [];
+
+  const scan = (dir: string, depth: number): void => {
+    if (depth > 6) return;
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.isDirectory() && !SUBDIR_SKIP_DIRS.has(e.name) && !e.name.startsWith('.')) {
+        scan(path.join(dir, e.name), depth + 1);
+      } else if (e.isFile() && SUBDIR_CTX_NAMES.has(e.name)) {
+        const abs = path.join(dir, e.name);
+        if (abs === rootClaude) continue;
+        try {
+          results.push({ relPath: path.relative(root, abs), full: fs.readFileSync(abs, 'utf8') });
+        } catch { /* skip unreadable */ }
+      }
+    }
+  };
+
+  scan(root, 0);
+  results.sort((a, b) => a.relPath.localeCompare(b.relPath));
+  return results;
+}
+
+// Returns bounded subdirectory context for PM injection.
+// Budget is shared proportionally across all files (min 512 chars each),
+// so a monorepo with many CLAUDE.md files doesn't swamp the context window.
+export function loadSubdirContextBounded(totalBudget = 16_000): SubdirFile[] {
+  const raw = scanSubdirContextFiles();
+  if (!raw.length) return [];
+  const perFile = Math.max(512, Math.floor(totalBudget / raw.length));
+  return raw.map(({ relPath, full }) => {
+    if (full.length <= perFile) return { relPath, content: full, truncated: false };
+    return {
+      relPath,
+      content:   full.slice(0, perFile) + `\n\n[truncated — ${full.length} chars total]`,
+      truncated: true,
+    };
+  });
+}
+
+// Write or update the Swarm Context section in CLAUDE.md.
+// Creates the file if it doesn't exist yet. On existing files, replaces
+// the ## Swarm Context block (or the legacy ## Deployment block) in place.
 export function writeDeploymentInfo(info: string): void {
   const file = projectContextFile();
+  const SECTION = '## Swarm Context';
+  const LEGACY  = '## Deployment';
 
   if (!fs.existsSync(file)) {
     const project = path.basename(_root);
@@ -65,31 +126,37 @@ export function writeDeploymentInfo(info: string): void {
       '<!-- swarm:context — read this file at the start of every task, update it when architecture or conventions change -->',
       `# Project: ${project}`,
       '',
-      '## Deployment',
-      info,
+      SECTION,
+      '<!-- Added by Agent Swarm. Update manually if deployment details change. -->',
+      '',
+      `**Deployment:** ${info}`,
       '',
     ].join('\n');
     fs.writeFileSync(file, content, 'utf8');
     return;
   }
 
-  const lines = fs.readFileSync(file, 'utf8').split('\n');
-  const deployIdx = lines.findIndex(l => l.trim() === '## Deployment');
+  const lines    = fs.readFileSync(file, 'utf8').split('\n');
+  // Accept both the current heading and the legacy one for backward compatibility.
+  const sectionIdx = lines.findIndex(l => l.trim() === SECTION || l.trim() === LEGACY);
 
-  if (deployIdx === -1) {
-    // Insert before ## Features section, or append
-    const featIdx = lines.findIndex(l => l.startsWith('## Features'));
-    const insert  = ['## Deployment', info, ''];
-    if (featIdx !== -1) {
-      lines.splice(featIdx, 0, ...insert, '');
-    } else {
-      lines.push('', ...insert);
-    }
+  if (sectionIdx === -1) {
+    // No existing Swarm section — append one.
+    lines.push(
+      '', SECTION,
+      '<!-- Added by Agent Swarm. Update manually if deployment details change. -->',
+      '', `**Deployment:** ${info}`, '',
+    );
   } else {
-    // Replace everything from deployIdx+1 until the next ## heading (or EOF)
-    const endIdx = lines.findIndex((l, i) => i > deployIdx && l.startsWith('## '));
+    // Normalise heading to current name, then replace body until next ## heading.
+    lines[sectionIdx] = SECTION;
+    const endIdx = lines.findIndex((l, i) => i > sectionIdx && l.startsWith('## '));
     const end    = endIdx === -1 ? lines.length : endIdx;
-    lines.splice(deployIdx + 1, end - deployIdx - 1, info, '');
+    lines.splice(
+      sectionIdx + 1, end - sectionIdx - 1,
+      '<!-- Added by Agent Swarm. Update manually if deployment details change. -->',
+      '', `**Deployment:** ${info}`, '',
+    );
   }
 
   const tmp = file + '.tmp';
@@ -131,7 +198,12 @@ export function updateTask(taskId: string, updates: Partial<Task>): void {
   writeState(state);
 
   if (updates.status && updates.status !== before.status) {
-    bus.emit('swarm', { type: 'task.status_changed', task_id: taskId, status: updates.status });
+    bus.emit('swarm', {
+      type: 'task.status_changed',
+      task_id: taskId,
+      status: updates.status,
+      ...(updates.skip_reason ? { skip_reason: updates.skip_reason } : {}),
+    });
   }
 }
 
@@ -159,7 +231,12 @@ export async function writeFinding(taskId: string, content: string): Promise<str
   const dir  = findingsDir();
   await fsp.mkdir(dir, { recursive: true });
   const file = path.join(dir, `${taskId}.md`);
-  await fsp.writeFile(file, content, 'utf8');
+
+  // Write atomically (tmp + rename) so a watcher can never read a partial file
+  // with missing frontmatter (which would surface as an undefined verdict).
+  const tmp = file + '.tmp';
+  await fsp.writeFile(tmp, content, 'utf8');
+  await fsp.rename(tmp, file);
 
   const state = getState();
   const idx   = state.tasks.findIndex(t => t.id === taskId);
@@ -168,15 +245,126 @@ export async function writeFinding(taskId: string, content: string): Promise<str
     writeState(state);
   }
 
-  bus.emit('swarm', { type: 'finding.written', task_id: taskId, path: file });
+  // Parse verdict + summary from the frontmatter so the bus emit carries them.
+  // Without these, a verdict-less finding.written could reach the client before
+  // any verdict-carrying event and win the client's first-write dedup, making a
+  // CHANGES_REQUESTED finding display as COMPLETE. (Mirror server/index.ts.)
+  let verdict: string | undefined, summary: string | undefined;
+  const m = content.match(/^---[\r\n]([\s\S]*?)[\r\n]---/);
+  if (m) {
+    for (const line of m[1].split('\n')) {
+      const colon = line.indexOf(':');
+      if (colon < 1) continue;
+      const k = line.slice(0, colon).trim();
+      const v = line.slice(colon + 1).trim().replace(/^["']|["']$/g, '');
+      if (k === 'verdict') verdict = v;
+      if (k === 'summary') summary = v;
+    }
+  }
+
+  bus.emit('swarm', { type: 'finding.written', task_id: taskId, path: file, verdict, summary });
   return file;
+}
+
+// ─── Session snapshots ────────────────────────────────────────────────────────
+// Written to .swarm/sessions/<id>/ when a run completes.
+// Each session directory contains:
+//   index.json          — metadata + task list (no finding content)
+//   findings/<taskId>.md — copies of the finding files
+
+export function sessionsDir(): string {
+  return path.join(swarmDir(), 'sessions');
+}
+
+export async function snapshotSession(): Promise<void> {
+  let state: ReturnType<typeof getState>;
+  try { state = getState(); } catch { return; }  // no state.json yet — skip
+
+  const now  = new Date();
+  const ts   = now.toISOString().slice(0, 19).replace(/T/, '-').replace(/:/g, '');
+  const slug = state.goal.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '-').slice(0, 40).replace(/-+$/, '');
+  const id  = `${ts}-${slug}`;
+  const dir = path.join(sessionsDir(), id);
+
+  await fsp.mkdir(path.join(dir, 'findings'), { recursive: true });
+
+  // Copy findings and parse verdict/summary for the task list
+  const tasks = await Promise.all(state.tasks.map(async t => {
+    let verdict: string | undefined;
+    let summary: string | undefined;
+    if (t.result_ref) {
+      try {
+        const src     = path.resolve(swarmDir(), t.result_ref);
+        const content = await fsp.readFile(src, 'utf8');
+        const dst     = path.join(dir, 'findings', `${t.id}.md`);
+        await fsp.writeFile(dst, content, 'utf8');
+        const m = content.match(/^---[\r\n]([\s\S]*?)[\r\n]---/);
+        if (m) {
+          for (const line of m[1].split('\n')) {
+            const colon = line.indexOf(':');
+            if (colon < 1) continue;
+            const k = line.slice(0, colon).trim();
+            const v = line.slice(colon + 1).trim().replace(/^["']|["']$/g, '');
+            if (k === 'verdict') verdict = v;
+            if (k === 'summary') summary = v;
+          }
+        }
+      } catch { /* finding may not exist yet */ }
+    }
+    return { ...t, finding_verdict: verdict, finding_summary: summary };
+  }));
+
+  const logTs     = state.log.map(e => new Date(e.ts).getTime()).filter(n => !isNaN(n));
+  const elapsedMs = logTs.length >= 2 ? logTs[logTs.length - 1] - logTs[0] : undefined;
+
+  const snapshot = {
+    id,
+    savedAt:    now.toISOString(),
+    project:    state.project,
+    goal:       state.goal,
+    tier:       state.tier,
+    branchName: state.branchName,
+    charter:    state.charter,
+    tasks,
+    log:        state.log,
+    elapsedMs,
+  };
+
+  await fsp.writeFile(
+    path.join(dir, 'index.json'),
+    JSON.stringify(snapshot, null, 2),
+    'utf8',
+  );
+  console.log(`  ▸ session saved: .swarm/sessions/${id}/`);
 }
 
 // ─── Initialise a fresh workspace ────────────────────────────────────────────
 
-export function initWorkspace(project: string, goal: string, tier: SwarmState['tier'] = 'tweak'): void {
+// Ensure .swarm/ is listed in .gitignore so swarm metadata never lands in a PR.
+// Idempotent: does nothing if the entry already exists.
+function ensureGitignore(): void {
+  const gitignorePath = path.join(_root, '.gitignore');
+  const entry         = '.swarm/';
+
+  if (fs.existsSync(gitignorePath)) {
+    const content = fs.readFileSync(gitignorePath, 'utf8');
+    // Match ".swarm/" or ".swarm" at the start of a line (with optional trailing slash).
+    if (/^\.swarm\/?$/m.test(content)) return;
+    // Append the entry with a blank-line separator if the file doesn't end with one.
+    const suffix = content.endsWith('\n') ? '' : '\n';
+    fs.appendFileSync(gitignorePath, `${suffix}# swarm agent metadata\n${entry}\n`, 'utf8');
+  } else {
+    fs.writeFileSync(gitignorePath, `# swarm agent metadata\n${entry}\n`, 'utf8');
+  }
+}
+
+export function initWorkspace(project: string, goal: string, tier: SwarmState['tier'] = 'bugfix'): void {
   const dir = swarmDir();
   fs.mkdirSync(path.join(dir, 'findings'), { recursive: true });
+
+  // Keep .swarm/ out of the repo — swarm metadata is not app code.
+  ensureGitignore();
 
   const initial: SwarmState = {
     project,

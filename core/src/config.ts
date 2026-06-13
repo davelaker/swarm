@@ -6,8 +6,10 @@ import { execSync } from 'node:child_process';
 // use Sonnet because they need judgment about code quality and architecture.
 const DEFAULT_CODER_MODEL    = 'claude-sonnet-4-6';
 const DEFAULT_REVIEWER_MODEL = 'claude-sonnet-4-6';
+const DEFAULT_NEGOTIATOR_MODEL = 'claude-sonnet-4-6'; // arbiter needs judgment — match reviewer
 const DEFAULT_TESTER_MODEL   = 'claude-haiku-4-5-20251001'; // ~70% cheaper; structured pass/fail
 const DEFAULT_SECURITY_MODEL = 'claude-haiku-4-5-20251001'; // read-only structured output
+const DEFAULT_SCOUT_MODEL    = 'claude-haiku-4-5-20251001'; // fast read-only codebase scans for the PM
 
 export interface Config {
   anthropicApiKey: string;
@@ -18,6 +20,8 @@ export interface Config {
   testerModel:     string;
   securityModel:   string;
   reviewerModel:   string;
+  negotiatorModel: string;
+  scoutModel:      string;
   hardCapUsd:      number;
   softCapUsd:      number;
   maxAttempts:     number;
@@ -57,6 +61,8 @@ export function getConfig(): Config {
     testerModel:     process.env.SWARM_TESTER_MODEL          ?? DEFAULT_TESTER_MODEL,
     securityModel:   process.env.SWARM_SECURITY_MODEL        ?? DEFAULT_SECURITY_MODEL,
     reviewerModel:   process.env.SWARM_REVIEWER_MODEL        ?? DEFAULT_REVIEWER_MODEL,
+    negotiatorModel: process.env.SWARM_NEGOTIATOR_MODEL      ?? DEFAULT_NEGOTIATOR_MODEL,
+    scoutModel:      process.env.SWARM_SCOUT_MODEL           ?? DEFAULT_SCOUT_MODEL,
     hardCapUsd:      Number(process.env.SWARM_HARD_CAP_USD   ?? 2.00),
     softCapUsd:      Number(process.env.SWARM_SOFT_CAP_USD   ?? 1.00),
     maxAttempts:     Number(process.env.SWARM_MAX_ATTEMPTS   ?? 2),
@@ -75,6 +81,8 @@ export function getConfigOptional(): Omit<Config, 'anthropicApiKey'> & { anthrop
     testerModel:     process.env.SWARM_TESTER_MODEL          ?? DEFAULT_TESTER_MODEL,
     securityModel:   process.env.SWARM_SECURITY_MODEL        ?? DEFAULT_SECURITY_MODEL,
     reviewerModel:   process.env.SWARM_REVIEWER_MODEL        ?? DEFAULT_REVIEWER_MODEL,
+    negotiatorModel: process.env.SWARM_NEGOTIATOR_MODEL      ?? DEFAULT_NEGOTIATOR_MODEL,
+    scoutModel:      process.env.SWARM_SCOUT_MODEL           ?? DEFAULT_SCOUT_MODEL,
     hardCapUsd:      Number(process.env.SWARM_HARD_CAP_USD   ?? 2.00),
     softCapUsd:      Number(process.env.SWARM_SOFT_CAP_USD   ?? 1.00),
     maxAttempts:     Number(process.env.SWARM_MAX_ATTEMPTS   ?? 2),

@@ -110,7 +110,7 @@ function ReviewPane({
         </button>
         {hasText && (
           <div style={{ marginTop: 6, fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--tx-3)', textAlign: 'center', lineHeight: 1.4 }}>
-            Sends review to PM chat. Start a new run to apply the fixes.
+            Sends to the PM, which plans a coder + reviewer to apply the fixes.
           </div>
         )}
       </div>
@@ -120,7 +120,7 @@ function ReviewPane({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function ChangesPanel() {
+export function ChangesPanel({ onRequestChanges }: { onRequestChanges?: (message: string) => void }) {
   const [diffText,   setDiffText]   = useState<string | null>(null);
   const [loading,    setLoading]    = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -192,14 +192,12 @@ export function ChangesPanel() {
     const msg = buildReviewMessage(comments);
     if (!msg) return;
     setSubmitting(true);
-    fetch('/run/message', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ text: msg }),
-    })
-      .then(() => { setSubmitted(true); setComments([]); })
-      .catch(() => { /* silently ignore — PM chat may be inactive */ setSubmitted(true); setComments([]); })
-      .finally(() => setSubmitting(false));
+    // Hand the review to the PM as a change request. The PM reads it like a
+    // reviewer's CHANGES_REQUESTED and kicks off a coder + reviewer to apply it.
+    onRequestChanges?.(msg);
+    setSubmitted(true);
+    setComments([]);
+    setSubmitting(false);
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -249,7 +247,7 @@ export function ChangesPanel() {
                 fontSize: 12, fontFamily: 'var(--mono)', color: 'var(--green)',
               }}>
                 <span>✓</span>
-                <span>Review sent to PM chat. Go to Planning to start a new run addressing the feedback.</span>
+                <span>Sent to the PM — see Planning, where it's scoping a coder + reviewer to apply your changes.</span>
                 <button onClick={() => setSubmitted(false)} style={{ marginLeft: 'auto', color: 'var(--green)', opacity: 0.7 }}>×</button>
               </div>
             )}

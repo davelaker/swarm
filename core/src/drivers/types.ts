@@ -3,14 +3,15 @@
 // don't care whether workers run via the Anthropic Client SDK (API key)
 // or via the Claude Agent SDK (Max plan subscription).
 
-import type { Task, SwarmState } from '../state/types.js';
+import type { Task, SwarmState, RosterEntry } from '../state/types.js';
 
 export interface SecurityFinding {
-  id:       string;
-  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
-  type:     string;
-  location: string;
-  fix:      string;
+  id:          string;
+  severity:    'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  type:        string;
+  location:    string;
+  attack_path: string;   // entry point → data flow → impact
+  fix:         string;
 }
 
 export interface ReviewerFinding {
@@ -18,6 +19,7 @@ export interface ReviewerFinding {
   severity: 'HIGH' | 'MEDIUM' | 'LOW';
   category: 'correctness' | 'robustness' | 'design' | 'testability' | 'clarity';
   location: string;
+  issue:    string;   // quoted offending code + explanation
   fix:      string;
 }
 
@@ -33,10 +35,47 @@ export interface DriverResult {
   outputTokens?:    number;
 }
 
+// ─── Negotiator — runtime deadlock arbiter ───────────────────────────────────
+// Invoked directly by the loop (not dispatched as a task) when the run is stuck
+// on a blocking gate finding. Read-only; returns a structured recovery decision.
+
+export interface NegotiatorDecision {
+  decision:      'SPAWN_FIX' | 'DOWNGRADE' | 'ABORT';
+  targetTaskIds: string[];  // the blocked gate task(s) this applies to
+  reasoning:     string;    // 1-3 sentences, user-facing
+}
+
+export interface DeadlockContext {
+  goal:    string;
+  blocked: Array<{ taskId: string; assignee: string; title: string; verdict: string; summary: string; findingPath: string | null }>;
+  tasks:   Task[];
+}
+
 export interface AgentDriver {
   name:         string;
-  runCoder    (task: Task, state: SwarmState): Promise<DriverResult>;
+  runCoder    (task: Task, state: SwarmState, worktreePath?: string): Promise<DriverResult>;
   runTester   (task: Task, state: SwarmState): Promise<DriverResult>;
   runSecurity (task: Task, state: SwarmState): Promise<DriverResult>;
   runReviewer (task: Task, state: SwarmState): Promise<DriverResult>;
+  runMarketplaceAgent(task: Task, state: SwarmState, agent: RosterEntry): Promise<DriverResult>;
+  runNegotiator(ctx: DeadlockContext): Promise<NegotiatorDecision>;
+  // Read-only codebase investigator for the PM planning session. Invoked directly
+  // from the PM flow (like the Negotiator from the loop) — NOT dispatched as a task,
+  // NOT run in a worktree. Answers one specific question with a factual digest.
+  runScout(question: string): Promise<ScoutResult>;
+  // Read-only research by a HIRED marketplace specialist during PM planning.
+  // Like runScout but runs as the specialist with its own (read-only) tool grants,
+  // so a data-access specialist can run live read-only queries the generic Scout
+  // cannot. Invoked directly from the PM flow — NOT dispatched, NOT in a worktree.
+  runSpecialistResearch(agent: RosterEntry, question: string): Promise<ScoutResult>;
 }
+
+export interface ScoutResult {
+  summary:       string;
+  digest:        string;
+  relevantFiles: string[];
+  costUsd?:      number;
+}
+
+// Re-export RosterEntry so callers can import it from this module too.
+export type { RosterEntry };

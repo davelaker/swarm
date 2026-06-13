@@ -1,13 +1,13 @@
 import { execSync } from 'node:child_process';
 import path from 'node:path';
 import fs   from 'node:fs';
-import { swarmDir, stateFile, initWorkspace, addTask, getState, appendLog } from '../state/repo.js';
+import { swarmDir, stateFile, initWorkspace, addTask, getState, appendLog, getRoot } from '../state/repo.js';
 import { classify }  from '../agents/classifier.js';
 import { runLoop }   from '../loop.js';
 import { resetControl } from '../loop-control.js';
 import { getConfig } from '../config.js';
 import { bus }       from '../state/events.js';
-import type { Task, Tier, RunCharter } from '../state/types.js';
+import type { Task, Tier, RunCharter, TaskGraphEntry } from '../state/types.js';
 
 function pmProgress(step: string): void {
   bus.emit('swarm', { type: 'agent.progress', agent_id: 'pm', step });
@@ -36,9 +36,14 @@ export function checkGitClean(cwd: string): void {
     return; // git status failed — proceed cautiously
   }
 
+  // Files swarm itself writes during planning — not user dirt, never a blocker.
+  const SWARM_OWNED = new Set<string>(); // no files written pre-Execute
+
   const dirty = status
     .split('\n')
-    .filter(l => l.trim() && !l.startsWith('??')) // ignore untracked files
+    .filter(l => l.trim())
+    .filter(l => !l.startsWith('??'))           // ignore untracked
+    .filter(l => !SWARM_OWNED.has(l.slice(3)))  // ignore swarm-managed files
     .join('\n')
     .trim();
 
@@ -53,14 +58,55 @@ export function checkGitClean(cwd: string): void {
 
 // ─── Task graph ───────────────────────────────────────────────────────────────
 
-function buildTaskGraph(goal: string, tier: Tier, sensitive: boolean, cfg: ReturnType<typeof getConfig>): Task[] {
+function buildFromPmGraph(entries: TaskGraphEntry[], cfg: ReturnType<typeof getConfig>): Task[] {
+  return entries.map(e => ({
+    id:         e.id,
+    title:      e.title,
+    status:     'pending' as const,
+    owner:      cfg.owner,
+    assignee:   e.assignee,
+    depends_on: e.depends_on,
+    artifacts:  [],
+    result_ref: null,
+    attempts:   0,
+    ...(e.model ? { model: e.model } : {}),
+  }));
+}
+
+function buildTaskGraph(goal: string, tier: Tier, sensitive: boolean, securityAudit: boolean, cfg: ReturnType<typeof getConfig>): Task[] {
+  // Security-first: the goal IS a security audit — security leads, coder applies findings
+  if (securityAudit) {
+    const auditTask: Task = {
+      id: 't1', title: `Security audit: ${goal}`, status: 'pending',
+      owner: cfg.owner, assignee: 'security',
+      depends_on: [], artifacts: [], result_ref: null, attempts: 0,
+    };
+    const fixCoder: Task = {
+      id: 't2', title: 'Apply fixes for all critical/high findings from security audit (.swarm/t1.md)', status: 'pending',
+      owner: cfg.owner, assignee: 'coder',
+      depends_on: ['t1'], artifacts: [], result_ref: null, attempts: 0,
+    };
+    const tester: Task = {
+      id: 't3', title: 'Run test suite — verify no regressions', status: 'pending',
+      owner: cfg.owner, assignee: 'tester',
+      depends_on: ['t2'], artifacts: [], result_ref: null, attempts: 0,
+    };
+    const reviewer: Task = {
+      id: 't4', title: 'Code review — correctness, robustness, design', status: 'pending',
+      owner: cfg.owner, assignee: 'reviewer',
+      depends_on: ['t2'], artifacts: [], result_ref: null, attempts: 0,
+    };
+    return [auditTask, fixCoder, tester, reviewer];
+  }
+
+  // Standard coder-first graph
   const base: Task = {
     id: 't1', title: goal, status: 'pending',
     owner: cfg.owner, assignee: 'coder',
     depends_on: [], artifacts: [], result_ref: null, attempts: 0,
   };
 
-  if (tier === 'tweak' && !sensitive) {
+  if (tier === 'bugfix' && !sensitive) {
     return [base];
   }
 
@@ -100,11 +146,29 @@ export async function runNew(
 
   // ── Bootstrap workspace ────────────────────────────────────────────────────
   if (!fs.existsSync(stateFile())) {
-    const project = path.basename(process.cwd());
+    const project = path.basename(getRoot());
     pmProgress('initialising workspace…');
     initWorkspace(project, goal);
     console.log(`  ✓ .swarm/ initialised for "${project}"\n`);
   }
+
+  // ── Early state reset — clear tasks and log before classification ──────────
+  // Classification takes 5–15s. Without this, the UI snapshot fetch (which
+  // happens immediately when the Running tab mounts) would read the previous
+  // run's tasks and log, causing stale PM messages and task graph to flash
+  // before the post-classify run.classified event arrives.
+  const earlyState = {
+    ...getState(),
+    goal,
+    tier:       'feature' as Tier,   // provisional — updated after classify
+    charter:    charter ?? { constraints: [], nongoals: [], questions: [] },
+    branchName: branchName,
+    tasks:      [],
+    log:        [],
+  };
+  const tmpEarly = stateFile() + '.tmp';
+  fs.writeFileSync(tmpEarly, JSON.stringify(earlyState, null, 2), 'utf8');
+  fs.renameSync(tmpEarly, stateFile());
 
   // ── Tier classification ────────────────────────────────────────────────────
   pmProgress('classifying goal…');
@@ -117,23 +181,20 @@ export async function runNew(
   // ── Reset abort/pause state from any prior run ─────────────────────────────
   resetControl();
 
-  // ── Reset state (fresh run) ────────────────────────────────────────────────
+  // ── Update state with real tier ────────────────────────────────────────────
   const freshState = {
-    ...getState(),
-    goal,
-    tier:       cls.tier,
-    charter:    charter ?? { constraints: [], nongoals: [], questions: [] },
-    branchName: branchName,
-    tasks:      [],
-    log:        [],
+    ...getState(),   // earlyState already written — tasks=[], log=[]
+    tier: cls.tier,
   };
-  const fsFresh = await import('node:fs');
   const tmp = stateFile() + '.tmp';
-  fsFresh.default.writeFileSync(tmp, JSON.stringify(freshState, null, 2), 'utf8');
-  fsFresh.default.renameSync(tmp, stateFile());
+  fs.writeFileSync(tmp, JSON.stringify(freshState, null, 2), 'utf8');
+  fs.renameSync(tmp, stateFile());
 
   // ── Build task graph ───────────────────────────────────────────────────────
-  const tasks = buildTaskGraph(goal, cls.tier, cls.sensitive, cfg);
+  // PM-provided graph takes precedence; fall back to buildTaskGraph for simple runs.
+  const tasks = charter?.taskGraph?.length
+    ? buildFromPmGraph(charter.taskGraph, cfg)
+    : buildTaskGraph(goal, cls.tier, cls.sensitive, cls.securityAudit, cfg);
   for (const t of tasks) addTask(t);
   // Don't echo graph or constraints to the PM chat — the task graph panel shows
   // the structure already, and the user wrote the constraints in Planning.

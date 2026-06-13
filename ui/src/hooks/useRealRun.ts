@@ -1,7 +1,7 @@
 // Connects to the real swarm backend via GET /state (snapshot) + GET /events (SSE).
 
-import { useState, useEffect, useRef } from 'react';
-import type { Task, AgentState, Finding, ChatMessage, RunStatus } from '../types';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import type { Task, AgentState, Finding, ChatMessage, RunStatus, PermissionRequest } from '../types';
 
 interface ServerTask {
   id:               string;
@@ -13,6 +13,7 @@ interface ServerTask {
   attempts:         number;
   finding_verdict?: string;   // enriched by server from finding frontmatter
   finding_summary?: string;
+  skip_reason?:     string;
 }
 
 interface ServerState {
@@ -28,7 +29,7 @@ interface ServerState {
 type SwarmEvent =
   | { type: 'run.classified';    tier: string; tasks: ServerTask[] }
   | { type: 'task.created';      task: ServerTask }
-  | { type: 'task.status_changed'; task_id: string; status: string }
+  | { type: 'task.status_changed'; task_id: string; status: string; skip_reason?: string }
   | { type: 'agent.started';     agent_id: string }
   | { type: 'agent.progress';    agent_id: string; step: string }
   | { type: 'agent.finished';    agent_id: string }
@@ -39,7 +40,9 @@ type SwarmEvent =
   | { type: 'run.cost_updated';  spent: number; cap: number }
   | { type: 'run.paused' }
   | { type: 'run.aborted' }
-  | { type: 'task.metrics'; task_id: string; agent_id: string; input_tokens: number | null; output_tokens: number | null; cost_usd: number; context_pct: number | null };
+  | { type: 'task.metrics'; task_id: string; agent_id: string; input_tokens: number | null; output_tokens: number | null; cost_usd: number; context_pct: number | null }
+  | { type: 'agent.permission_request';  request_id: string; agent_id: string; tool: string; input: Record<string, unknown> }
+  | { type: 'agent.permission_resolved'; request_id: string; decision: 'allow' | 'deny' };
 
 function computeLanes(tasks: ServerTask[]): Map<string, number> {
   const lanes = new Map<string, number>();
@@ -52,7 +55,12 @@ function computeLanes(tasks: ServerTask[]): Map<string, number> {
     if (lanes.has(id)) return;
     lanes.set(id, lane);
     const children = tasks.filter(t => t.depends_on.includes(id));
-    children.forEach((child, i) => assign(child.id, lane + i));
+    children.forEach((child, i) => {
+      // Fix / re-check tasks spawned by a blocked review get a +1 lane offset
+      // so their connecting bezier curves outward, making the causal chain visible.
+      const isFollowOn = /^t_(fix|chk)_/.test(child.id);
+      assign(child.id, isFollowOn ? lane + 1 : lane + i);
+    });
   };
   tasks.filter(t => t.depends_on.length === 0).forEach(t => { assign(t.id, nextLane++); });
   tasks.forEach(t => { if (!lanes.has(t.id)) lanes.set(t.id, 0); });
@@ -68,10 +76,12 @@ function adaptTask(t: ServerTask, lane: number, prev?: Task): Task {
     lane,
     status:   t.status as Task['status'],
     late:     prev === undefined,
+    ...(t.skip_reason ? { skip_reason: t.skip_reason } : {}),
   };
 }
 
 const BLANK_METRICS = { inputTokens: null, outputTokens: null, costUsd: null, contextPct: null };
+const BLANK_AGENT: AgentState = { active: false, step: '', activeAt: null, verdict: null, ...BLANK_METRICS };
 
 function initAgents(): Record<string, AgentState> {
   const blank = { active: false, step: '', activeAt: null, verdict: null, ...BLANK_METRICS };
@@ -86,29 +96,43 @@ function initAgents(): Record<string, AgentState> {
 }
 
 export interface RealRunState {
-  project:    string;
-  tier:       string;
-  tasks:      Task[];
-  agents:     Record<string, AgentState>;
-  findings:   Finding[];
-  pmMsgs:     ChatMessage[];
-  status:     RunStatus;
-  connected:  boolean;
-  spend:      number;
-  spendCap:   number;
-  pushed:     boolean;      // true if a successful push was logged this run
-  branchName?: string;     // set when the run was started on a feature branch
-  elapsedMs:  number | null; // wall-clock duration of the run (null while in progress)
+  project:           string;
+  tier:              string;
+  tasks:             Task[];
+  agents:            Record<string, AgentState>;
+  findings:          Finding[];
+  pmMsgs:            ChatMessage[];
+  status:            RunStatus;
+  connected:         boolean;
+  spend:             number;
+  spendCap:          number;
+  pushed:            boolean;
+  branchName?:       string;
+  elapsedMs:         number | null;
+  pendingPermission: PermissionRequest | null;  // non-null when an agent awaits user approval
 }
 
 export type ServerStatus = 'probing' | 'down' | 'up';
 
-export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState | null } {
+export function useRealRun(): {
+  serverStatus:      ServerStatus;
+  state:             RealRunState | null;
+  resolvePermission: (requestId: string, decision: 'allow' | 'deny') => void;
+} {
   const [serverStatus, setServerStatus] = useState<ServerStatus>('probing');
   const [state, setState]               = useState<RealRunState | null>(null);
-  const esRef      = useRef<EventSource | null>(null);
-  const retryRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const esRef        = useRef<EventSource | null>(null);
+  const retryRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCount   = useRef(0); // tracks consecutive failures for backoff
   const startedAtRef = useRef<number | null>(null); // wall-clock when first agent started
+
+  // Progressive back-off: 1 s → 1.5 s → 2.25 s … capped at 8 s.
+  // Resets to 0 every time a connection succeeds.
+  const scheduleRetry = (mounted: { current: boolean }) => {
+    const delay = Math.min(1000 * Math.pow(1.5, retryCount.current), 8000);
+    retryCount.current += 1;
+    retryRef.current = setTimeout(() => connect(mounted), delay);
+  };
 
   const connect = (mounted: { current: boolean }) => {
     fetch('/state', { signal: AbortSignal.timeout(2000) })
@@ -117,7 +141,10 @@ export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState 
         if (!mounted.current) return;
         const lanes   = computeLanes(snap.tasks);
         const tasks   = snap.tasks.map(t => adaptTask(t, lanes.get(t.id) ?? 0));
-        const allDone = tasks.length > 0 && tasks.every(t => t.status === 'done');
+        // 'blocked' and 'failed' are terminal — a blocked task won't change again;
+        // follow-on fix/re-review tasks are separate entries that have their own status.
+        const isTerminal = (s: string) => s === 'done' || s === 'blocked' || s === 'failed';
+        const allDone = tasks.length > 0 && tasks.every(t => isTerminal(t.status));
 
         // Populate findings from snapshot so they survive refresh / reconnect.
         const verdictMap: Record<string, Finding['verdict']> = {
@@ -150,9 +177,10 @@ export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState 
         // Mark agents whose tasks are currently in_progress as active so the
         // agents panel stays consistent with the task graph on mount / reconnect.
         snap.tasks.filter(t => t.status === 'in_progress').forEach(t => {
-          if (agents[t.assignee]) {
-            agents[t.assignee] = { ...agents[t.assignee], active: true, step: 'working…', activeAt: Date.now() };
-          }
+          // Specialist (marketplace) agents aren't in initAgents() — create the entry
+          // so they show as active rather than falling through to a blank idle row.
+          const cur = agents[t.assignee] ?? BLANK_AGENT;
+          agents[t.assignee] = { ...cur, active: true, step: 'working…', activeAt: Date.now() };
         });
 
         // Reconstruct PM chat history from the persisted log (actor 'pm' | 'user').
@@ -180,27 +208,29 @@ export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState 
           ? logTs[logTs.length - 1] - logTs[0]
           : null;
 
+        retryCount.current = 0; // successful connect — reset back-off
         setServerStatus('up');
         setState({
-          project:    snap.project,
-          tier:       snap.tier,
+          project:           snap.project,
+          tier:              snap.tier,
           tasks,
           agents,
           findings,
           pmMsgs,
-          status:     allDone ? 'done' : 'running',
-          connected:  true,
-          spend:      0,
-          spendCap:   2,  // default; overridden by run.cost_updated events
+          status:            allDone ? 'done' : 'running',
+          connected:         true,
+          spend:             0,
+          spendCap:          2,
           pushed,
-          branchName: snap.branchName,
+          branchName:        snap.branchName,
           elapsedMs,
+          pendingPermission: null,
         });
       })
       .catch(() => {
         if (!mounted.current) return;
         setServerStatus('down');
-        retryRef.current = setTimeout(() => connect(mounted), 3000);
+        scheduleRetry(mounted);
       });
 
     if (esRef.current) { esRef.current.close(); esRef.current = null; }
@@ -211,6 +241,8 @@ export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState 
       if (!mounted.current) return;
       let ev: SwarmEvent;
       try { ev = JSON.parse(e.data); } catch { return; }
+      // New run: reset wall-clock so elapsed timer starts fresh.
+      if (ev.type === 'run.classified') startedAtRef.current = null;
       // Track wall-clock start on first agent activity.
       if (ev.type === 'agent.started' && !startedAtRef.current) {
         startedAtRef.current = Date.now();
@@ -231,7 +263,7 @@ export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState 
       setState(prev => prev ? { ...prev, connected: false } : prev);
       setServerStatus('down');
       es.close(); esRef.current = null;
-      retryRef.current = setTimeout(() => connect(mounted), 3000);
+      scheduleRetry(mounted);
     };
   };
 
@@ -246,7 +278,17 @@ export function useRealRun(): { serverStatus: ServerStatus; state: RealRunState 
     };
   }, []);
 
-  return { serverStatus, state };
+  const resolvePermission = useCallback((requestId: string, decision: 'allow' | 'deny') => {
+    fetch(`/run/permission/${requestId}`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ decision }),
+    }).catch(() => { /* non-fatal — server will auto-deny on timeout */ });
+    // Optimistically clear the pending dialog immediately so the UI feels snappy.
+    setState(prev => prev ? { ...prev, pendingPermission: null } : prev);
+  }, []);
+
+  return { serverStatus, state, resolvePermission };
 }
 
 function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
@@ -254,7 +296,21 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
 
     case 'run.classified': {
       const lanes = computeLanes(ev.tasks);
-      return { ...prev, tier: ev.tier, tasks: ev.tasks.map(t => adaptTask(t, lanes.get(t.id) ?? 0)) };
+      // New run starting — wipe all stale data from the previous run.
+      return {
+        ...prev,
+        tier:              ev.tier,
+        tasks:             ev.tasks.map(t => adaptTask(t, lanes.get(t.id) ?? 0)),
+        findings:          [],
+        pmMsgs:            [],
+        agents:            initAgents(),
+        spend:             0,
+        pushed:            false,
+        branchName:        undefined,
+        elapsedMs:         null,
+        pendingPermission: null,
+        status:            'running',
+      };
     }
 
     case 'task.created': {
@@ -271,37 +327,51 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
     case 'task.status_changed': {
       const changedTask = prev.tasks.find(t => t.id === ev.task_id);
       const agentId     = changedTask?.assignee;
-      const isTerminal  = ev.status === 'done' || ev.status === 'blocked' || ev.status === 'failed';
+      const isTerminal  = ev.status === 'done' || ev.status === 'blocked' || ev.status === 'failed' || ev.status === 'skipped';
 
-      // When a task finishes (any terminal state), immediately clear the agent's
-      // active flag so the cursor stops blinking. Verdict chips are set by
-      // finding.written events. Without this the log-entry timing can race and
-      // leave agents stuck in active:true.
-      const agents = isTerminal && agentId && prev.agents[agentId]
-        ? { ...prev.agents, [agentId]: { ...prev.agents[agentId], active: false, step: '', activeAt: null } }
-        : prev.agents;
+      // Mirror the task graph state onto the agents panel immediately:
+      // - in_progress → mark active (don't wait for agent.started which can lag)
+      // - any terminal state → clear active so cursor stops blinking
+      // Marketplace agents (e.g. "db") aren't seeded by initAgents(), so fall back to
+      // BLANK_AGENT — otherwise an in_progress specialist task never marks its agent
+      // active and the panel shows "idle" while the task graph shows RUNNING.
+      let agents = prev.agents;
+      if (isTerminal && agentId) {
+        agents = { ...prev.agents, [agentId]: { ...(prev.agents[agentId] ?? BLANK_AGENT), active: false, step: '', activeAt: null } };
+      } else if (ev.status === 'in_progress' && agentId) {
+        const cur = prev.agents[agentId];
+        if (!cur || !cur.active) {
+          agents = { ...prev.agents, [agentId]: { ...(cur ?? BLANK_AGENT), active: true, step: 'working…', activeAt: Date.now() } };
+        }
+      }
 
+      const allTerminal = (s: string) => s === 'done' || s === 'skipped' || s === 'blocked' || s === 'failed';
       return {
         ...prev,
-        tasks: prev.tasks.map(t => t.id === ev.task_id ? { ...t, status: ev.status as Task['status'] } : t),
+        tasks: prev.tasks.map(t => t.id === ev.task_id
+          ? { ...t, status: ev.status as Task['status'], ...(ev.skip_reason ? { skip_reason: ev.skip_reason } : {}) }
+          : t
+        ),
         agents,
-        status: ev.status === 'done' && prev.tasks.every(t =>
-          t.id === ev.task_id ? true : t.status === 'done'
+        // Run is done when every task (including the one just updated) is terminal.
+        // run.completed SSE is the canonical signal; this is a belt-and-suspenders
+        // fast path so the UI transitions without waiting for the next file-watcher tick.
+        status: prev.tasks.every(t =>
+          t.id === ev.task_id ? allTerminal(ev.status) : allTerminal(t.status)
         ) ? 'done' : prev.status,
       };
     }
 
     case 'agent.started':
-      return { ...prev, agents: { ...prev.agents, [ev.agent_id]: { ...prev.agents[ev.agent_id], active: true, step: 'working…', activeAt: Date.now(), verdict: null } } };
+      return { ...prev, agents: { ...prev.agents, [ev.agent_id]: { ...(prev.agents[ev.agent_id] ?? BLANK_AGENT), active: true, step: 'working…', activeAt: Date.now(), verdict: null } } };
 
     case 'agent.progress':
-      return { ...prev, agents: { ...prev.agents, [ev.agent_id]: { ...prev.agents[ev.agent_id], active: true, step: ev.step, activeAt: prev.agents[ev.agent_id]?.activeAt ?? Date.now() } } };
+      return { ...prev, agents: { ...prev.agents, [ev.agent_id]: { ...(prev.agents[ev.agent_id] ?? BLANK_AGENT), active: true, step: ev.step, activeAt: prev.agents[ev.agent_id]?.activeAt ?? Date.now() } } };
 
     case 'agent.finished':
-      return { ...prev, agents: { ...prev.agents, [ev.agent_id]: { ...prev.agents[ev.agent_id], active: false, step: '', activeAt: null } } };
+      return { ...prev, agents: { ...prev.agents, [ev.agent_id]: { ...(prev.agents[ev.agent_id] ?? BLANK_AGENT), active: false, step: '', activeAt: null } } };
 
     case 'finding.written': {
-      if (prev.findings.some(f => f.task === ev.task_id)) return prev;
       const task = prev.tasks.find(t => t.id === ev.task_id);
       // Map server verdict strings to UI Verdict type
       const verdictMap: Record<string, Finding['verdict']> = {
@@ -309,6 +379,7 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
         FAILED: 'fail', FAIL: 'fail', CHANGES_REQUESTED: 'changes',
       };
       const rawVerdict = (ev.verdict ?? '').toUpperCase();
+      const hasVerdict = !!verdictMap[rawVerdict];           // event carried an explicit, known verdict
       const verdict: Finding['verdict'] = verdictMap[rawVerdict] ?? 'complete';
 
       // Also stamp the verdict onto the agent row so the chip shows when idle.
@@ -316,6 +387,21 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
       const agents  = agentId && prev.agents[agentId]
         ? { ...prev.agents, [agentId]: { ...prev.agents[agentId], verdict } }
         : prev.agents;
+
+      // Finding already known: don't re-prepend, but DO let a later explicit verdict
+      // correct an earlier verdict-less (defaulted) event — the original cause of
+      // "COMPLETE chip on a CHANGES_REQUESTED finding".
+      const existing = prev.findings.find(f => f.task === ev.task_id);
+      if (existing) {
+        if (!hasVerdict || verdict === existing.verdict) return prev;
+        return {
+          ...prev,
+          agents,
+          findings: prev.findings.map(f => f.task === ev.task_id
+            ? { ...f, verdict, summary: ev.summary ?? f.summary, path: ev.path ?? f.path }
+            : f),
+        };
+      }
 
       return {
         ...prev,
@@ -373,6 +459,23 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
 
     case 'run.aborted':
       return { ...prev, status: 'aborted' };
+
+    case 'agent.permission_request':
+      return {
+        ...prev,
+        pendingPermission: {
+          requestId: ev.request_id,
+          agentId:   ev.agent_id,
+          tool:      ev.tool,
+          input:     ev.input,
+        },
+      };
+
+    case 'agent.permission_resolved':
+      // Clear the dialog if it's for the request currently shown.
+      return prev.pendingPermission?.requestId === ev.request_id
+        ? { ...prev, pendingPermission: null }
+        : prev;
 
     default:
       return prev;

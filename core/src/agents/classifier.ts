@@ -18,37 +18,46 @@ const SYSTEM = `\
 You classify software tasks for a multi-agent coding system.
 
 Tiers:
-- tweak:      single, low-risk change (rename, add comment, fix typo, small config change).
+- bugfix:     single, low-risk change (rename, add comment, fix typo, fix an existing bug, small config change).
               No new behaviour. Blast radius is one file or one function.
 - feature:    new behaviour on an existing codebase. May touch multiple files.
               Needs tests + security review.
 - greenfield: new project or subsystem built from scratch.
               Needs full pipeline: planner, coder, tests, security.
+- refactor:   restructuring existing code without changing external behaviour.
+              May touch many files. Needs tests to verify no regressions.
 
 Sensitive paths:
 - true if the goal touches: SQL queries, auth/login, passwords/secrets/API keys,
   crypto/hashing, permissions/access-control, input validation, shell execution.
-- Sensitive tweaks get a security pass even if they are otherwise small.`;
+- Sensitive tweaks get a security pass even if they are otherwise small.
+
+Security audit:
+- true if the PRIMARY purpose of the goal is to audit, find, or review security vulnerabilities
+  in existing code — e.g. "run a security audit", "check for vulnerabilities", "review auth code for issues".
+- false if the goal is to implement/fix something that happens to touch security-sensitive paths.`;
 
 const SCHEMA = JSON.stringify({
   type: 'object',
   properties: {
-    tier:      { type: 'string', enum: ['tweak', 'feature', 'greenfield'] },
-    reasoning: { type: 'string', description: 'One sentence explaining the classification.' },
-    sensitive: { type: 'boolean', description: 'True if the goal touches security-sensitive code paths.' },
+    tier:          { type: 'string', enum: ['bugfix', 'feature', 'greenfield', 'refactor'] },
+    reasoning:     { type: 'string', description: 'One sentence explaining the classification.' },
+    sensitive:     { type: 'boolean', description: 'True if the goal touches security-sensitive code paths.' },
+    securityAudit: { type: 'boolean', description: 'True if the primary goal is to audit/find/review security vulnerabilities in existing code.' },
   },
-  required: ['tier', 'reasoning', 'sensitive'],
+  required: ['tier', 'reasoning', 'sensitive', 'securityAudit'],
 });
 
 export interface Classification {
-  tier:      Tier;
-  reasoning: string;
-  sensitive: boolean;
-  costUsd:   number;
+  tier:          Tier;
+  reasoning:     string;
+  sensitive:     boolean;
+  securityAudit: boolean;
+  costUsd:       number;
 }
 
 const FALLBACK: Classification = {
-  tier: 'feature', reasoning: 'classifier did not return a result', sensitive: false, costUsd: 0,
+  tier: 'feature' as const, reasoning: 'classifier did not return a result', sensitive: false, securityAudit: false, costUsd: 0,
 };
 
 // ─── Agent SDK path (claude -p) ───────────────────────────────────────────────
@@ -58,7 +67,6 @@ async function classifyAgentSdk(goal: string): Promise<Classification> {
 
   const args = [
     '--print',
-    '--dangerously-skip-permissions',
     '--output-format', 'json',
     '--json-schema',   SCHEMA,
     '--system-prompt', SYSTEM,
@@ -90,10 +98,11 @@ async function classifyAgentSdk(goal: string): Promise<Classification> {
           : envelope.result as Record<string, unknown>;
 
         resolve({
-          tier:      (data.tier as Tier) ?? 'feature',
-          reasoning: String(data.reasoning ?? ''),
-          sensitive: Boolean(data.sensitive),
-          costUsd:   0,   // Max plan — no USD cost tracked
+          tier:          (data.tier as Tier) ?? 'feature',
+          reasoning:     String(data.reasoning ?? ''),
+          sensitive:     Boolean(data.sensitive),
+          securityAudit: Boolean(data.securityAudit),
+          costUsd:       0,   // Max plan — no USD cost tracked
         });
       } catch {
         resolve(FALLBACK);
@@ -114,11 +123,12 @@ async function classifyApiKey(goal: string): Promise<Classification> {
     input_schema: {
       type:       'object',
       properties: {
-        tier:      { type: 'string', enum: ['tweak', 'feature', 'greenfield'] },
-        reasoning: { type: 'string', description: 'One sentence explaining the classification.' },
-        sensitive: { type: 'boolean' },
+        tier:          { type: 'string', enum: ['bugfix', 'feature', 'greenfield', 'refactor'] },
+        reasoning:     { type: 'string', description: 'One sentence explaining the classification.' },
+        sensitive:     { type: 'boolean' },
+        securityAudit: { type: 'boolean', description: 'True if the primary goal is to audit/find/review security vulnerabilities.' },
       },
-      required: ['tier', 'reasoning', 'sensitive'],
+      required: ['tier', 'reasoning', 'sensitive', 'securityAudit'],
     },
   };
 
@@ -137,7 +147,7 @@ async function classifyApiKey(goal: string): Promise<Classification> {
   const inp     = toolUse.input as { tier: Tier; reasoning: string; sensitive: boolean };
   const costUsd = tokensToDollars(CLASSIFIER_MODEL, resp.usage.input_tokens, resp.usage.output_tokens);
 
-  return { tier: inp.tier, reasoning: inp.reasoning, sensitive: inp.sensitive, costUsd };
+  return { tier: inp.tier, reasoning: inp.reasoning, sensitive: inp.sensitive, securityAudit: Boolean((inp as Record<string, unknown>).securityAudit), costUsd };
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────

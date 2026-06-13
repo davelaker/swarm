@@ -18,12 +18,14 @@ export interface ReviewerFindingItem {
   severity: 'HIGH' | 'MEDIUM' | 'LOW';
   category: 'correctness' | 'robustness' | 'design' | 'testability' | 'clarity';
   location: string;
+  issue:    string;
   fix:      string;
 }
 
 export interface ReviewerResult {
   verdict:      'APPROVED' | 'CHANGES_REQUESTED';
   summary:      string;
+  detail:       string;
   findings:     ReviewerFindingItem[];
   finding:      string;   // raw markdown for disk
   inputTokens:  number;
@@ -54,7 +56,8 @@ const TOOLS: Anthropic.Tool[] = [
       type:       'object',
       properties: {
         verdict:  { type: 'string', enum: ['APPROVED', 'CHANGES_REQUESTED'] },
-        summary:  { type: 'string', description: 'One-line summary.' },
+        summary:  { type: 'string', description: 'One-line overall assessment.' },
+        detail:   { type: 'string', description: '2-3 sentences: what files you reviewed, what you looked for, and the key reason for your verdict.' },
         findings: {
           type:  'array',
           items: {
@@ -64,13 +67,14 @@ const TOOLS: Anthropic.Tool[] = [
               severity: { type: 'string', enum: ['HIGH', 'MEDIUM', 'LOW'] },
               category: { type: 'string', enum: ['correctness', 'robustness', 'design', 'testability', 'clarity'] },
               location: { type: 'string' },
+              issue:    { type: 'string', description: 'Quoted offending code and explanation of what is wrong' },
               fix:      { type: 'string' },
             },
-            required: ['id', 'severity', 'category', 'location', 'fix'],
+            required: ['id', 'severity', 'category', 'location', 'issue', 'fix'],
           },
         },
       },
-      required: ['verdict', 'summary'],
+      required: ['verdict', 'summary', 'detail', 'findings'],
     },
   },
 ];
@@ -108,7 +112,25 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
 
 // ─── Finding markdown ─────────────────────────────────────────────────────────
 
-function buildFinding(task: Task, verdict: string, summary: string, items: ReviewerFindingItem[]): string {
+const VERDICT_LABELS: Record<string, string> = {
+  CHANGES_REQUESTED: 'Changes Requested',
+  APPROVED:          'Approved',
+  COMPLETE:          'Complete',
+  PASS:              'Pass',
+  PASS_WITH_ADVISORY:'Pass with Advisory',
+  FAILED:            'Failed',
+  FAIL:              'Failed',
+};
+
+function verdictHeading(verdict: string, summary: string): string {
+  const label    = VERDICT_LABELS[verdict.toUpperCase()] ?? verdict;
+  const normSum  = summary.trim().toUpperCase().replace(/[\s_]+/g, '_');
+  const normVerd = verdict.toUpperCase().replace(/[\s_]+/g, '_');
+  const isRepeat = !summary.trim() || normSum === normVerd;
+  return isRepeat ? `## ${label}\n\n` : `## ${label}: ${summary}\n\n`;
+}
+
+function buildFinding(task: Task, verdict: string, summary: string, detail: string, items: ReviewerFindingItem[]): string {
   const findingsList = items.length
     ? items.map(f =>
         `  - id: ${f.id}\n    severity: ${f.severity}\n    category: ${f.category}\n    location: ${f.location}`
@@ -131,14 +153,16 @@ function buildFinding(task: Task, verdict: string, summary: string, items: Revie
     ? items.map(f => [
         `### ${f.id} — ${f.severity}: ${f.category}`,
         `**Location:** \`${f.location}\``,
+        f.issue ? `**Issue:** ${f.issue}` : '',
         `**Fix:** ${f.fix}`,
         '',
-      ].join('\n')).join('\n')
+      ].filter(l => l !== '').join('\n')).join('\n')
     : verdict === 'APPROVED'
       ? 'No significant issues found in the changed code.\n'
       : '';
 
-  return header + `## ${verdict}: ${summary}\n\n` + body;
+  const detailBlock = detail ? `${detail}\n\n` : '';
+  return header + verdictHeading(verdict, summary) + detailBlock + body;
 }
 
 // ─── Main agent ───────────────────────────────────────────────────────────────
@@ -169,7 +193,9 @@ export async function runReviewer(task: Task, state: SwarmState, verbose = true)
 
   let totalInput = 0, totalOutput = 0, cacheCost = 0;
   let verdict    = 'CHANGES_REQUESTED';
-  let summary    = 'Code review incomplete';
+  let summary    = 'Review did not complete — re-run required';
+  let detail     = '';
+  let calledDoneGlobal = false;
   let items: ReviewerFindingItem[] = [];
   const systemBlocks = buildCachedSystem(REVIEWER_SYSTEM, 8192);
 
@@ -207,11 +233,13 @@ export async function runReviewer(task: Task, state: SwarmState, verbose = true)
         const result = await executeTool(b.name, b.input as Record<string, unknown>);
 
         if (b.name === 'done') {
-          const inp = b.input as { verdict: string; summary: string; findings?: ReviewerFindingItem[] };
+          const inp = b.input as { verdict: string; summary: string; detail?: string; findings?: ReviewerFindingItem[] };
           verdict    = inp.verdict ?? verdict;
           summary    = inp.summary ?? summary;
+          detail     = inp.detail  ?? detail;
           items      = inp.findings ?? [];
           calledDone = true;
+          calledDoneGlobal = true;
         }
 
         results.push({ type: 'tool_result', tool_use_id: b.id, content: result });
@@ -221,6 +249,17 @@ export async function runReviewer(task: Task, state: SwarmState, verbose = true)
       messages.push({ role: 'user', content: results });
       if (calledDone) break;
     }
+  }
+
+  // If the agent timed out without calling done, inject a placeholder so
+  // CHANGES_REQUESTED always has at least one actionable item.
+  if (!calledDoneGlobal && items.length === 0) {
+    items = [{
+      id: 'REV-TIMEOUT', severity: 'MEDIUM', category: 'correctness',
+      location: 'unknown',
+      issue: 'Review agent did not submit a verdict within the iteration limit.',
+      fix: 'Re-run this review task — this is an infrastructure failure, not a code issue.',
+    }];
   }
 
   const costUsd = tokensToDollars(model, totalInput, totalOutput) + cacheCost;
@@ -235,8 +274,8 @@ export async function runReviewer(task: Task, state: SwarmState, verbose = true)
 
   return {
     verdict: verdict as 'APPROVED' | 'CHANGES_REQUESTED',
-    summary, findings: items,
-    finding: buildFinding(task, verdict, summary, items),
+    summary, detail, findings: items,
+    finding: buildFinding(task, verdict, summary, detail, items),
     inputTokens: totalInput, outputTokens: totalOutput, costUsd,
   };
 }

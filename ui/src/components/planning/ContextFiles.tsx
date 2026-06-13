@@ -4,10 +4,9 @@ import type { ContextFile } from '../../hooks/useContextFiles';
 interface ContextFilesProps {
   projectMd:    ContextFile | null;
   contextFiles: ContextFile[];
-  onAskPm:      (message: string) => void;
 }
 
-export function ContextFiles({ projectMd, contextFiles, onAskPm }: ContextFilesProps) {
+export function ContextFiles({ projectMd, contextFiles }: ContextFilesProps) {
   const all: ContextFile[] = [
     ...(projectMd    ? [projectMd]    : []),
     ...contextFiles,
@@ -16,28 +15,31 @@ export function ContextFiles({ projectMd, contextFiles, onAskPm }: ContextFilesP
   return (
     <div className="csec">
       <div className="csec-label">
-        <span className="num">06</span> Context files
+        <span className="num">07</span> PM context sources
       </div>
       {all.length === 0
-        ? <div className="empty">None yet — created automatically as agents run</div>
-        : <div className="ctx-files">
-            {all.map(f => <ContextRow key={f.relPath} file={f} onAskPm={onAskPm} />)}
-          </div>}
+        ? <div className="empty">None discovered — add CLAUDE.md or CONTEXT.md files in subdirectories to give the PM richer context</div>
+        : <>
+            <div className="ctx-sources-hint">Pre-loaded before planning · click a file to expand</div>
+            <div className="ctx-files">
+              {all.map(f => <ContextRow key={f.relPath} file={f} />)}
+            </div>
+          </>
+      }
     </div>
   );
 }
 
-function ContextRow({ file, onAskPm }: { file: ContextFile; onAskPm: (msg: string) => void }) {
-  const [open, setOpen] = useState(false);
+function ContextRow({ file }: { file: ContextFile }) {
+  const [open,    setOpen]    = useState(false);
+  const [copied,  setCopied]  = useState(false);
 
-  const handleAsk = (e: React.MouseEvent) => {
+  const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const snippet = file.content.length > 1200
-      ? file.content.slice(0, 1200) + '\n…(truncated)'
-      : file.content;
-    onAskPm(
-      `Please review \`${file.relPath}\` and suggest any updates based on our discussion.\n\nCurrent content:\n\`\`\`\n${snippet}\n\`\`\``
-    );
+    navigator.clipboard.writeText(file.relPath).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
   };
 
   return (
@@ -46,7 +48,9 @@ function ContextRow({ file, onAskPm }: { file: ContextFile; onAskPm: (msg: strin
         <span className="ctx-file-chevron">{open ? '▾' : '▸'}</span>
         <span className="ctx-file-path">{file.relPath}</span>
         <span className="ctx-file-spacer" />
-        <button className="ctx-ask" onClick={handleAsk}>ask PM</button>
+        <button className="ctx-copy" onClick={handleCopy} title="Copy file path">
+          {copied ? '✓' : 'copy path'}
+        </button>
       </div>
       {open && <pre className="ctx-file-body">{file.content}</pre>}
     </div>

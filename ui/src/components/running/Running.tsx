@@ -1,13 +1,58 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
+import type React from 'react';
 import { useRunSimulation }  from '../../hooks/useRunSimulation';
 import { useRealRun }        from '../../hooks/useRealRun';
 import { TaskGraph }         from './TaskGraph';
 import { AgentsPanel }       from './AgentsPanel';
 import { FindingsFeed }      from './FindingsFeed';
 import { ChangesPanel }      from './ChangesPanel';
+import { PermissionGate }    from './PermissionGate';
 import { Message }           from '../planning/Message';
 import { IconSend }          from '../common/icons';
-import type { RunStatus }    from '../../types';
+import type { RunStatus, SessionSnapshot, Task, AgentState, Finding, ChatMessage } from '../../types';
+
+// ─── Drag-to-resize ──────────────────────────────────────────────────────────
+
+function useDragResize(
+  initialPx: number,
+  min: number,
+  max: number,
+  storageKey: string,
+  sign: 1 | -1 = 1,
+): [number, (e: React.MouseEvent) => void] {
+  const [px, setPx] = useState<number>(() => {
+    try {
+      const v = localStorage.getItem(storageKey);
+      if (v) return Math.min(max, Math.max(min, +v));
+    } catch {}
+    return initialPx;
+  });
+  const pxRef = useRef(px);
+  useEffect(() => { pxRef.current = px; }, [px]);
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX  = e.clientX;
+    const startPx = pxRef.current;
+    const clamp   = (v: number) => Math.min(max, Math.max(min, v));
+    const onMove  = (ev: MouseEvent) => setPx(clamp(startPx + sign * (ev.clientX - startX)));
+    const onUp    = (ev: MouseEvent) => {
+      const final = clamp(startPx + sign * (ev.clientX - startX));
+      setPx(final);
+      try { localStorage.setItem(storageKey, String(final)); } catch {}
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup',   onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup',   onUp);
+  }, [max, min, sign, storageKey]);
+
+  return [px, onMouseDown];
+}
+
+function DragHandle({ gridColumn, onMouseDown }: { gridColumn: number; onMouseDown: (e: React.MouseEvent) => void }) {
+  return <div className="run-drag-handle" style={{ gridColumn }} onMouseDown={onMouseDown} />;
+}
 
 // ─── Shared view ──────────────────────────────────────────────────────────────
 
@@ -28,6 +73,7 @@ interface RunViewProps {
   onPause?:      () => void;
   onAbort?:      () => void;
   onPrCreated?:  (url: string) => void;
+  onRequestChanges?: (message: string) => void;
 }
 
 // ─── Run summary strip ────────────────────────────────────────────────────────
@@ -48,7 +94,8 @@ function RunSummary({ tasks, findings, spend, elapsedMs }: {
   elapsedMs: number | null | undefined;
 }) {
   const total  = tasks.length;
-  const failed = tasks.filter(t => t.status === 'failed' || t.status === 'blocked').length;
+  // 'blocked' = "changes requested" — the task did its job; only true failures count here.
+  const failed = tasks.filter(t => t.status === 'failed').length;
   const allOk  = failed === 0;
   const findingsFailed = findings.filter(f => f.verdict === 'fail' || f.verdict === 'changes').length;
   const overallOk = allOk && findingsFailed === 0;
@@ -92,6 +139,23 @@ function ShipModal({ branchName, onClose, onShipped, onPrCreated }: {
   const [prState,   setPrState]   = useState<ActionState>('idle');
   const [prErr,     setPrErr]     = useState<string | null>(null);
   const [prUrl,     setPrUrl]     = useState<string | null>(null);
+  const [ghMissing, setGhMissing] = useState(false);
+
+  const [existingPr, setExistingPr] = useState<{ url: string; state: string } | null>(null);
+
+  // Check whether the branch's work is already shipped — three signals:
+  //   pushed:       branch exists on the remote (ls-remote, not stale cache)
+  //   alreadyInMain: all commits landed via cherry-pick / merge (git cherry)
+  //   pr:           a PR was opened (implies a prior push)
+  useEffect(() => {
+    fetch('/run/branch-pushed')
+      .then(r => r.json())
+      .then((d: { pushed: boolean; alreadyInMain: boolean; pr: { url: string; state: string } | null }) => {
+        if (d.pushed || d.alreadyInMain) setPushState('ok');
+        if (d.pr) setExistingPr(d.pr);
+      })
+      .catch(() => {}); // best-effort
+  }, []);
 
   const push = useCallback(() => {
     setPushState('pending'); setPushErr(null);
@@ -105,10 +169,10 @@ function ShipModal({ branchName, onClose, onShipped, onPrCreated }: {
   }, [onShipped]);
 
   const createPr = useCallback(() => {
-    setPrState('pending'); setPrErr(null);
+    setPrState('pending'); setPrErr(null); setGhMissing(false);
     fetch('/run/pr', { method: 'POST' })
       .then(r => r.json())
-      .then((d: { ok: boolean; url?: string; error?: string }) => {
+      .then((d: { ok: boolean; url?: string; error?: string; ghNotInstalled?: boolean }) => {
         if (d.ok) {
           const url = d.url ?? null;
           setPrState('ok'); setPrUrl(url);
@@ -116,7 +180,13 @@ function ShipModal({ branchName, onClose, onShipped, onPrCreated }: {
           if (url) setTimeout(() => { onPrCreated?.(url); onClose(); }, 1200);
           else     setTimeout(onClose, 800);
         } else {
-          setPrState('err'); setPrErr(d.error ?? 'PR creation failed');
+          setPrState('err');
+          if (d.ghNotInstalled) {
+            setGhMissing(true);
+            setPrErr(null); // use the dedicated ghMissing UI
+          } else {
+            setPrErr(d.error ?? 'PR creation failed');
+          }
         }
       })
       .catch((e: Error) => { setPrState('err'); setPrErr(e.message); });
@@ -160,8 +230,9 @@ function ShipModal({ branchName, onClose, onShipped, onPrCreated }: {
                     Opens a PR on GitHub so changes can be reviewed before merging into main.
                   </div>
                 </div>
-                {prState === 'ok' && prUrl ? (
-                  <a href={prUrl} target="_blank" rel="noopener noreferrer"
+                {(prState === 'ok' && prUrl) || existingPr ? (
+                  <a href={(prState === 'ok' ? prUrl : existingPr?.url) ?? '#'}
+                     target="_blank" rel="noopener noreferrer"
                      className="btn sm primary" style={{ textDecoration: 'none', flexShrink: 0 }}>
                     View PR ↗
                   </a>
@@ -177,6 +248,15 @@ function ShipModal({ branchName, onClose, onShipped, onPrCreated }: {
                 )}
               </div>
               {prState === 'err' && prErr && <div style={errStyle}>⚠ {prErr}</div>}
+              {ghMissing && (
+                <div style={{ ...errStyle, lineHeight: 1.6 }}>
+                  <strong>GitHub CLI not installed.</strong> To enable PR creation:
+                  <br />
+                  <code style={{ fontSize: 10 }}>brew install gh</code>
+                  {' '}then{' '}
+                  <code style={{ fontSize: 10 }}>gh auth login</code>
+                </div>
+              )}
             </div>
 
             {/* Divider */}
@@ -419,24 +499,28 @@ function RunControls({ status, tasks, onPause, onAbort, onToggleChanges, showCha
   );
 }
 
-function PmChat({ pmMsgs, status }: { pmMsgs: RunViewProps['pmMsgs']; status: RunStatus }) {
-  const chatRef  = useRef<HTMLDivElement>(null);
-  const taRef    = useRef<HTMLTextAreaElement>(null);
+function PmChat({ pmMsgs, status, open, onToggle }: {
+  pmMsgs:   RunViewProps['pmMsgs'];
+  status:   RunStatus;
+  open:     boolean;
+  onToggle: () => void;
+}) {
+  const chatRef = useRef<HTMLDivElement>(null);
+  const taRef   = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState('');
   const [busy,  setBusy]  = useState(false);
 
-  // Auto-scroll when new messages arrive
   useEffect(() => {
-    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
-  }, [pmMsgs]);
+    if (open && chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+  }, [pmMsgs, open]);
 
-  // Auto-resize textarea
   useEffect(() => {
+    if (!open) return;
     const ta = taRef.current;
     if (!ta) return;
-    ta.style.height = 'auto';
-    ta.style.height = `${ta.scrollHeight}px`;
-  }, [draft]);
+    ta.style.height = '0';
+    ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
+  }, [draft, open]);
 
   const disabled = status === 'done' || status === 'aborted';
 
@@ -452,9 +536,36 @@ function PmChat({ pmMsgs, status }: { pmMsgs: RunViewProps['pmMsgs']; status: Ru
     }).finally(() => setBusy(false));
   };
 
+  if (!open) {
+    return (
+      <div className="run-chat run-chat-collapsed" onClick={onToggle} title="Expand PM Chat">
+        <span style={{ fontSize: 16, color: 'var(--tx-3)', lineHeight: 1 }}>‹</span>
+        <span style={{
+          writingMode: 'vertical-rl', transform: 'rotate(180deg)',
+          fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--tx-3)',
+          letterSpacing: '0.12em', textTransform: 'uppercase', userSelect: 'none',
+          marginTop: 8,
+        }}>PM Chat</span>
+        {pmMsgs.length > 0 && (
+          <span style={{
+            marginTop: 10, fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--blue)',
+            background: 'rgba(77,141,244,0.14)', borderRadius: 8, padding: '2px 5px', lineHeight: 1.3,
+          }}>{pmMsgs.length}</span>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="run-chat">
-      <div className="panel-head"><span>PM Chat</span></div>
+      <div className="panel-head">
+        <span>PM Chat</span>
+        <button
+          onClick={onToggle}
+          title="Collapse PM Chat"
+          style={{ marginLeft: 'auto', fontSize: 16, color: 'var(--tx-3)', lineHeight: 1, padding: '0 2px', background: 'none', border: 'none', cursor: 'pointer' }}
+        >›</button>
+      </div>
       <div className="chat" style={{ minHeight: 0 }}>
         <div className="chat-scroll" ref={chatRef}>
           {pmMsgs.length === 0 && (
@@ -468,7 +579,6 @@ function PmChat({ pmMsgs, status }: { pmMsgs: RunViewProps['pmMsgs']; status: Ru
           <div className="composer-row">
             <textarea
               ref={taRef}
-              rows={1}
               value={draft}
               onChange={e => setDraft(e.target.value)}
               onKeyDown={e => {
@@ -499,9 +609,26 @@ function RunView({
   project, tier, tasks, agents, findings, pmMsgs,
   spend, spendCap, status, connected = true,
   alreadyPushed, branchName, elapsedMs,
-  onPause, onAbort, onPrCreated,
+  onPause, onAbort, onPrCreated, onRequestChanges,
 }: RunViewProps) {
   const [showChanges, setShowChanges] = useState(false);
+
+  // ── Hover-to-highlight ────────────────────────────────────────────────────
+  const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
+
+  // ── Resizable panes ────────────────────────────────────────────────────────
+  const [leftPx,    onDragLeft] = useDragResize(340, 180, 520, 'swarm-left-px',   1);
+  const [chatPx,    onDragChat] = useDragResize(300, 160, 480, 'swarm-chat-px',  -1);
+  const [chatOpen, setChatOpen] = useState<boolean>(() => {
+    try { return localStorage.getItem('swarm-chat-open') !== 'false'; } catch { return true; }
+  });
+  const toggleChat = useCallback(() => setChatOpen(v => {
+    const next = !v;
+    try { localStorage.setItem('swarm-chat-open', String(next)); } catch {}
+    return next;
+  }), []);
+
+  const gridCols = `${leftPx}px 4px 1fr ${chatOpen ? `4px ${chatPx}px` : '1px 36px'}`;
 
   const tierColour = tier === 'tweak' ? 'blue' : tier === 'greenfield' ? 'green' : 'amber';
   const statusMeta: Record<RunStatus, { cls: string; label: string }> = {
@@ -517,13 +644,13 @@ function RunView({
   );
 
   return (
-    <div className="run">
+    <div className="run" style={{ gridTemplateColumns: gridCols }}>
       <div className="run-head">
         <span className="pname">{project}</span>
         <span className={`badge ${tierColour}`}>{tier.toUpperCase()}</span>
-        {!connected && (
-          <span style={{ fontSize: 11, color: 'var(--amber)', fontFamily: 'var(--mono)', marginLeft: 4 }}>
-            ⚠ reconnecting…
+        {branchName && (
+          <span className="run-branch" title={branchName}>
+            ⎇ {branchName.replace(/^swarm\//, '')}
           </span>
         )}
         <span className={`run-status ${cls}`}>
@@ -552,23 +679,42 @@ function RunView({
         </div>
       </div>
 
+      {/* Disconnected banner — shown when the SSE feed is down and data may be stale.
+          Disappears within ~1 s of the server coming back (first back-off interval). */}
+      {!connected && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '6px 18px',
+          background: 'var(--amber-d)',
+          borderBottom: '1px solid var(--amber)',
+          fontFamily: 'var(--mono)', fontSize: 11,
+          color: 'var(--amber)',
+          animation: 'softpulse 1.8s infinite',
+        }}>
+          <span>⟳</span>
+          <span>Server offline — reconnecting… displayed data may be stale</span>
+        </div>
+      )}
+
       {status === 'done' && (
         <RunSummary tasks={tasks} findings={findings} spend={spend} elapsedMs={elapsedMs} />
       )}
 
       {showChanges ? (
-        <ChangesPanel />
+        <ChangesPanel onRequestChanges={onRequestChanges} />
       ) : (
         <>
-          <TaskGraph tasks={tasks} agentSteps={agentSteps} />
           <div className="run-right">
-            <AgentsPanel agents={agents} status={status} tasks={tasks} />
-            <FindingsFeed findings={findings} tasks={tasks} />
+            <AgentsPanel agents={agents} status={status} tasks={tasks} hoveredTaskId={hoveredTaskId} />
+            <FindingsFeed findings={findings} tasks={tasks} hoveredTaskId={hoveredTaskId} />
           </div>
+          <DragHandle gridColumn={2} onMouseDown={onDragLeft} />
+          <TaskGraph tasks={tasks} agentSteps={agentSteps} hoveredTaskId={hoveredTaskId} onHoverTask={setHoveredTaskId} />
+          {chatOpen && <DragHandle gridColumn={4} onMouseDown={onDragChat} />}
         </>
       )}
 
-      <PmChat pmMsgs={pmMsgs} status={status} />
+      <PmChat pmMsgs={pmMsgs} status={status} open={chatOpen} onToggle={toggleChat} />
     </div>
   );
 }
@@ -653,19 +799,119 @@ function Code({ children }: { children: React.ReactNode }) {
   );
 }
 
+// ─── Historical run view (frozen snapshot) ────────────────────────────────────
+
+function computeHistoricalLanes(tasks: SessionSnapshot['tasks']): Map<string, number> {
+  const lanes = new Map<string, number>();
+  let nextLane = 0;
+  const assign = (id: string, lane: number) => {
+    if (lanes.has(id)) return;
+    lanes.set(id, lane);
+    tasks.filter(t => t.depends_on.includes(id)).forEach((child, i) => {
+      assign(child.id, lane + i);
+    });
+  };
+  tasks.filter(t => t.depends_on.length === 0).forEach(t => { assign(t.id, nextLane++); });
+  tasks.forEach(t => { if (!lanes.has(t.id)) lanes.set(t.id, 0); });
+  return lanes;
+}
+
+function sessionToRunViewData(session: SessionSnapshot): {
+  tasks:    Task[];
+  agents:   Record<string, AgentState>;
+  findings: Finding[];
+  pmMsgs:   ChatMessage[];
+} {
+  const verdictMap: Record<string, Finding['verdict']> = {
+    COMPLETE: 'complete', PASS: 'pass', APPROVED: 'pass',
+    FAILED: 'fail', FAIL: 'fail', CHANGES_REQUESTED: 'changes',
+  };
+
+  const lanes = computeHistoricalLanes(session.tasks);
+  const tasks: Task[] = session.tasks.map(t => ({
+    id:       t.id,
+    title:    t.title,
+    assignee: t.assignee,
+    deps:     t.depends_on,
+    lane:     lanes.get(t.id) ?? 0,
+    status:   t.status as Task['status'],
+    late:     false,
+  }));
+
+  const agents: Record<string, AgentState> = {};
+  const blank: AgentState = { active: false, step: '', activeAt: null, verdict: null, inputTokens: null, outputTokens: null, costUsd: null, contextPct: null };
+  for (const t of session.tasks) {
+    if (!agents[t.assignee]) agents[t.assignee] = { ...blank };
+    if (t.finding_verdict) {
+      const v = verdictMap[(t.finding_verdict ?? '').toUpperCase()] ?? 'complete';
+      agents[t.assignee] = { ...agents[t.assignee], verdict: v };
+    }
+  }
+
+  const findings: Finding[] = session.tasks
+    .filter(t => t.result_ref)
+    .map(t => ({
+      key:     `${t.id}-finding`,
+      agent:   t.assignee,
+      task:    t.id,
+      verdict: verdictMap[(t.finding_verdict ?? '').toUpperCase()] ?? 'complete',
+      summary: t.finding_summary ?? t.result_ref ?? '',
+      // Path is relative to .swarm/ — the /findings endpoint resolves it
+      path:    `sessions/${session.id}/findings/${t.id}.md`,
+    }))
+    .reverse();
+
+  const pmMsgs: ChatMessage[] = [
+    ...(session.goal ? [{ from: 'pm' as const, text: `Goal: ${session.goal}` }] : []),
+    ...session.log
+      .filter(e => e.actor === 'pm' || e.actor === 'user')
+      .map(e => ({ from: e.actor === 'pm' ? 'pm' as const : 'you' as const, text: e.event })),
+  ];
+
+  return { tasks, agents, findings, pmMsgs };
+}
+
+function HistoricalRunView({ session }: { session: SessionSnapshot }) {
+  const { tasks, agents, findings, pmMsgs } = sessionToRunViewData(session);
+  return (
+    <RunView
+      project       = {session.project}
+      tier          = {session.tier}
+      tasks         = {tasks}
+      agents        = {agents}
+      findings      = {findings}
+      pmMsgs        = {pmMsgs}
+      spend         = {0}
+      spendCap      = {0}
+      status        = {'done' as RunStatus}
+      connected     = {false}
+      alreadyPushed = {true}
+      branchName    = {session.branchName}
+      elapsedMs     = {session.elapsedMs ?? null}
+    />
+  );
+}
+
 // ─── Running: real backend or server-down screen ──────────────────────────────
 
-export function Running({ onPrCreated, onRunDone, isInitiating }: { onPrCreated?: (url: string) => void; onRunDone?: () => void; isInitiating?: boolean }) {
-  const { serverStatus, state } = useRealRun();
+export function Running({ onPrCreated, onRunDone, onRequestChanges, isInitiating, noActiveRun, historicalSession }: { onPrCreated?: (url: string) => void; onRunDone?: () => void; onRequestChanges?: (message: string) => void; isInitiating?: boolean; noActiveRun?: boolean; historicalSession?: SessionSnapshot }) {
+  const { serverStatus, state, resolvePermission } = useRealRun();
 
   // Notify parent once when the run transitions to done.
+  // Reset the flag when a new run starts so it fires again on subsequent runs.
   const runDoneNotified = useRef(false);
   useEffect(() => {
+    if (state?.status === 'running') runDoneNotified.current = false;
     if (state?.status === 'done' && !runDoneNotified.current) {
       runDoneNotified.current = true;
       onRunDone?.();
     }
   }, [state?.status, onRunDone]);
+
+  // Historical mode: render frozen snapshot, bypass live SSE entirely
+  if (historicalSession) {
+    return <HistoricalRunView session={historicalSession} />;
+  }
 
   if (serverStatus === 'probing') {
     return (
@@ -681,25 +927,27 @@ export function Running({ onPrCreated, onRunDone, isInitiating }: { onPrCreated?
     return <ServerDown />;
   }
 
-  // Server is up but no run has been started yet (state.json doesn't exist or tasks is empty).
-  if (state.tasks.length === 0 && state.status === 'running') {
-    if (isInitiating) {
-      // Execute was just clicked — classifier is running, first task hasn't landed yet.
-      return (
-        <div style={{
-          height: '100%', display: 'flex', flexDirection: 'column',
-          alignItems: 'center', justifyContent: 'center', gap: 16, padding: 40,
-        }}>
-          <span className="ps-spinner" style={{ width: 22, height: 22, borderWidth: 2.5 }} />
-          <div style={{ color: 'var(--tx-2)', fontSize: 13, fontFamily: 'var(--mono)' }}>
-            Initialising run…
-          </div>
-          <div style={{ color: 'var(--tx-3)', fontSize: 12, maxWidth: 300, textAlign: 'center', lineHeight: 1.6 }}>
-            Classifying goal and building task graph
-          </div>
+  // Execute was just clicked — show spinner regardless of stale previous-run state.
+  // isInitiating stays true until run.classified / task.created fires from the server.
+  if (isInitiating) {
+    return (
+      <div style={{
+        height: '100%', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', gap: 16, padding: 40,
+      }}>
+        <span className="ps-spinner" style={{ width: 22, height: 22, borderWidth: 2.5 }} />
+        <div style={{ color: 'var(--tx-2)', fontSize: 13, fontFamily: 'var(--mono)' }}>
+          Initialising run…
         </div>
-      );
-    }
+        <div style={{ color: 'var(--tx-3)', fontSize: 12, maxWidth: 300, textAlign: 'center', lineHeight: 1.6 }}>
+          Classifying goal and building task graph
+        </div>
+      </div>
+    );
+  }
+
+  // Show "no active run" when the planning session was reset or no run has started yet.
+  if (noActiveRun || (state.tasks.length === 0 && state.status === 'running')) {
     return (
       <div style={{
         height: '100%', display: 'flex', flexDirection: 'column',
@@ -722,23 +970,32 @@ export function Running({ onPrCreated, onRunDone, isInitiating }: { onPrCreated?
   const resume = () => fetch('/run/resume', { method: 'POST' }).catch(() => {});
 
   return (
-    <RunView
-      project        = {state.project}
-      tier           = {state.tier}
-      tasks          = {state.tasks}
-      agents         = {state.agents}
-      findings       = {state.findings}
-      pmMsgs         = {state.pmMsgs}
-      spend          = {state.spend}
-      spendCap       = {state.spendCap}
-      status         = {state.status}
-      connected      = {state.connected}
-      alreadyPushed  = {state.pushed}
-      branchName     = {state.branchName}
-      elapsedMs      = {state.elapsedMs}
-      onPause        = {state.status === 'paused' ? resume : pause}
-      onAbort        = {abort}
-      onPrCreated    = {onPrCreated}
-    />
+    <>
+      <RunView
+        project        = {state.project}
+        tier           = {state.tier}
+        tasks          = {state.tasks}
+        agents         = {state.agents}
+        findings       = {state.findings}
+        pmMsgs         = {state.pmMsgs}
+        spend          = {state.spend}
+        spendCap       = {state.spendCap}
+        status         = {state.status}
+        connected      = {state.connected}
+        alreadyPushed  = {state.pushed}
+        branchName     = {state.branchName}
+        elapsedMs      = {state.elapsedMs}
+        onPause        = {state.status === 'paused' ? resume : pause}
+        onAbort        = {abort}
+        onPrCreated    = {onPrCreated}
+        onRequestChanges = {onRequestChanges}
+      />
+      {state.pendingPermission && (
+        <PermissionGate
+          request   = {state.pendingPermission}
+          onResolve = {resolvePermission}
+        />
+      )}
+    </>
   );
 }

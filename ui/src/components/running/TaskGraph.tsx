@@ -1,17 +1,47 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import type { Task } from '../../types';
-import { PERSONAS } from '../../data/personas';
+import { resolveAgentPersona } from '../../data/personas';
 import { STATUS_COLOR, STATUS_LABEL } from '../../data/runScript';
 
 const TRUNCATE = 72; // chars shown before "more" toggle appears
 
-interface Edge { from: { x: number; y: number }; to: { x: number; y: number }; key: string; color: string }
+interface Edge { from: { x: number; y: number }; to: { x: number; y: number }; key: string; color: string; fromId: string; toId: string }
 
-function TaskCard({ t, agentSteps }: { t: Task; agentSteps: Record<string, string> }) {
+// Returns the set of task IDs that should be highlighted when `taskId` is hovered:
+// the task itself, its explicit deps, explicit dependents, and one level of inferred
+// fix/check chain siblings.
+function getConnectedSet(taskId: string, tasks: Task[]): Set<string> {
+  const connected = new Set<string>([taskId]);
+  const taskById  = new Map(tasks.map(t => [t.id, t]));
+  const hovered   = taskById.get(taskId);
+  if (!hovered) return connected;
+
+  hovered.deps.forEach(d => connected.add(d));
+  tasks.forEach(t => { if (t.deps.includes(taskId)) connected.add(t.id); });
+
+  // Inferred parent (fix/check naming convention)
+  const fixM = taskId.match(/^t_fix_(.+)$/);
+  const chkM = taskId.match(/^t_chk_(.+)$/);
+  const inferParent = fixM ? fixM[1] : chkM ? `t_fix_${chkM[1]}` : null;
+  if (inferParent) connected.add(inferParent);
+
+  // Inferred children of hovered
+  tasks.forEach(t => {
+    const fm = t.id.match(/^t_fix_(.+)$/);
+    const cm = t.id.match(/^t_chk_(.+)$/);
+    const p  = fm ? fm[1] : cm ? `t_fix_${cm[1]}` : null;
+    if (p === taskId) connected.add(t.id);
+  });
+
+  return connected;
+}
+
+function TaskCard({ t, agentSteps, isHovered }: { t: Task; agentSteps: Record<string, string>; isHovered?: boolean }) {
   const [expanded, setExpanded] = useState(false);
-  const p       = PERSONAS[t.assignee];
-  const color   = STATUS_COLOR[t.status];
+  const p        = resolveAgentPersona(t.assignee);
+  const color    = STATUS_COLOR[t.status];
   const isActive = t.status === 'in_progress';
+  const isSkipped = t.status === 'skipped';
   const step    = isActive ? agentSteps[t.assignee] : null;
   const needsTruncation = t.title.length > TRUNCATE;
   const displayTitle = needsTruncation && !expanded
@@ -19,10 +49,14 @@ function TaskCard({ t, agentSteps }: { t: Task; agentSteps: Record<string, strin
     : t.title;
 
   return (
-    <div className="tnode-card">
+    <div className="tnode-card" style={isHovered ? {
+      borderColor: 'rgba(77,141,244,0.7)',
+      boxShadow: '0 0 0 1px rgba(77,141,244,0.18), 0 0 18px -4px rgba(77,141,244,0.35)',
+      background: '#0c1420',
+    } : isSkipped ? { opacity: 0.55, borderStyle: 'dashed' } : {}}>
       <div className="tnode-top">
-        <span className="tnode-id">{t.id}</span>
-        <span className="tnode-title">{displayTitle}</span>
+        <span className="tnode-id" style={isSkipped ? { textDecoration: 'line-through' } : {}}>{t.id}</span>
+        <span className="tnode-title" style={isSkipped ? { color: 'var(--tx-3)' } : {}}>{displayTitle}</span>
       </div>
       {needsTruncation && (
         <button
@@ -39,11 +73,16 @@ function TaskCard({ t, agentSteps }: { t: Task; agentSteps: Record<string, strin
       )}
       <div className="tnode-bottom">
         <span className="tnode-assignee">
-          <span className="pdot" style={{ background: p?.color }} />
+          <span className="pdot" style={{ background: isSkipped ? 'var(--tx-3)' : p?.color }} />
           {p?.name}
         </span>
         <span className="tnode-status" style={{ color }}>{STATUS_LABEL[t.status]}</span>
       </div>
+      {isSkipped && t.skip_reason && (
+        <div className="tnode-step" style={{ color: 'var(--tx-3)', fontStyle: 'italic' }}>
+          {t.skip_reason.replace(/^Skipped: /, '')}
+        </div>
+      )}
       {step && (
         <div className="tnode-step" style={{ color: p?.color }}>
           {step}<span className="cursor" style={{ color: p?.color }} />
@@ -53,12 +92,44 @@ function TaskCard({ t, agentSteps }: { t: Task; agentSteps: Record<string, strin
   );
 }
 
-export function TaskGraph({ tasks, agentSteps }: { tasks: Task[]; agentSteps: Record<string, string> }) {
-  const innerRef = useRef<HTMLDivElement>(null);
-  const dotRefs  = useRef<Record<string, HTMLDivElement | null>>({});
-  const [edges, setEdges] = useState<Edge[]>([]);
+// Per-lane dot offset from the rail's left edge (lane 0 always at BASE_OFFSET).
+const BASE_OFFSET = 18;
+const MAX_LANE_PX = 20; // unconstrained spacing between lanes
+const MIN_LANE_PX =  6; // minimum spacing before dots fully merge
+
+function computeRail(scrollW: number, maxLane: number): { railW: number; lanePx: number } {
+  if (maxLane === 0) return { railW: 38, lanePx: MAX_LANE_PX };
+  // Natural (unconstrained) rail width needed for this lane count
+  const natural = BASE_OFFSET + maxLane * MAX_LANE_PX + 10;
+  // Cap to 22% of the column's visible width, but never below 32px
+  const budget  = Math.max(32, Math.round(scrollW * 0.22));
+  const railW   = Math.min(natural, budget);
+  const lanePx  = Math.max(MIN_LANE_PX, (railW - BASE_OFFSET) / maxLane);
+  return { railW, lanePx };
+}
+
+export function TaskGraph({ tasks, agentSteps, hoveredTaskId, onHoverTask }: {
+  tasks: Task[];
+  agentSteps: Record<string, string>;
+  hoveredTaskId: string | null;
+  onHoverTask: (id: string | null) => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const innerRef  = useRef<HTMLDivElement>(null);
+  const dotRefs   = useRef<Record<string, HTMLDivElement | null>>({});
+  const [edges,  setEdges]  = useState<Edge[]>([]);
+  const [railW,  setRailW]  = useState(56);
+  const [lanePx, setLanePx] = useState(MAX_LANE_PX);
 
   const recompute = useCallback(() => {
+    // ── Rail geometry (responsive to column width) ───────────────────────────
+    const scrollW = scrollRef.current?.clientWidth ?? 0;
+    const maxLane = tasks.length > 0 ? Math.max(0, ...tasks.map(t => t.lane)) : 0;
+    const { railW: rw, lanePx: lp } = computeRail(scrollW, maxLane);
+    setRailW(rw);
+    setLanePx(lp);
+
+    // ── Edge positions ───────────────────────────────────────────────────────
     const inner = innerRef.current;
     if (!inner) return;
     const base = inner.getBoundingClientRect();
@@ -68,57 +139,127 @@ export function TaskGraph({ tasks, agentSteps }: { tasks: Task[]; agentSteps: Re
       if (el) { const r = el.getBoundingClientRect(); pos[t.id] = { x: r.left - base.left + r.width / 2, y: r.top - base.top + r.height / 2 }; }
     });
     const es: Edge[] = [];
+    const taskById = new Map(tasks.map(t => [t.id, t]));
+
+    // ── Dep-declared edges ──────────────────────────────────────────────────
     tasks.forEach(t => t.deps.forEach(d => {
-      if (pos[d] && pos[t.id]) {
-        es.push({ from: pos[d], to: pos[t.id], key: `${d}-${t.id}`, color: STATUS_COLOR[t.status] === 'var(--grey)' ? '#2c323b' : 'rgba(255,255,255,0.14)' });
-      }
+      if (!pos[d] || !pos[t.id]) return;
+      const parent = taskById.get(d);
+      // Edges from a changes-req parent render in amber to show causal origin.
+      const color = parent?.status === 'blocked'
+        ? 'rgba(245,160,55,0.55)'
+        : STATUS_COLOR[t.status] === 'var(--grey)' ? '#2c323b' : 'rgba(255,255,255,0.14)';
+      es.push({ from: pos[d], to: pos[t.id], key: `${d}-${t.id}`, color, fromId: d, toId: t.id });
     }));
+
+    // ── Inferred structural edges ───────────────────────────────────────────
+    // The PM doesn't always set depends_on on dynamically spawned fix/check
+    // tasks, so recover the causal link from the naming convention:
+    //   t_fix_X  → parent is X          (created to fix issues raised by X)
+    //   t_chk_X  → parent is t_fix_X    (created to verify the fix of X)
+    tasks.forEach(t => {
+      const fixM = t.id.match(/^t_fix_(.+)$/);
+      const chkM = t.id.match(/^t_chk_(.+)$/);
+      const inferParentId = fixM ? fixM[1]
+                          : chkM ? `t_fix_${chkM[1]}`
+                          : null;
+      if (!inferParentId) return;
+      if (t.deps.includes(inferParentId)) return; // dep edge already covers it
+      if (!pos[inferParentId] || !pos[t.id]) return;
+      es.push({
+        from:   pos[inferParentId],
+        to:     pos[t.id],
+        key:    `inferred-${inferParentId}-${t.id}`,
+        color:  'rgba(245,160,55,0.55)',   // amber — always part of a fix chain
+        fromId: inferParentId,
+        toId:   t.id,
+      });
+    });
+
     setEdges(es);
   }, [tasks]);
 
   useEffect(() => { const id = requestAnimationFrame(recompute); return () => cancelAnimationFrame(id); }, [recompute]);
   useEffect(() => {
     const ro = new ResizeObserver(recompute);
-    if (innerRef.current) ro.observe(innerRef.current);
+    if (innerRef.current)  ro.observe(innerRef.current);
+    if (scrollRef.current) ro.observe(scrollRef.current); // tracks column width changes
     window.addEventListener('resize', recompute);
     return () => { ro.disconnect(); window.removeEventListener('resize', recompute); };
   }, [recompute]);
 
-  const doneCount = tasks.filter(t => t.status === 'done').length;
+  // 'blocked' means "changes requested" — the task finished its work and handed off.
+  // Count it alongside 'done' so the total reflects what's actually complete.
+  const doneCount    = tasks.filter(t => t.status === 'done' || t.status === 'blocked').length;
+  const failCount    = tasks.filter(t => t.status === 'failed').length;
+  const skippedCount = tasks.filter(t => t.status === 'skipped').length;
+  const countLabel = tasks.length === 0
+    ? ''
+    : [
+        `${doneCount}/${tasks.length} done`,
+        failCount    > 0 ? `${failCount} failed`  : '',
+        skippedCount > 0 ? `${skippedCount} skipped` : '',
+      ].filter(Boolean).join(' · ');
+
+  const connected = hoveredTaskId ? getConnectedSet(hoveredTaskId, tasks) : null;
 
   return (
     <div className="run-graph">
       <div className="panel-head">
         <span>Task Graph</span>
         <span className="spacer" />
-        <span className="mono" style={{ fontSize: 11, color: 'var(--tx-3)', textTransform: 'none', letterSpacing: 0 }}>{doneCount}/{tasks.length} done</span>
+        <span className="mono" style={{ fontSize: 11, color: 'var(--tx-3)', textTransform: 'none', letterSpacing: 0 }}>{countLabel}</span>
       </div>
-      <div className="graph-scroll">
-        <div className="graph-inner" ref={innerRef}>
+      <div className="graph-scroll" ref={scrollRef}>
+        <div
+          className="graph-inner"
+          ref={innerRef}
+          onMouseLeave={() => onHoverTask(null)}
+        >
           <svg className="graph-edges">
             {edges.map(e => {
+              const lit = !connected || (connected.has(e.fromId) && connected.has(e.toId));
               const midY = (e.from.y + e.to.y) / 2;
               const d = `M ${e.from.x} ${e.from.y} C ${e.from.x} ${midY}, ${e.to.x} ${midY}, ${e.to.x} ${e.to.y}`;
-              return <path key={e.key} d={d} fill="none" stroke={e.color} strokeWidth="1.5" />;
+              return (
+                <path
+                  key={e.key} d={d} fill="none"
+                  stroke={lit ? e.color : 'rgba(255,255,255,0.04)'}
+                  strokeWidth={lit && (e.fromId === hoveredTaskId || e.toId === hoveredTaskId) ? 2.5 : 1.5}
+                  style={{ transition: 'stroke 0.15s, stroke-width 0.15s' }}
+                />
+              );
             })}
           </svg>
-          {tasks.map(t => (
-            <div key={t.id} className={`tnode ${t.status} ${t.late ? 'anim-in' : ''}`}>
-              <div className="tnode-rail">
+          {tasks.map(t => {
+            const isHovered = t.id === hoveredTaskId;
+            const dimmed    = connected != null && !connected.has(t.id);
+            return (
+              <div
+                key={t.id}
+                className={`tnode ${t.status} ${t.late ? 'anim-in' : ''}`}
+                style={{ opacity: dimmed ? 0.15 : 1, transition: 'opacity 0.15s' }}
+                onMouseEnter={() => onHoverTask(t.id)}
+              >
                 <div
-                  className="tnode-dot"
-                  ref={el => { dotRefs.current[t.id] = el; }}
-                  style={{
-                    left: 18 + t.lane * 20,
-                    background: STATUS_COLOR[t.status],
-                    boxShadow: t.status === 'in_progress' ? '0 0 0 4px rgba(77,141,244,0.18)' : 'none',
-                    animation: t.status === 'in_progress' ? 'softpulse 1.3s infinite' : 'none',
-                  }}
-                />
+                  className="tnode-rail"
+                  style={{ flex: `0 0 ${railW}px`, transition: 'flex-basis 0.18s ease' }}
+                >
+                  <div
+                    className="tnode-dot"
+                    ref={el => { dotRefs.current[t.id] = el; }}
+                    style={{
+                      left: BASE_OFFSET + t.lane * lanePx,
+                      background: STATUS_COLOR[t.status],
+                      boxShadow: t.status === 'in_progress' ? '0 0 0 4px rgba(77,141,244,0.18)' : 'none',
+                      animation: t.status === 'in_progress' ? 'softpulse 1.3s infinite' : 'none',
+                    }}
+                  />
+                </div>
+                <TaskCard t={t} agentSteps={agentSteps} isHovered={isHovered} />
               </div>
-              <TaskCard t={t} agentSteps={agentSteps} />
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

@@ -71,6 +71,7 @@ export const STATUS_COLOR: Record<string, string> = {
   changes_requested: 'var(--amber)',
   failed:            'var(--red)',
   blocked:           'var(--amber)',
+  skipped:           'var(--tx-3)',
 };
 
 export const STATUS_LABEL: Record<string, string> = {
@@ -79,7 +80,8 @@ export const STATUS_LABEL: Record<string, string> = {
   done:              'done',
   changes_requested: 'changes',
   failed:            'failed',
-  blocked:           'blocked',
+  blocked:           'changes req',
+  skipped:           'skipped',
 };
 
 export const VERDICT_CLASS: Record<string, string> = {

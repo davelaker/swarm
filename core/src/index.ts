@@ -61,9 +61,8 @@ switch (cmd) {
     console.log(driverBanner());
     startServer(cfg.port);
     const uiUrl = 'http://localhost:5173'; // Phase 3: cfg.port after ui build
-    const { exec } = await import('node:child_process');
-    exec(`open "${uiUrl}"`);
     console.log(`  ▸ dashboard  → ${uiUrl}`);
+
     console.log('\n  PM ready. Run `swarm new "<goal>"` in another terminal.\n');
     break;
   }

@@ -121,7 +121,15 @@ function buildProjectMd(project: string): string {
     '## Deployment',
     '(unknown — the PM will ask on first planning session)',
     '',
-    '## Conventions',
+    '## Coding principles (apply to all code in this project)',
+    '- **Small, single-purpose functions.** One function does one thing; keep business logic separate from presentation/visual logic.',
+    '- **No flag arguments.** Never add a boolean parameter that switches what a function does — split it into two clearly-named functions instead.',
+    '- **Strict, predictable return types.** Annotate return types where the language supports it; in dynamic languages guarantee one consistent return shape (never "value on success, false/null on failure").',
+    '- **Prefer pure functions** for business logic so it is trivially testable.',
+    '- **Always use curly braces** — even one-line `if`/`for` bodies — opening brace on the same line (1TBS/K&R). Indent with 2 spaces, never tabs.',
+    '- **Done means tested.** Write the appropriate tests for the logic you implement, run them, and update this README/CLAUDE.md when behaviour changes.',
+    '',
+    '## Project-specific conventions',
     '(to be discovered — update as consistent patterns emerge)',
     '',
     '## Features built by swarm',
@@ -169,7 +177,7 @@ export function runInit(): void {
   // Write initial state.json if absent
   if (!fs.existsSync(stateFile())) {
     const project = path.basename(process.cwd());
-    initWorkspace(project, '', 'tweak');
+    initWorkspace(project, '', 'bugfix');
     console.log('  ✓ .swarm/state.json');
   } else {
     console.log('  · .swarm/state.json  (already exists — left untouched)');

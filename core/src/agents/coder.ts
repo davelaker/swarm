@@ -11,6 +11,7 @@ import { getConfig }             from '../config.js';
 import { getRoot }               from '../state/repo.js';
 import { CODER_SYSTEM }          from './prompts.js';
 import { buildCachedSystem, logCacheStats, CACHE_BETA } from './cache.js';
+import { requestPermission }     from '../drivers/permission-broker.js';
 import type { Task, SwarmState } from '../state/types.js';
 
 // ─── Cost metering ────────────────────────────────────────────────────────────
@@ -74,13 +75,14 @@ const TOOLS: Anthropic.Tool[] = [
     input_schema: {
       type: 'object',
       properties: {
-        summary:       { type: 'string', description: 'One-line summary of what was changed.' },
+        summary:       { type: 'string', description: 'One-line summary of what was implemented (shown as the card headline).' },
+        detail:        { type: 'string', description: 'A substantive paragraph (4-6 sentences) covering: what you changed and in which files/functions; why you chose this approach; any non-obvious design decisions or constraints; what the reviewer should pay closest attention to. Do not restate the task title.' },
         files_changed: {
           type: 'array', items: { type: 'string' },
           description: 'Relative paths of files that were created or modified.',
         },
       },
-      required: ['summary', 'files_changed'],
+      required: ['summary', 'detail', 'files_changed'],
     },
   },
 ];
@@ -98,7 +100,13 @@ function safeJoin(rel: string): string {
   return abs;
 }
 
-async function executeTool(name: string, input: Record<string, unknown>): Promise<string> {
+async function executeTool(name: string, input: Record<string, unknown>, task: Task): Promise<string> {
+  // Gate write operations — surfaced to the user before executing.
+  if (name === 'write_file') {
+    const decision = await requestPermission(task.assignee, name, input);
+    if (decision === 'deny') return `Permission denied: user rejected writing ${input.path ?? 'file'}.`;
+  }
+
   switch (name) {
     case 'read_file': {
       const abs = safeJoin(String(input.path));
@@ -135,6 +143,7 @@ async function executeTool(name: string, input: Record<string, unknown>): Promis
 
 export interface CoderResult {
   summary:       string;
+  detail:        string;
   filesChanged:  string[];
   inputTokens:   number;
   outputTokens:  number;
@@ -150,12 +159,25 @@ export async function runCoder(task: Task, state: SwarmState, verbose = true): P
   const model  = cfg.coderModel;
 
   const charter    = state.charter;
+
+  // Security-audit-first flow: if a security task ran before this coder task,
+  // inject the audit findings so the coder knows exactly what to fix.
+  const priorSecTask = state.tasks.find(t =>
+    t.assignee === 'security' &&
+    t.status === 'done' &&
+    task.depends_on.includes(t.id)
+  );
+  const auditCtx = priorSecTask?.result_ref
+    ? `Security audit findings to fix: ${priorSecTask.result_ref}\nRead the findings file first, then address all CRITICAL and HIGH severity issues.`
+    : '';
+
   const userPrompt = [
     `Task: ${task.title}`,
     state.goal ? `Goal: ${state.goal}` : '',
     ...(charter?.constraints?.length ? [`Constraints: ${charter.constraints.join(' | ')}`] : []),
     ...(charter?.nongoals?.length    ? [`Non-goals: ${charter.nongoals.join(' | ')}`] : []),
     ...(charter?.questions?.length   ? [`Clarifications: ${charter.questions.join(' | ')}`] : []),
+    auditCtx,
   ].filter(Boolean).join('\n');
 
   // System blocks: cached system prompt + PROJECT.md (8 KB cap)
@@ -169,6 +191,7 @@ export async function runCoder(task: Task, state: SwarmState, verbose = true): P
   let totalOutput = 0;
   let totalCost   = 0;   // tracks cache-adjusted cost inline
   let summary     = '';
+  let detail      = '';
   let filesChanged: string[] = [];
   let iterations  = 0;
   const MAX_ITER  = 20;
@@ -221,11 +244,12 @@ export async function runCoder(task: Task, state: SwarmState, verbose = true): P
           console.log(`  [coder] ${block.name}(${inp}${inp.length >= 120 ? '…' : ''})`);
         }
 
-        const result = await executeTool(block.name, block.input as Record<string, unknown>);
+        const result = await executeTool(block.name, block.input as Record<string, unknown>, task);
 
         if (block.name === 'done') {
-          const inp  = block.input as { summary: string; files_changed: string[] };
+          const inp  = block.input as { summary: string; detail?: string; files_changed: string[] };
           summary      = inp.summary;
+          detail       = inp.detail ?? '';
           filesChanged = inp.files_changed ?? [];
           calledDone   = true;
         }
@@ -245,19 +269,49 @@ export async function runCoder(task: Task, state: SwarmState, verbose = true): P
 
   if (!summary) summary = `Task "${task.title}" completed.`;
 
-  // If the agent omitted files_changed (or returned []), fall back to git status.
-  // This is the common case when the model is confident enough to skip the list.
+  // If the agent omitted files_changed (or returned []), fall back to git detection.
+  // Two passes: uncommitted changes first, then committed changes ahead of the base
+  // branch. Coders often commit their work before calling done(), leaving git status
+  // clean — without the second pass those commits look like "no files changed".
   if (filesChanged.length === 0) {
     try {
       const raw = execFileSync('git', ['status', '--porcelain'], {
         cwd: projectRoot(), encoding: 'utf8',
       });
       const detected = raw.split('\n')
-        .filter(l => l.trim() && !l.startsWith('!!'))   // ignore .gitignore hints
-        .map(l => l.slice(3).trim().replace(/ -> .+$/, ''))  // strip rename arrows
+        .filter(l => l.trim() && !l.startsWith('!!'))
+        .map(l => l.slice(3).trim().replace(/ -> .+$/, ''))
         .filter(f => f && !f.endsWith('/'));
       if (detected.length) filesChanged = detected;
-    } catch { /* non-fatal — git unavailable or clean tree */ }
+    } catch { /* non-fatal */ }
+  }
+
+  // Second pass: committed changes not yet merged to the base branch.
+  // Use `git log --name-only` rather than `git diff` — it handles multiple commits
+  // and doesn't require a local tracking branch (origin/* refs work fine).
+  // Try local branch names first, then remote-tracking refs, then HEAD~1 as a
+  // last resort for single-commit branches on repos with unusual branch names.
+  if (filesChanged.length === 0) {
+    const bases = ['main', 'master', 'origin/main', 'origin/master'];
+    for (const base of bases) {
+      try {
+        const out = execFileSync(
+          'git', ['log', '--name-only', '--pretty=format:', `${base}..HEAD`],
+          { cwd: projectRoot(), encoding: 'utf8' },
+        );
+        const detected = [...new Set(out.split('\n').map(l => l.trim()).filter(Boolean))];
+        if (detected.length) { filesChanged = detected; break; }
+      } catch { /* try next base */ }
+    }
+  }
+  // Absolute last resort: single commit on a branch with no known base.
+  if (filesChanged.length === 0) {
+    try {
+      const out = execFileSync('git', ['diff', '--name-only', 'HEAD~1'],
+        { cwd: projectRoot(), encoding: 'utf8' });
+      const detected = out.split('\n').map(l => l.trim()).filter(Boolean);
+      if (detected.length) filesChanged = detected;
+    } catch { /* non-fatal */ }
   }
 
   // totalCost already accumulates cache costs from each iteration
@@ -267,5 +321,5 @@ export async function runCoder(task: Task, state: SwarmState, verbose = true): P
     console.log(`  [coder] tokens: ${totalInput} in / ${totalOutput} out  cost: $${costUsd.toFixed(4)}\n`);
   }
 
-  return { summary, filesChanged, inputTokens: totalInput, outputTokens: totalOutput, costUsd, model };
+  return { summary, detail, filesChanged, inputTokens: totalInput, outputTokens: totalOutput, costUsd, model };
 }

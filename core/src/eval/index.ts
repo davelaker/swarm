@@ -30,7 +30,7 @@ const CASES: TestCase[] = [
   {
     name: 'simple-rename',
     desc: 'rename a function — tweak tier, coder only',
-    tier: 'tweak',
+    tier: 'bugfix',
     async setup(dir) {
       await fsp.mkdir(path.join(dir, 'src'), { recursive: true });
       await fsp.writeFile(path.join(dir, 'src', 'util.ts'),
@@ -146,7 +146,7 @@ async function runCase(tc: TestCase, verbose: boolean): Promise<Result> {
     // Build the task graph directly (bypassing classifier to save cost in eval)
     const tasks: Task[] = (() => {
       const base: Task = { id: 't1', title: tc.goal, status: 'pending', owner: cfg.owner, assignee: 'coder', depends_on: [], artifacts: [], result_ref: null, attempts: 0 };
-      if (tc.tier === 'tweak') return [base];
+      if (tc.tier === 'bugfix') return [base];
       return [
         base,
         { id: 't2', title: `Test: ${tc.goal}`,            status: 'pending', owner: cfg.owner, assignee: 'tester',   depends_on: ['t1'], artifacts: [], result_ref: null, attempts: 0 },

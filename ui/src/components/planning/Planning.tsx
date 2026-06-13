@@ -3,20 +3,112 @@ import type { KeyboardEvent } from 'react';
 import { usePlanningSession } from '../../hooks/usePlanningSession';
 import { useContextFiles }    from '../../hooks/useContextFiles';
 import { Charter }            from './Charter';
-import { Message, TypingIndicator } from './Message';
+import { Message, StreamingMessage, ProgressiveTypingIndicator, ResearchIndicator } from './Message';
+import { resolveAgentPersona } from '../../data/personas';
 import { IconSend }           from '../common/icons';
 import type { ServerStatus, RunCharter } from '../../App';
+import type { CharterData, SessionSnapshot } from '../../types';
+
+function PlanReadyCallout({ charter, team, onExecute }: {
+  charter:   CharterData;
+  team:      string[];
+  onExecute?: () => void;
+}) {
+  const openQuestions = charter.questions.filter(q => !q.resolved);
+  const noTeam        = team.length === 0;
+  const noGoal        = !charter.goal;
+
+  const blockers: string[] = [];
+  if (noGoal)              blockers.push('no goal defined');
+  if (noTeam)              blockers.push('no agents in the team');
+  if (openQuestions.length) blockers.push(`${openQuestions.length} open question${openQuestions.length > 1 ? 's' : ''} unresolved`);
+
+  const canExecute = blockers.length === 0;
+
+  return (
+    <div className={`plan-ready-callout anim-in${canExecute ? '' : ' plan-ready-blocked'}`}>
+      <div className="plan-ready-header">
+        <span className="plan-ready-dot" />
+        {canExecute ? 'Charter ready to execute' : 'Charter needs attention'}
+      </div>
+      {canExecute ? (
+        <p>
+          Review everything on the left — goal, constraints, non-goals, and the recommended team — before proceeding.
+          You can still change anything: ask to adjust scope, swap or remove agents, tighten constraints, or flip the branch mode.
+        </p>
+      ) : (
+        <>
+          <p>
+            The charter was ready, but something changed. Resolve the following before executing:
+          </p>
+          <ul className="plan-ready-blockers">
+            {blockers.map(b => <li key={b}>{b}</li>)}
+          </ul>
+          <p style={{ marginTop: 4 }}>
+            Ask the PM to address these, or adjust the charter directly.
+          </p>
+        </>
+      )}
+      <div className="plan-ready-actions">
+        <button
+          className="btn primary"
+          onClick={onExecute}
+          disabled={!canExecute}
+          title={canExecute ? undefined : `Cannot execute: ${blockers.join(', ')}`}
+        >
+          Execute →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// The PM recommends hiring a marketplace specialist. One-click CTA that jumps to the
+// Agents tab focused on this agent's hire page.
+function HireCallout({ agentId, reason, onHire, onDismiss }: {
+  agentId:   string;
+  reason:    string;
+  onHire?:   (agentId: string) => void;
+  onDismiss: () => void;
+}) {
+  const p = resolveAgentPersona(agentId);
+  return (
+    <div className="plan-ready-callout anim-in" style={{ borderColor: 'rgba(77,141,244,0.4)' }}>
+      <div className="plan-ready-header">
+        <span className="plan-ready-dot" style={{ background: p.color }} />
+        PM recommends hiring {p.name}
+      </div>
+      {reason && <p>{reason}</p>}
+      <div className="plan-ready-actions" style={{ gap: 8 }}>
+        <button className="btn primary" onClick={() => onHire?.(agentId)}>
+          Hire {p.name} →
+        </button>
+        <button
+          className="btn"
+          onClick={onDismiss}
+          style={{ background: 'none', border: 'none', color: 'var(--tx-3)', cursor: 'pointer' }}
+        >
+          Not now
+        </button>
+      </div>
+    </div>
+  );
+}
 
 interface PlanningProps {
   onExecute?:         () => void;
   onExecutable:       (v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => void;
+  onNewSession?:      () => void;
+  onHire?:            (agentId: string) => void;
+  reviewRequest?:     { key: number; text: string } | null;
   serverStatus?:      ServerStatus;
   recapMessage?:      string | null;
   planNextKey?:       number;
   runBlockedReason?:  string | null;
+  historicalSession?: SessionSnapshot;
 }
 
-export function Planning({ onExecutable, serverStatus = 'probing', recapMessage, planNextKey, runBlockedReason }: PlanningProps) {
+export function Planning({ onExecute, onExecutable, onNewSession, onHire, reviewRequest, serverStatus = 'probing', recapMessage, planNextKey, runBlockedReason, historicalSession }: PlanningProps) {
   // Derive project name synchronously from localStorage (source of truth for active root).
   // This avoids a race with App.tsx's auto-sync: if the server has been restarted and
   // still points at the old project, a /state fetch would return the wrong name before
@@ -52,6 +144,16 @@ export function Planning({ onExecutable, serverStatus = 'probing', recapMessage,
     prevPlanNextKey.current = planNextKey;
     session.newSession();
   }, [planNextKey, session.newSession]);
+
+  // A post-run "Request changes" review arrived — send it to the PM as a message
+  // (it reads it like a reviewer's CHANGES_REQUESTED and plans a coder+reviewer fix).
+  // Guard on the key so it fires exactly once per submission.
+  const prevReviewKey = useRef(0);
+  useEffect(() => {
+    if (!reviewRequest || reviewRequest.key === prevReviewKey.current) return;
+    prevReviewKey.current = reviewRequest.key;
+    session.send(reviewRequest.text);
+  }, [reviewRequest, session.send]);
 
   // Start the PM opening message once we have project context.
   // We wait up to 1.5s for /state and /context to load before falling back
@@ -90,16 +192,18 @@ export function Planning({ onExecutable, serverStatus = 'probing', recapMessage,
     return () => clearTimeout(t);
   }, [justSwitchedPath, session.sessionKey]);
 
-  // Auto-scroll on new messages / typing indicator
+  // Auto-scroll on new messages / typing indicator / streaming text
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [session.messages, session.typing]);
+  }, [session.messages, session.typing, session.streamingPmText]);
 
-  // Auto-grow textarea
+  // Auto-grow textarea. Use height='0' (not 'auto') before measuring so that
+  // scrollHeight reflects actual content rather than the rows attribute.
+  // min-height in CSS guarantees at least one visible line.
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    el.style.height = 'auto';
+    el.style.height = '0';
     el.style.height = Math.min(el.scrollHeight, 120) + 'px';
   }, [input]);
 
@@ -115,15 +219,6 @@ export function Planning({ onExecutable, serverStatus = 'probing', recapMessage,
       e.preventDefault();
       handleSend();
     }
-  };
-
-  // Pre-fill the textarea and focus it — used by "ask PM" on context files
-  const handleAskPm = (message: string) => {
-    setInput(message);
-    setTimeout(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(message.length, message.length);
-    }, 0);
   };
 
   // Conversation phase label
@@ -144,23 +239,74 @@ export function Planning({ onExecutable, serverStatus = 'probing', recapMessage,
     ? 'Planning works without a server — Enter to send · agents need `swarm dev` to execute'
     : 'Enter to send · Shift+Enter for newline';
 
+  // ─── Historical mode — frozen snapshot, no interaction ──────────────────────
+  if (historicalSession) {
+    const hc = historicalSession.charter;
+    const historicalCharter = {
+      goal:        historicalSession.goal,
+      constraints: (hc?.constraints ?? []).map(t => ({ text: t })),
+      nongoals:    (hc?.nongoals    ?? []).map(t => ({ text: t })),
+      questions:   (hc?.questions   ?? []).map(t => ({ text: t, resolved: true })),
+    };
+    const historicalMessages = (hc?.planningHistory ?? []).map(m => ({
+      from: m.from as 'pm' | 'you',
+      text: m.text,
+    }));
+    const savedAt = new Date(historicalSession.savedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return (
+      <div className="plan">
+        <Charter
+          charter={historicalCharter}
+          team={[]}
+          phase={'ready' as const}
+          projectName={projectName}
+          projectMd={context.projectMd}
+          contextFiles={context.contextFiles}
+        />
+        <div className="plan-right">
+          <div className="panel-head">
+            <span style={{ color: 'var(--amber)' }}>⏱ Archived · {savedAt}</span>
+            <span className="spacer" />
+            {historicalSession.branchName && (
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--tx-3)' }}>
+                {historicalSession.branchName.replace(/^swarm\//, '')}
+              </span>
+            )}
+          </div>
+          <div className="chat">
+            <div className="chat-scroll">
+              {historicalMessages.length > 0
+                ? historicalMessages.map((m, i) => <Message key={i} m={m} />)
+                : <div style={{ padding: 24, color: 'var(--tx-3)', fontFamily: 'var(--mono)', fontSize: 12, textAlign: 'center' }}>
+                    No planning conversation recorded for this session.
+                  </div>
+              }
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="plan">
       <Charter
         charter={session.charter}
         team={session.team}
         phase={session.phase}
+        branchMode={session.branchMode}
+        branchName={session.branchName}
+        onBranchNameChange={session.setBranchName}
         projectName={projectName}
         projectMd={context.projectMd}
         contextFiles={context.contextFiles}
-        onAskPm={handleAskPm}
       />
       <div className="plan-right">
         <div className="panel-head">
           <span>PM Conversation</span>
           <button
             className="new-session-btn"
-            onClick={session.newSession}
+            onClick={() => { session.newSession(); onNewSession?.(); }}
             title="Clear conversation and start fresh"
           >
             New session
@@ -182,7 +328,30 @@ export function Planning({ onExecutable, serverStatus = 'probing', recapMessage,
         <div className="chat">
           <div className="chat-scroll" ref={scrollRef}>
             {session.messages.map((m, i) => <Message key={i} m={m} />)}
-            {session.typing && <TypingIndicator from={session.typing} />}
+            {session.researching
+              ? <ResearchIndicator question={session.researching.question} agent={session.researching.agent} />
+              : session.streamingPmText
+                ? <StreamingMessage text={session.streamingPmText} />
+                : session.typing
+                  ? <ProgressiveTypingIndicator />
+                  : null
+            }
+            {session.hireSuggestion && !session.team.includes(session.hireSuggestion.agentId)
+              && !session.researching && !session.streamingPmText && !session.typing && (
+              <HireCallout
+                agentId={session.hireSuggestion.agentId}
+                reason={session.hireSuggestion.reason}
+                onHire={onHire}
+                onDismiss={session.dismissHire}
+              />
+            )}
+            {session.executable && !session.streamingPmText && !session.typing && (
+              <PlanReadyCallout
+                charter={session.charter}
+                team={session.team}
+                onExecute={onExecute}
+              />
+            )}
           </div>
           {session.suggestCompact && (
             <div className="compact-banner">
@@ -197,7 +366,6 @@ export function Planning({ onExecutable, serverStatus = 'probing', recapMessage,
             <div className="composer-row">
               <textarea
                 ref={textareaRef}
-                rows={1}
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
