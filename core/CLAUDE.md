@@ -65,3 +65,31 @@ Anything that mutates the main working tree must go through **`withMainTreeLock`
 (merges take it briefly; an in-place fix coder holds it for its whole edit+commit run) so
 the two never overlap. Fix tasks have `depends_on: []` and can start immediately, so they
 *can* race a parallel coder's merge — the lock is what makes that safe.
+
+## Gates, scribe, and the Negotiator guardrail (the "enforced quality" layer)
+
+The product's moat is quality the *system* guarantees, not quality an agent remembers.
+Three pieces make that real — know they exist before touching the gate/finding machinery.
+
+- **Deterministic `checks` gate** (`agents/checks.ts`). A non-LLM gate (typecheck +
+  hardcoded-secret scan) added to the feature/greenfield task graph (`commands/new.ts`).
+  It routes **straight through `dispatch`** — no driver, no LLM — and returns a
+  `checks-finding` (schema in `finding.ts`, `negotiable:false`, blocks on `FAIL`). A FAIL
+  spawns a fix-coder via the normal remediation path (`loop.ts` trigger handles
+  `checks`/`FAIL` alongside reviewer/security `CHANGES_REQUESTED`). `scanSecrets` is pure
+  and unit-tested — keep it high-precision (vendor patterns only); a blocking gate must not
+  false-positive. Add new deterministic checks here, not as LLM agents.
+
+- **Self-building memory / scribe** (`drivers/*.runScribe`, `loop.ts` `distillMemory`,
+  `repo.ts` `read/writeProjectMemory`). On successful run completion the loop calls a
+  read-only scribe that distils **durable, non-obvious** facts into the target repo's
+  `CLAUDE.md` under the managed `## Swarm Learnings` section (idempotent, atomic, no-op on
+  empty). It MERGES (returns the full body) and must not write a changelog of the run.
+  Best-effort — never fail a finished run on it. api-key driver returns empty (no-op).
+
+- **Negotiator guardrail** (`loop.ts` `firstNonNegotiable`). The Negotiator is fully wired
+  (SPAWN_FIX/DOWNGRADE/ABORT on deadlock). The §2 promise — *it can never rule away a
+  correctness/safety finding* — is **code-enforced**: a DOWNGRADE targeting a
+  `negotiable:false` blocking finding is refused and the run stops for a human. `negotiable`
+  is system-derived from the finding schema (`finding.ts`), never self-declared — don't add
+  a way for an agent to set it.
