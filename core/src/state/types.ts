@@ -97,6 +97,7 @@ export type SwarmEvent =
   | { type: 'task.status_changed'; task_id: string; status: TaskStatus; skip_reason?: string }
   | { type: 'agent.started'; agent_id: string }
   | { type: 'agent.progress'; agent_id: string; step: string }
+  | { type: 'agent.thinking'; agent_id: string; text: string }
   | { type: 'agent.finished'; agent_id: string }
   | { type: 'finding.written'; task_id: string; path: string; verdict?: string; summary?: string }
   | { type: 'log.appended'; actor: string; event: string }

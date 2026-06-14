@@ -16,7 +16,8 @@
     "eval:p2":    "tsx src/index.ts eval add-feature-with-tests vulnerability-caught",
     "build":      "tsc",
     "typecheck":  "tsc --noEmit",
-    "test":       "tsc --noEmit"
+    "test:unit":  "node --import tsx --test \"src/**/*.test.ts\"",
+    "test":       "tsc --noEmit && node --import tsx --test \"src/**/*.test.ts\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.51.0"
