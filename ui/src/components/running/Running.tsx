@@ -1192,7 +1192,8 @@ function HistoricalRunView({ session }: { session: SessionSnapshot }) {
       spend={0}
       spendCap={0}
       status={'done' as RunStatus}
-      connected={false}
+      // A frozen snapshot is complete, not "disconnected" — suppress the offline banner.
+      connected={true}
       alreadyPushed={true}
       branchName={session.branchName}
       elapsedMs={session.elapsedMs ?? null}

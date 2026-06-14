@@ -147,10 +147,12 @@ export function AgentsPanel({
   const specialistIds = [...assignedIds].filter(id => !BUILTIN_ORDER.includes(id));
   const visibleIds = [...builtinIds, ...specialistIds];
 
-  // Ensure agents map has entries for any specialist agents (created dynamically
-  // via SSE events — they won't be in the initAgents() snapshot).
+  // Ensure every visible agent has a state object. Specialists arrive dynamically
+  // via SSE (absent from the initAgents() snapshot), and a historical snapshot only
+  // seeds task assignees — never `pm` — so without this fallback AgentRow would
+  // dereference an undefined agent and crash the whole view.
   const agentsWithSpecialists = { ...agents };
-  const blank = {
+  const blank: AgentState = {
     active: false,
     step: '',
     activeAt: null,
@@ -160,7 +162,7 @@ export function AgentsPanel({
     outputTokens: null,
     contextPct: null,
   };
-  for (const id of specialistIds) {
+  for (const id of visibleIds) {
     if (!agentsWithSpecialists[id]) agentsWithSpecialists[id] = blank;
   }
 
