@@ -53,9 +53,10 @@ export function App() {
   const [surface, setSurface] = useState<Surface>(loadSurface);
   const [marketplaceFocus, setMarketplaceFocus] = useState<string | null>(null);
   const [executable, setExecutable] = useState(false);
-  // NOTE: value is stored but not yet displayed anywhere (intended as the Execute-button
-  // tooltip — wiring it into the UI is an open follow-up). Setter retained for that.
-  const [, setExecutableReason] = useState('Complete the planning conversation to unlock Execute');
+  // Why Execute is unavailable — surfaced as the tooltip on the amber "PLANNING" dot.
+  const [executableReason, setExecutableReason] = useState(
+    'Complete the planning conversation to unlock Execute',
+  );
   const [runGoal, setRunGoal] = useState('');
   const [runCharter, setRunCharter] = useState<RunCharter | null>(null);
   const [runTeam, setRunTeam] = useState<string[]>([]);
@@ -67,9 +68,6 @@ export function App() {
   const [repoUrl, setRepoUrl] = useState<string | null>(null);
   const [runDone, setRunDone] = useState(false);
   const [planNextKey, setPlanNextKey] = useState(0);
-  // NOTE: fetched from /state and stored, but not yet rendered anywhere (looks like an
-  // intended-but-unfinished "show the current branch" feature). Setter retained.
-  const [, setBranchName] = useState<string | null>(null);
   // Post-run "Request changes": a review the PM should turn into a coder+reviewer fix.
   const [reviewRequest, setReviewRequest] = useState<{ key: number; text: string } | null>(null);
   const autoExecuteArmed = useRef(false); // when a review is in flight, auto-run once the PM enables Execute
@@ -102,7 +100,6 @@ export function App() {
             model?: string | null;
             activeRun?: boolean;
             repoUrl?: string | null;
-            branchName?: string | null;
             root?: string;
           }) => {
             if (!mounted) return;
@@ -110,7 +107,6 @@ export function App() {
             if (s.project) setProjectName(s.project);
             if (s.repoUrl) setRepoUrl(s.repoUrl);
             if (s.root) setProjectRoot(s.root);
-            setBranchName(s.branchName ?? null);
 
             // Auto-sync: if the user previously switched to a different project,
             // the server may have lost that on restart (process.cwd() resets).
@@ -517,7 +513,10 @@ export function App() {
                 </button>
               </span>
             ) : (
-              <span className="pill">
+              <span
+                className="pill"
+                title={executable ? 'Charter ready to execute' : executableReason}
+              >
                 <span
                   className="dot"
                   style={{ background: executable ? 'var(--green)' : 'var(--amber)' }}
