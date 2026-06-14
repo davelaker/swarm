@@ -1,6 +1,11 @@
 import { useState } from 'react';
+import type { ReactNode } from 'react';
 import type { ActivityEntry } from '../../types';
 import { IconEye, IconPencil, IconTerminal, IconSearch, IconFolder, IconFile } from './icons';
+
+// Fixed-width leading slot so every row's text starts at the same x — toggles,
+// type glyphs, and the research magnifier all centre in the same 14px column.
+const ICON_SLOT = 14;
 
 // Icon for a tool. Prefer the structured tool name; fall back to the human label's
 // prefix (describeToolUse output) when a step arrives without one.
@@ -15,8 +20,8 @@ function ToolGlyph({ tool, text }: { tool?: string; text: string }) {
   if (t === 'Bash' || text.startsWith('$')) {
     return <IconTerminal size={12} />;
   }
-  if (t === 'Grep' || t === 'Glob' || t === 'research' || text.startsWith('Searching')) {
-    return <IconSearch />;
+  if (t === 'Grep' || t === 'Glob' || text.startsWith('Searching')) {
+    return <IconSearch size={12} />;
   }
   if (t === 'LS' || text.startsWith('Listing')) {
     return <IconFolder size={12} />;
@@ -105,77 +110,112 @@ function FileChip({ file }: { file: string }) {
   );
 }
 
-// One row of an agent/PM activity transcript. Thinking blocks collapse to a
-// labelled one-line preview with a +/– toggle to reveal the full reasoning. Tool
-// steps render with a type glyph; file-bearing tools show a verb, optional line
-// count, and a language-badged filename chip, others fall back to the action text.
-export function ActivityItem({ entry, color }: { entry: ActivityEntry; color?: string }) {
+// A collapsible row: a fixed-width leading slot, a label, and a one-line preview
+// that expands to the full text. Used for thinking blocks and research steps so
+// they read and align identically.
+function ExpandableRow({
+  leading,
+  label,
+  text,
+}: {
+  leading: (open: boolean) => ReactNode;
+  label: string;
+  text: string;
+}) {
   const [open, setOpen] = useState(false);
-
-  if (entry.kind === 'thinking') {
-    const preview = thinkingPreview(entry.text);
-    return (
-      <div style={{ padding: '2px 0' }}>
-        <button
-          onClick={() => setOpen(o => !o)}
+  return (
+    <div style={{ padding: '2px 0' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 7,
+          width: '100%',
+          textAlign: 'left',
+          background: 'transparent',
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+          color: 'inherit',
+          fontSize: 11.5,
+          lineHeight: 1.55,
+        }}
+      >
+        <span
           style={{
-            display: 'flex',
-            alignItems: 'baseline',
-            gap: 7,
-            width: '100%',
-            textAlign: 'left',
-            background: 'transparent',
-            border: 'none',
-            padding: 0,
-            cursor: 'pointer',
-            color: 'inherit',
-            fontSize: 11.5,
-            lineHeight: 1.55,
+            width: ICON_SLOT,
+            flexShrink: 0,
+            display: 'inline-flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            opacity: 0.55,
           }}
         >
-          <span style={{ width: 10, flexShrink: 0, opacity: 0.5, fontSize: 13 }}>
-            {open ? '–' : '+'}
-          </span>
-          <span style={{ flexShrink: 0, opacity: 0.8 }}>Thinking</span>
-          {!open && (
-            <span
-              style={{
-                flex: 1,
-                minWidth: 0,
-                opacity: 0.5,
-                fontStyle: 'italic',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {preview}
-            </span>
-          )}
-        </button>
-        {open && (
-          <div
+          {leading(open)}
+        </span>
+        <span style={{ flexShrink: 0, opacity: 0.8 }}>{label}</span>
+        {!open && (
+          <span
             style={{
-              paddingLeft: 17,
-              marginTop: 3,
-              fontSize: 11.5,
-              lineHeight: 1.6,
-              opacity: 0.62,
+              flex: 1,
+              minWidth: 0,
+              opacity: 0.5,
               fontStyle: 'italic',
-              whiteSpace: 'pre-wrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
             }}
           >
-            {entry.text}
-          </div>
+            {thinkingPreview(text)}
+          </span>
         )}
-      </div>
+      </button>
+      {open && (
+        <div
+          style={{
+            paddingLeft: ICON_SLOT + 7,
+            marginTop: 3,
+            fontSize: 11.5,
+            lineHeight: 1.6,
+            opacity: 0.62,
+            fontStyle: 'italic',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One row of an agent/PM activity transcript. Thinking and research steps are
+// expandable (preview → full text); file-bearing tools show a verb, optional line
+// count, and a language-badged filename chip; other tools fall back to action text.
+export function ActivityItem({ entry, color }: { entry: ActivityEntry; color?: string }) {
+  if (entry.kind === 'thinking') {
+    return (
+      <ExpandableRow
+        leading={open => <span style={{ fontSize: 13 }}>{open ? '–' : '+'}</span>}
+        label="Thinking"
+        text={entry.text}
+      />
+    );
+  }
+
+  // Research / sub-agent step — expandable like thinking, with a magnifier.
+  if (entry.tool === 'research') {
+    const label = entry.detail && entry.detail !== 'Scout' ? entry.detail : 'Scouting the codebase';
+    return (
+      <ExpandableRow leading={() => <IconSearch size={12} />} label={label} text={entry.text} />
     );
   }
 
   const glyph = (
     <span
       style={{
-        width: 14,
+        width: ICON_SLOT,
         flexShrink: 0,
         display: 'flex',
         justifyContent: 'center',

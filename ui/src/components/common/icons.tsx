@@ -137,11 +137,11 @@ export function IconPlay() {
     </svg>
   );
 }
-export function IconSearch() {
+export function IconSearch({ size = 14 }: { size?: number }) {
   return (
     <svg
-      width="14"
-      height="14"
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

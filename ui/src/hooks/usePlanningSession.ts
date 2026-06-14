@@ -527,11 +527,13 @@ export function usePlanningSession(
                   }
                   const question = String(data.question ?? 'the codebase');
                   const agent = typeof data.agent === 'string' ? data.agent : undefined;
-                  // Record the sub-agent step in the transcript so its use is visible.
+                  // Record the sub-agent step in the transcript so its use is visible —
+                  // an expandable entry (like a thinking block), not a takeover banner.
                   const step: ActivityEntry = {
                     kind: 'tool',
-                    text: `Researched “${question}” · ${agent ?? 'Scout'}`,
                     tool: 'research',
+                    text: question,
+                    detail: agent ?? 'Scout',
                   };
                   return {
                     ...prev,

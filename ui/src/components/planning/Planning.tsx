@@ -3,12 +3,7 @@ import type { KeyboardEvent } from 'react';
 import { usePlanningSession } from '../../hooks/usePlanningSession';
 import { useContextFiles } from '../../hooks/useContextFiles';
 import { Charter } from './Charter';
-import {
-  Message,
-  StreamingMessage,
-  ProgressiveTypingIndicator,
-  ResearchIndicator,
-} from './Message';
+import { Message, StreamingMessage, ProgressiveTypingIndicator } from './Message';
 import { resolveAgentPersona } from '../../data/personas';
 import { IconSend } from '../common/icons';
 import { ActivityItem } from '../common/ActivityItem';
@@ -416,14 +411,11 @@ export function Planning({
             {session.messages.map((m, i) => (
               <Message key={i} m={m} />
             ))}
-            {session.researching ? (
-              <ResearchIndicator
-                question={session.researching.question}
-                agent={session.researching.agent}
-              />
-            ) : session.streamingPmText ? (
+            {session.streamingPmText ? (
               <StreamingMessage text={session.streamingPmText} />
             ) : session.pmActivity && session.pmActivity.length > 0 ? (
+              // Live transcript — thinking blocks and the scout step appear here as
+              // expandable entries (the scout no longer takes over the whole pane).
               <div style={{ padding: '4px 2px' }}>
                 <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 4 }}>PM thinking…</div>
                 <div style={{ borderLeft: '1px solid var(--bg-3)', paddingLeft: 10 }}>
