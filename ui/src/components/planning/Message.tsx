@@ -32,7 +32,72 @@ function Avatar({ from }: { from: string }) {
 
 const DISPATCH_RE = /^→\s+(\w+)\s+\[([^\]]+)\]:\s*(.+)$/s;
 
-function PmMessageRow({ text, time }: { text: string; time?: string }) {
+// Collapsible record of the extended-thinking blocks that preceded a PM reply.
+// Collapsed by default; expanding reveals the full reasoning the user watched
+// stream live during the turn.
+function ThinkingDisclosure({ blocks }: { blocks: string[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 5,
+          background: 'transparent',
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+          fontSize: 11,
+          color: 'var(--tx-3)',
+        }}
+      >
+        <span style={{ fontSize: 9 }}>{open ? '▾' : '▸'}</span>
+        <span>
+          Thought · {blocks.length} {blocks.length === 1 ? 'step' : 'steps'}
+        </span>
+      </button>
+      {open && (
+        <div
+          style={{
+            borderLeft: '1px solid var(--bg-3)',
+            paddingLeft: 10,
+            marginTop: 4,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+          }}
+        >
+          {blocks.map((b, i) => (
+            <div
+              key={i}
+              style={{
+                fontSize: 12,
+                fontStyle: 'italic',
+                opacity: 0.6,
+                lineHeight: 1.5,
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {b}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PmMessageRow({
+  text,
+  time,
+  thinking,
+}: {
+  text: string;
+  time?: string;
+  thinking?: string[];
+}) {
   // ── Error pill ──────────────────────────────────────────────────────────────
   if (text.startsWith('✗')) {
     return (
@@ -163,6 +228,7 @@ function PmMessageRow({ text, time }: { text: string; time?: string }) {
           <span className="who">Project Manager</span>
           {time && <span className="time">{time}</span>}
         </div>
+        {thinking && thinking.length > 0 && <ThinkingDisclosure blocks={thinking} />}
         <div className="bubble md">
           <ReactMarkdown>{text}</ReactMarkdown>
         </div>
@@ -212,7 +278,7 @@ export function Message({ m }: { m: ChatMessage }) {
   }
 
   // PM messages: classified by text pattern (dispatch, error, success, narrative)
-  if (m.from === 'pm') return <PmMessageRow text={m.text} time={m.time} />;
+  if (m.from === 'pm') return <PmMessageRow text={m.text} time={m.time} thinking={m.thinking} />;
 
   const cls = m.from === 'you' ? 'you' : m.from === 'security' ? 'interject' : '';
   const who = m.from === 'you' ? 'You' : m.from === 'security' ? 'Security' : 'Project Manager';

@@ -422,25 +422,36 @@ export function Planning({
               />
             ) : session.streamingPmText ? (
               <StreamingMessage text={session.streamingPmText} />
-            ) : session.pmThinking ? (
-              <div
-                title={session.pmThinking}
-                style={{
-                  fontSize: 12,
-                  fontStyle: 'italic',
-                  opacity: 0.55,
-                  lineHeight: 1.5,
-                  padding: '4px 2px',
-                  display: '-webkit-box',
-                  WebkitLineClamp: 3,
-                  WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden',
-                }}
-              >
-                <span style={{ fontStyle: 'normal', opacity: 0.75, marginRight: 6 }}>
-                  PM thinking…
-                </span>
-                {session.pmThinking}
+            ) : session.pmActivity && session.pmActivity.length > 0 ? (
+              <div style={{ padding: '4px 2px' }}>
+                <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 4 }}>PM thinking…</div>
+                <div
+                  style={{
+                    borderLeft: '1px solid var(--bg-3)',
+                    paddingLeft: 10,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 3,
+                  }}
+                >
+                  {session.pmActivity.map((t, i) => (
+                    <div
+                      key={i}
+                      title={t}
+                      style={{
+                        fontSize: 12,
+                        fontStyle: 'italic',
+                        opacity: 0.55,
+                        lineHeight: 1.5,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {t}
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : session.typing ? (
               <ProgressiveTypingIndicator />

@@ -577,6 +577,10 @@ async function runPmMessageApi(
     // Only stream reply chunks on the first attempt — retries are correction turns.
     const extractor = attempt === 1 && onChunk ? new ReplyExtractor() : null;
 
+    // Accumulate thinking deltas into whole blocks, flushed on block stop, so the
+    // UI receives one transcript entry per thinking block rather than per token.
+    let thinkingBuf = '';
+
     stream.on('streamEvent', (ev: Anthropic.MessageStreamEvent) => {
       if (
         extractor &&
@@ -592,7 +596,10 @@ async function runPmMessageApi(
         ev.type === 'content_block_delta' &&
         ev.delta.type === 'thinking_delta'
       ) {
-        onThinking(ev.delta.thinking);
+        thinkingBuf += ev.delta.thinking;
+      } else if (ev.type === 'content_block_stop' && thinkingBuf) {
+        if (onThinking) onThinking(thinkingBuf);
+        thinkingBuf = '';
       }
     });
 

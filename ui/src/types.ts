@@ -56,10 +56,18 @@ export interface Task {
   skip_reason?: string;
 }
 
+// One entry in an agent's live activity transcript — either a block of extended
+// thinking or a single tool-call step. Appended in order; the UI collapses the
+// list when the agent finishes and lets the user expand it again.
+export interface ActivityEntry {
+  kind: 'thinking' | 'tool';
+  text: string;
+}
+
 export interface AgentState {
   active: boolean;
   step: string;
-  thinking: string; // latest extended-thinking snippet, shown dimmed beneath the step
+  activity: ActivityEntry[]; // ordered transcript of thinking + tool calls for this run
   activeAt: number | null; // Date.now() when agent became active — drives elapsed timer
   verdict: Verdict | null;
   inputTokens: number | null;
@@ -82,6 +90,7 @@ export interface ChatMessage {
   from: 'pm' | 'you' | 'security' | 'system';
   text: string;
   time?: string;
+  thinking?: string[]; // PM's extended-thinking blocks that preceded this reply (collapsible)
 }
 
 export interface PermissionRequest {

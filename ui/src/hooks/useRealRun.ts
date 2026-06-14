@@ -111,10 +111,11 @@ function adaptTask(t: ServerTask, lane: number, prev?: Task): Task {
 }
 
 const BLANK_METRICS = { inputTokens: null, outputTokens: null, costUsd: null, contextPct: null };
+const ACTIVITY_CAP = 200; // bound the transcript so a long run can't grow state unbounded
 const BLANK_AGENT: AgentState = {
   active: false,
   step: '',
-  thinking: '',
+  activity: [],
   activeAt: null,
   verdict: null,
   ...BLANK_METRICS,
@@ -124,7 +125,7 @@ function initAgents(): Record<string, AgentState> {
   const blank = {
     active: false,
     step: '',
-    thinking: '',
+    activity: [],
     activeAt: null,
     verdict: null,
     ...BLANK_METRICS,
@@ -470,40 +471,49 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
             ...(prev.agents[ev.agent_id] ?? BLANK_AGENT),
             active: true,
             step: 'working…',
-            thinking: '',
+            activity: [], // fresh transcript for this run
             activeAt: Date.now(),
             verdict: null,
           },
         },
       };
 
-    case 'agent.progress':
+    case 'agent.progress': {
+      const cur = prev.agents[ev.agent_id] ?? BLANK_AGENT;
       return {
         ...prev,
         agents: {
           ...prev.agents,
           [ev.agent_id]: {
-            ...(prev.agents[ev.agent_id] ?? BLANK_AGENT),
+            ...cur,
             active: true,
             step: ev.step,
-            activeAt: prev.agents[ev.agent_id]?.activeAt ?? Date.now(),
+            activity: [...cur.activity, { kind: 'tool' as const, text: ev.step }].slice(
+              -ACTIVITY_CAP,
+            ),
+            activeAt: cur.activeAt ?? Date.now(),
           },
         },
       };
+    }
 
-    case 'agent.thinking':
+    case 'agent.thinking': {
+      const cur = prev.agents[ev.agent_id] ?? BLANK_AGENT;
       return {
         ...prev,
         agents: {
           ...prev.agents,
           [ev.agent_id]: {
-            ...(prev.agents[ev.agent_id] ?? BLANK_AGENT),
+            ...cur,
             active: true,
-            thinking: ev.text,
-            activeAt: prev.agents[ev.agent_id]?.activeAt ?? Date.now(),
+            activity: [...cur.activity, { kind: 'thinking' as const, text: ev.text }].slice(
+              -ACTIVITY_CAP,
+            ),
+            activeAt: cur.activeAt ?? Date.now(),
           },
         },
       };
+    }
 
     case 'agent.finished':
       return {
@@ -511,10 +521,10 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
         agents: {
           ...prev.agents,
           [ev.agent_id]: {
+            // keep activity so the finished transcript stays expandable
             ...(prev.agents[ev.agent_id] ?? BLANK_AGENT),
             active: false,
             step: '',
-            thinking: '',
             activeAt: null,
           },
         },

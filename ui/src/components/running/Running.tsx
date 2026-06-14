@@ -1137,7 +1137,7 @@ function sessionToRunViewData(session: SessionSnapshot): {
   const blank: AgentState = {
     active: false,
     step: '',
-    thinking: '',
+    activity: [],
     activeAt: null,
     verdict: null,
     inputTokens: null,

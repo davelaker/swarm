@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import type { AgentState, RunStatus, Task } from '../../types';
+import { useState, useEffect, useRef } from 'react';
+import type { ActivityEntry, AgentState, RunStatus, Task } from '../../types';
 import { resolveAgentPersona } from '../../data/personas';
 import { VerdictChip } from '../common/VerdictChip';
 
@@ -35,6 +35,102 @@ function fmtElapsed(ms: number): string {
 
 function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+// One line in the transcript: a thinking block (dim, italic, labelled) or a
+// tool-call step (coloured caret + the action text). Both truncate to one line
+// with the full text on hover.
+function ActivityRow({ entry, color }: { entry: ActivityEntry; color: string }) {
+  const clamp = {
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+  };
+  if (entry.kind === 'thinking') {
+    return (
+      <div
+        title={entry.text}
+        style={{ display: 'flex', gap: 6, fontSize: 11, lineHeight: 1.6, padding: '1px 0' }}
+      >
+        <span style={{ opacity: 0.55, flexShrink: 0 }}>Thinking</span>
+        <span style={{ opacity: 0.5, fontStyle: 'italic', ...clamp }}>{entry.text}</span>
+      </div>
+    );
+  }
+  return (
+    <div
+      title={entry.text}
+      style={{ display: 'flex', gap: 6, fontSize: 11, lineHeight: 1.6, padding: '1px 0' }}
+    >
+      <span style={{ color, flexShrink: 0 }}>›</span>
+      <span style={{ opacity: 0.85, ...clamp }}>{entry.text}</span>
+    </div>
+  );
+}
+
+// Collapsible activity transcript for one agent. Auto-expands while the agent is
+// active and auto-collapses to a one-line summary when it finishes; clicking the
+// summary pins the user's choice either way so a finished log can be re-opened.
+function ActivityLog({ a, color }: { a: AgentState; color: string }) {
+  const [override, setOverride] = useState<boolean | null>(null);
+  const expanded = override ?? a.active;
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const count = a.activity.length;
+  const thoughts = a.activity.filter(e => e.kind === 'thinking').length;
+  const steps = count - thoughts;
+  const summary =
+    [
+      steps ? `${steps} ${steps === 1 ? 'step' : 'steps'}` : '',
+      thoughts ? `${thoughts} ${thoughts === 1 ? 'thought' : 'thoughts'}` : '',
+    ]
+      .filter(Boolean)
+      .join(' · ') || 'activity';
+
+  useEffect(() => {
+    if (expanded && a.active && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [count, expanded, a.active]);
+
+  return (
+    <div style={{ marginTop: 4 }}>
+      <button
+        onClick={() => setOverride(!expanded)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 5,
+          background: 'transparent',
+          border: 'none',
+          padding: '1px 0',
+          cursor: 'pointer',
+          fontSize: 11,
+          opacity: 0.6,
+          color: 'inherit',
+        }}
+      >
+        <span style={{ fontSize: 9 }}>{expanded ? '▾' : '▸'}</span>
+        <span>{summary}</span>
+      </button>
+      {expanded && (
+        <div
+          ref={scrollRef}
+          style={{
+            maxHeight: 220,
+            overflowY: 'auto',
+            marginTop: 2,
+            paddingLeft: 13,
+            borderLeft: '1px solid var(--bg-3)',
+          }}
+        >
+          {a.activity.map((entry, i) => (
+            <ActivityRow key={i} entry={entry} color={color} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function AgentRow({
@@ -103,25 +199,7 @@ function AgentRow({
             ) : null}
           </span>
         </div>
-        {a.active && a.thinking && (
-          <div
-            className="agent-thinking"
-            title={a.thinking}
-            style={{
-              fontSize: 11,
-              lineHeight: 1.4,
-              opacity: 0.5,
-              fontStyle: 'italic',
-              marginTop: 3,
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-            }}
-          >
-            {a.thinking}
-          </div>
-        )}
+        {a.activity.length > 0 && <ActivityLog a={a} color={p.color} />}
         {!a.active && hasMetrics && (
           <div className="agent-metrics">
             {hasTokens && (
@@ -172,7 +250,7 @@ export function AgentsPanel({
   const blank = {
     active: false,
     step: '',
-    thinking: '',
+    activity: [],
     activeAt: null,
     verdict: null,
     costUsd: null,

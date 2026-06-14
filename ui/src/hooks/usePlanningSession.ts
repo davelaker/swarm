@@ -23,7 +23,7 @@ interface SessionState {
   branchName?: string; // user-edited slug only (no swarm/ prefix); undefined = auto-derive from goal
   taskGraph?: TaskGraphEntry[];
   streamingPmText: string | null;
-  pmThinking?: string | null; // latest PM extended-thinking snippet, shown while it reasons before replying
+  pmActivity?: string[]; // PM extended-thinking blocks accumulated this turn, attached to the reply when it lands
   researching: { question: string; agent?: string } | null; // active research round (agent = specialist name, or undefined for the generic Scout)
   hireSuggestion: { agentId: string; reason: string } | null; // PM's pending hire recommendation
   deploymentInfo?: string;
@@ -317,11 +317,17 @@ export function usePlanningSession(
     ): SessionState => {
       const cu = resp.charterUpdates ?? {};
       const respondedAt = now();
+      const pmThinking = prev.pmActivity ?? [];
       const newMessages = [
         ...(resp.securityInterject
           ? [{ from: 'security' as const, text: resp.securityInterject, time: respondedAt }]
           : []),
-        { from: 'pm' as const, text: resp.reply, time: respondedAt },
+        {
+          from: 'pm' as const,
+          text: resp.reply,
+          time: respondedAt,
+          ...(pmThinking.length ? { thinking: pmThinking } : {}),
+        },
       ];
 
       let questions = prev.charter.questions;
@@ -494,19 +500,21 @@ export function usePlanningSession(
               const data = JSON.parse(part.slice(6)) as Record<string, unknown>;
 
               if (data.type === 'thinking' && typeof data.text === 'string') {
-                // PM is reasoning before it replies — surface the live thinking snippet.
+                // PM is reasoning before it replies — append each block to this turn's
+                // transcript; it stays in state until the reply lands and absorbs it.
+                const text = String(data.text);
                 setState(prev => ({
                   ...prev,
                   typing: null,
-                  pmThinking: String(data.text),
+                  pmActivity: [...(prev.pmActivity ?? []), text].slice(-200),
                 }));
               } else if (data.type === 'chunk' && typeof data.text === 'string') {
-                // First chunk: swap typing/thinking/research indicator for streaming text bubble.
+                // First chunk: swap typing/research indicator for streaming text bubble.
+                // pmActivity is kept — it is attached to the PM message on result.
                 setState(prev => ({
                   ...prev,
                   typing: null,
                   researching: null,
-                  pmThinking: null,
                   streamingPmText: (prev.streamingPmText ?? '') + data.text,
                 }));
               } else if (data.type === 'research') {
@@ -519,7 +527,6 @@ export function usePlanningSession(
                         ...prev,
                         typing: null,
                         streamingPmText: null,
-                        pmThinking: null,
                         researching: {
                           question: String(data.question ?? 'the codebase'),
                           agent: typeof data.agent === 'string' ? data.agent : undefined,
@@ -543,7 +550,7 @@ export function usePlanningSession(
                     : null;
                 setState(prev => {
                   const next = applyPmResponse(prev, data as PmResp);
-                  const withClear = { ...next, streamingPmText: null, pmThinking: null };
+                  const withClear = { ...next, streamingPmText: null, pmActivity: [] };
                   const withExtras = data.deploymentInfo
                     ? { ...withClear, deploymentInfo: String(data.deploymentInfo) }
                     : withClear;
@@ -601,7 +608,7 @@ export function usePlanningSession(
                   ...prev,
                   typing: null,
                   streamingPmText: null,
-                  pmThinking: null,
+                  pmActivity: [],
                   messages: [
                     ...prev.messages,
                     {

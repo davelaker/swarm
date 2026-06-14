@@ -12,7 +12,7 @@ import {
 const BLANK: AgentState = {
   active: false,
   step: '',
-  thinking: '',
+  activity: [],
   verdict: null,
   activeAt: null,
   inputTokens: null,
@@ -54,22 +54,36 @@ export function useRunSimulation() {
         );
         break;
       case 'agent':
-        setAgents(a => ({
-          ...a,
-          [ev.who]: { ...BLANK, active: true, step: ev.step, activeAt: Date.now(), verdict: null },
-        }));
+        setAgents(a => {
+          const cur = a[ev.who] ?? BLANK;
+          return {
+            ...a,
+            [ev.who]: {
+              ...cur,
+              active: true,
+              step: ev.step,
+              activity: [...cur.activity, { kind: 'tool' as const, text: ev.step }].slice(-200),
+              activeAt: cur.activeAt ?? Date.now(),
+              verdict: null,
+            },
+          };
+        });
         break;
       case 'idle':
-        setAgents(a => ({
-          ...a,
-          [ev.who]: {
-            ...BLANK,
-            active: false,
-            step: '',
-            activeAt: null,
-            verdict: ev.verdict as Finding['verdict'],
-          },
-        }));
+        setAgents(a => {
+          const cur = a[ev.who] ?? BLANK;
+          return {
+            ...a,
+            // keep activity so the finished transcript stays expandable
+            [ev.who]: {
+              ...cur,
+              active: false,
+              step: '',
+              activeAt: null,
+              verdict: ev.verdict as Finding['verdict'],
+            },
+          };
+        });
         break;
       case 'finding':
         setFindings(f => [
