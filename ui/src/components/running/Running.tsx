@@ -1169,12 +1169,31 @@ function sessionToRunViewData(session: SessionSnapshot): {
     }))
     .reverse();
 
-  const pmMsgs: ChatMessage[] = [
-    ...(session.goal ? [{ from: 'pm' as const, text: `Goal: ${session.goal}` }] : []),
-    ...session.log
-      .filter(e => e.actor === 'pm' || e.actor === 'user')
-      .map(e => ({ from: e.actor === 'pm' ? ('pm' as const) : ('you' as const), text: e.event })),
-  ];
+  const charter = session.charter;
+
+  // The original planning conversation (you ↔ PM) that scoped the run, when the
+  // snapshot captured it; otherwise fall back to just the goal line.
+  const planningMsgs: ChatMessage[] = charter?.planningHistory?.length
+    ? charter.planningHistory.map(m => ({ from: m.from, text: m.text }))
+    : session.goal
+      ? [{ from: 'you' as const, text: session.goal }]
+      : [];
+
+  // The agreed charter, surfaced read-only as compact system notes.
+  const charterMsgs: ChatMessage[] = (
+    [
+      charter?.constraints?.length ? `Constraints: ${charter.constraints.join(' · ')}` : null,
+      charter?.nongoals?.length ? `Non-goals: ${charter.nongoals.join(' · ')}` : null,
+      charter?.questions?.length ? `Open questions: ${charter.questions.join(' · ')}` : null,
+    ].filter(Boolean) as string[]
+  ).map(text => ({ from: 'system' as const, text }));
+
+  // Execution-time PM/user log lines (dispatch, commentary) that followed.
+  const runLog: ChatMessage[] = session.log
+    .filter(e => e.actor === 'pm' || e.actor === 'user')
+    .map(e => ({ from: e.actor === 'pm' ? ('pm' as const) : ('you' as const), text: e.event }));
+
+  const pmMsgs: ChatMessage[] = [...planningMsgs, ...charterMsgs, ...runLog];
 
   return { tasks, agents, findings, pmMsgs };
 }
