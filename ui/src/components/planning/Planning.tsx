@@ -422,6 +422,26 @@ export function Planning({
               />
             ) : session.streamingPmText ? (
               <StreamingMessage text={session.streamingPmText} />
+            ) : session.pmThinking ? (
+              <div
+                title={session.pmThinking}
+                style={{
+                  fontSize: 12,
+                  fontStyle: 'italic',
+                  opacity: 0.55,
+                  lineHeight: 1.5,
+                  padding: '4px 2px',
+                  display: '-webkit-box',
+                  WebkitLineClamp: 3,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }}
+              >
+                <span style={{ fontStyle: 'normal', opacity: 0.75, marginRight: 6 }}>
+                  PM thinking…
+                </span>
+                {session.pmThinking}
+              </div>
             ) : session.typing ? (
               <ProgressiveTypingIndicator />
             ) : null}

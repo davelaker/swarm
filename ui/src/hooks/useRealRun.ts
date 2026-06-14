@@ -39,6 +39,7 @@ type SwarmEvent =
   | { type: 'task.status_changed'; task_id: string; status: string; skip_reason?: string }
   | { type: 'agent.started'; agent_id: string }
   | { type: 'agent.progress'; agent_id: string; step: string }
+  | { type: 'agent.thinking'; agent_id: string; text: string }
   | { type: 'agent.finished'; agent_id: string }
   | { type: 'finding.written'; task_id: string; path: string; verdict?: string; summary?: string }
   | { type: 'log.appended'; actor: string; event: string }
@@ -113,13 +114,21 @@ const BLANK_METRICS = { inputTokens: null, outputTokens: null, costUsd: null, co
 const BLANK_AGENT: AgentState = {
   active: false,
   step: '',
+  thinking: '',
   activeAt: null,
   verdict: null,
   ...BLANK_METRICS,
 };
 
 function initAgents(): Record<string, AgentState> {
-  const blank = { active: false, step: '', activeAt: null, verdict: null, ...BLANK_METRICS };
+  const blank = {
+    active: false,
+    step: '',
+    thinking: '',
+    activeAt: null,
+    verdict: null,
+    ...BLANK_METRICS,
+  };
   return {
     pm: { ...blank },
     coder: { ...blank },
@@ -461,6 +470,7 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
             ...(prev.agents[ev.agent_id] ?? BLANK_AGENT),
             active: true,
             step: 'working…',
+            thinking: '',
             activeAt: Date.now(),
             verdict: null,
           },
@@ -481,6 +491,20 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
         },
       };
 
+    case 'agent.thinking':
+      return {
+        ...prev,
+        agents: {
+          ...prev.agents,
+          [ev.agent_id]: {
+            ...(prev.agents[ev.agent_id] ?? BLANK_AGENT),
+            active: true,
+            thinking: ev.text,
+            activeAt: prev.agents[ev.agent_id]?.activeAt ?? Date.now(),
+          },
+        },
+      };
+
     case 'agent.finished':
       return {
         ...prev,
@@ -490,6 +514,7 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
             ...(prev.agents[ev.agent_id] ?? BLANK_AGENT),
             active: false,
             step: '',
+            thinking: '',
             activeAt: null,
           },
         },

@@ -23,6 +23,7 @@ interface SessionState {
   branchName?: string; // user-edited slug only (no swarm/ prefix); undefined = auto-derive from goal
   taskGraph?: TaskGraphEntry[];
   streamingPmText: string | null;
+  pmThinking?: string | null; // latest PM extended-thinking snippet, shown while it reasons before replying
   researching: { question: string; agent?: string } | null; // active research round (agent = specialist name, or undefined for the generic Scout)
   hireSuggestion: { agentId: string; reason: string } | null; // PM's pending hire recommendation
   deploymentInfo?: string;
@@ -492,12 +493,20 @@ export function usePlanningSession(
               if (!part.startsWith('data: ')) continue;
               const data = JSON.parse(part.slice(6)) as Record<string, unknown>;
 
-              if (data.type === 'chunk' && typeof data.text === 'string') {
-                // First chunk: swap typing/research indicator for streaming text bubble.
+              if (data.type === 'thinking' && typeof data.text === 'string') {
+                // PM is reasoning before it replies — surface the live thinking snippet.
+                setState(prev => ({
+                  ...prev,
+                  typing: null,
+                  pmThinking: String(data.text),
+                }));
+              } else if (data.type === 'chunk' && typeof data.text === 'string') {
+                // First chunk: swap typing/thinking/research indicator for streaming text bubble.
                 setState(prev => ({
                   ...prev,
                   typing: null,
                   researching: null,
+                  pmThinking: null,
                   streamingPmText: (prev.streamingPmText ?? '') + data.text,
                 }));
               } else if (data.type === 'research') {
@@ -510,6 +519,7 @@ export function usePlanningSession(
                         ...prev,
                         typing: null,
                         streamingPmText: null,
+                        pmThinking: null,
                         researching: {
                           question: String(data.question ?? 'the codebase'),
                           agent: typeof data.agent === 'string' ? data.agent : undefined,
@@ -533,7 +543,7 @@ export function usePlanningSession(
                     : null;
                 setState(prev => {
                   const next = applyPmResponse(prev, data as PmResp);
-                  const withClear = { ...next, streamingPmText: null };
+                  const withClear = { ...next, streamingPmText: null, pmThinking: null };
                   const withExtras = data.deploymentInfo
                     ? { ...withClear, deploymentInfo: String(data.deploymentInfo) }
                     : withClear;
@@ -591,6 +601,7 @@ export function usePlanningSession(
                   ...prev,
                   typing: null,
                   streamingPmText: null,
+                  pmThinking: null,
                   messages: [
                     ...prev.messages,
                     {

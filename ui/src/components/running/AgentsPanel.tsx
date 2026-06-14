@@ -103,6 +103,25 @@ function AgentRow({
             ) : null}
           </span>
         </div>
+        {a.active && a.thinking && (
+          <div
+            className="agent-thinking"
+            title={a.thinking}
+            style={{
+              fontSize: 11,
+              lineHeight: 1.4,
+              opacity: 0.5,
+              fontStyle: 'italic',
+              marginTop: 3,
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            }}
+          >
+            {a.thinking}
+          </div>
+        )}
         {!a.active && hasMetrics && (
           <div className="agent-metrics">
             {hasTokens && (
@@ -153,6 +172,7 @@ export function AgentsPanel({
   const blank = {
     active: false,
     step: '',
+    thinking: '',
     activeAt: null,
     verdict: null,
     costUsd: null,

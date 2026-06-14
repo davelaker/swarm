@@ -12,6 +12,7 @@ import {
 const BLANK: AgentState = {
   active: false,
   step: '',
+  thinking: '',
   verdict: null,
   activeAt: null,
   inputTokens: null,

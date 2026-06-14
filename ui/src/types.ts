@@ -59,6 +59,7 @@ export interface Task {
 export interface AgentState {
   active: boolean;
   step: string;
+  thinking: string; // latest extended-thinking snippet, shown dimmed beneath the step
   activeAt: number | null; // Date.now() when agent became active — drives elapsed timer
   verdict: Verdict | null;
   inputTokens: number | null;
