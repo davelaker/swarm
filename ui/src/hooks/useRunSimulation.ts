@@ -12,7 +12,6 @@ import {
 const BLANK: AgentState = {
   active: false,
   step: '',
-  activity: [],
   verdict: null,
   activeAt: null,
   inputTokens: null,
@@ -62,7 +61,6 @@ export function useRunSimulation() {
               ...cur,
               active: true,
               step: ev.step,
-              activity: [...cur.activity, { kind: 'tool' as const, text: ev.step }].slice(-200),
               activeAt: cur.activeAt ?? Date.now(),
               verdict: null,
             },
@@ -74,7 +72,6 @@ export function useRunSimulation() {
           const cur = a[ev.who] ?? BLANK;
           return {
             ...a,
-            // keep activity so the finished transcript stays expandable
             [ev.who]: {
               ...cur,
               active: false,

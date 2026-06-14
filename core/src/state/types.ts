@@ -96,13 +96,15 @@ export type SwarmEvent =
   | { type: 'task.created'; task: Task }
   | { type: 'task.status_changed'; task_id: string; status: TaskStatus; skip_reason?: string }
   | { type: 'agent.started'; agent_id: string }
-  | { type: 'agent.progress'; agent_id: string; step: string }
-  | { type: 'agent.thinking'; agent_id: string; text: string }
+  | { type: 'agent.progress'; agent_id: string; task_id?: string; step: string }
+  | { type: 'agent.thinking'; agent_id: string; task_id?: string; text: string }
   | {
-      // Appended to an agent's transcript on tool start, then refined (matched by id)
-      // with a line count when the tool result arrives.
+      // Appended to a task's transcript on tool start, then refined (matched by id)
+      // with a line count when the tool result arrives. task_id keys the transcript
+      // to the run so an agent (e.g. coder) that runs several tasks stays separable.
       type: 'agent.tool';
       agent_id: string;
+      task_id?: string;
       id: string;
       label?: string;
       tool?: string;

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type {
   Task,
   AgentState,
+  ActivityEntry,
   Finding,
   ChatMessage,
   RunStatus,
@@ -38,11 +39,12 @@ type SwarmEvent =
   | { type: 'task.created'; task: ServerTask }
   | { type: 'task.status_changed'; task_id: string; status: string; skip_reason?: string }
   | { type: 'agent.started'; agent_id: string }
-  | { type: 'agent.progress'; agent_id: string; step: string }
-  | { type: 'agent.thinking'; agent_id: string; text: string }
+  | { type: 'agent.progress'; agent_id: string; task_id?: string; step: string }
+  | { type: 'agent.thinking'; agent_id: string; task_id?: string; text: string }
   | {
       type: 'agent.tool';
       agent_id: string;
+      task_id?: string;
       id: string;
       label?: string;
       tool?: string;
@@ -124,7 +126,6 @@ const ACTIVITY_CAP = 200; // bound the transcript so a long run can't grow state
 const BLANK_AGENT: AgentState = {
   active: false,
   step: '',
-  activity: [],
   activeAt: null,
   verdict: null,
   ...BLANK_METRICS,
@@ -134,7 +135,6 @@ function initAgents(): Record<string, AgentState> {
   const blank = {
     active: false,
     step: '',
-    activity: [],
     activeAt: null,
     verdict: null,
     ...BLANK_METRICS,
@@ -154,6 +154,7 @@ export interface RealRunState {
   tier: string;
   tasks: Task[];
   agents: Record<string, AgentState>;
+  taskActivity: Record<string, ActivityEntry[]>; // transcript per task id (thinking + tool steps)
   findings: Finding[];
   pmMsgs: ChatMessage[];
   status: RunStatus;
@@ -279,6 +280,7 @@ export function useRealRun(): {
           tier: snap.tier,
           tasks,
           agents,
+          taskActivity: {},
           findings,
           pmMsgs,
           status: allDone ? 'done' : 'running',
@@ -377,6 +379,7 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
         findings: [],
         pmMsgs: [],
         agents: initAgents(),
+        taskActivity: {},
         spend: 0,
         pushed: false,
         branchName: undefined,
@@ -480,7 +483,6 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
             ...(prev.agents[ev.agent_id] ?? BLANK_AGENT),
             active: true,
             step: 'working…',
-            activity: [], // fresh transcript for this run
             activeAt: Date.now(),
             verdict: null,
           },
@@ -488,8 +490,8 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
       };
 
     case 'agent.progress': {
-      // Live one-liner for the current action; the transcript entries come from
-      // agent.tool, so this only updates the step shown next to the agent name.
+      // Live one-liner for the current action; transcript entries come from
+      // agent.tool / agent.thinking (keyed by task), so this only sets the step.
       const cur = prev.agents[ev.agent_id] ?? BLANK_AGENT;
       return {
         ...prev,
@@ -506,13 +508,15 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
     }
 
     case 'agent.tool': {
-      const cur = prev.agents[ev.agent_id] ?? BLANK_AGENT;
-      const idx = ev.id ? cur.activity.findIndex(e => e.kind === 'tool' && e.id === ev.id) : -1;
-      let activity = cur.activity;
-      let step = cur.step;
+      // Transcript is keyed by task so an agent running several tasks stays separable.
+      const key = ev.task_id ?? ev.agent_id;
+      const prevLog = prev.taskActivity[key] ?? [];
+      const idx = ev.id ? prevLog.findIndex(e => e.kind === 'tool' && e.id === ev.id) : -1;
+      let log = prevLog;
+      let agents = prev.agents;
       if (idx >= 0) {
         // Refine an existing entry (e.g. add the line count once the result lands).
-        activity = cur.activity.map((e, i) =>
+        log = prevLog.map((e, i) =>
           i === idx
             ? {
                 ...e,
@@ -523,8 +527,8 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
             : e,
         );
       } else {
-        activity = [
-          ...cur.activity,
+        log = [
+          ...prevLog,
           {
             kind: 'tool' as const,
             text: ev.label ?? '',
@@ -535,38 +539,34 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
           },
         ].slice(-ACTIVITY_CAP);
         if (ev.label) {
-          step = ev.label;
+          const cur = prev.agents[ev.agent_id] ?? BLANK_AGENT;
+          agents = {
+            ...prev.agents,
+            [ev.agent_id]: {
+              ...cur,
+              active: true,
+              step: ev.label,
+              activeAt: cur.activeAt ?? Date.now(),
+            },
+          };
         }
       }
-      return {
-        ...prev,
-        agents: {
-          ...prev.agents,
-          [ev.agent_id]: {
-            ...cur,
-            active: true,
-            step,
-            activity,
-            activeAt: cur.activeAt ?? Date.now(),
-          },
-        },
-      };
+      return { ...prev, agents, taskActivity: { ...prev.taskActivity, [key]: log } };
     }
 
     case 'agent.thinking': {
+      const key = ev.task_id ?? ev.agent_id;
+      const prevLog = prev.taskActivity[key] ?? [];
       const cur = prev.agents[ev.agent_id] ?? BLANK_AGENT;
       return {
         ...prev,
         agents: {
           ...prev.agents,
-          [ev.agent_id]: {
-            ...cur,
-            active: true,
-            activity: [...cur.activity, { kind: 'thinking' as const, text: ev.text }].slice(
-              -ACTIVITY_CAP,
-            ),
-            activeAt: cur.activeAt ?? Date.now(),
-          },
+          [ev.agent_id]: { ...cur, active: true, activeAt: cur.activeAt ?? Date.now() },
+        },
+        taskActivity: {
+          ...prev.taskActivity,
+          [key]: [...prevLog, { kind: 'thinking' as const, text: ev.text }].slice(-ACTIVITY_CAP),
         },
       };
     }
@@ -577,7 +577,6 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
         agents: {
           ...prev.agents,
           [ev.agent_id]: {
-            // keep activity so the finished transcript stays expandable
             ...(prev.agents[ev.agent_id] ?? BLANK_AGENT),
             active: false,
             step: '',

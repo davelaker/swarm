@@ -758,7 +758,7 @@ export const agentSdkDriver: AgentDriver = {
       cwd: worktreePath, // run inside the isolated worktree (if any)
       requireFields: ['summary', 'detail'],
       minDetail: 120,
-      onStreamEvent: streamToProgress(task.assignee),
+      onStreamEvent: streamToProgress(task.assignee, task.id),
     });
 
     const verdict = String(data.verdict ?? 'FAILED');
@@ -823,7 +823,7 @@ export const agentSdkDriver: AgentDriver = {
       model: cfg.testerModel,
       verbose: true,
       requireFields: ['summary', 'detail'],
-      onStreamEvent: streamToProgress(task.assignee),
+      onStreamEvent: streamToProgress(task.assignee, task.id),
     });
 
     const verdict = String(data.verdict ?? 'FAIL').toUpperCase();
@@ -858,7 +858,7 @@ export const agentSdkDriver: AgentDriver = {
       model: cfg.securityModel, // haiku — structured read-only checklist
       verbose: true,
       requireFields: ['summary', 'detail'],
-      onStreamEvent: streamToProgress(task.assignee),
+      onStreamEvent: streamToProgress(task.assignee, task.id),
     });
 
     const verdict = String(data.verdict ?? 'CHANGES_REQUESTED').toUpperCase();
@@ -896,7 +896,7 @@ export const agentSdkDriver: AgentDriver = {
       model: cfg.reviewerModel, // sonnet — needs judgment about code quality
       verbose: true,
       requireFields: ['summary', 'detail'],
-      onStreamEvent: streamToProgress(task.assignee),
+      onStreamEvent: streamToProgress(task.assignee, task.id),
     });
 
     const verdict = String(data.verdict ?? 'CHANGES_REQUESTED').toUpperCase();
@@ -975,7 +975,7 @@ export const agentSdkDriver: AgentDriver = {
       model: modelOverride,
       verbose: true,
       requireFields: ['summary', 'detail'],
-      onStreamEvent: streamToProgress(task.assignee),
+      onStreamEvent: streamToProgress(task.assignee, task.id),
       permProxy: needsProxy
         ? { agentId: task.id, ...(hasSqlTools ? { sqlPolicy: sqlPolicyMap } : {}) }
         : undefined,

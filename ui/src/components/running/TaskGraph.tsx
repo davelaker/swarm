@@ -1,7 +1,8 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import type { Task } from '../../types';
+import type { ActivityEntry, Task } from '../../types';
 import { resolveAgentPersona } from '../../data/personas';
 import { STATUS_COLOR, STATUS_LABEL } from '../../data/runScript';
+import { ActivityLog } from '../common/ActivityLog';
 
 const TRUNCATE = 72; // chars shown before "more" toggle appears
 
@@ -48,10 +49,12 @@ function getConnectedSet(taskId: string, tasks: Task[]): Set<string> {
 function TaskCard({
   t,
   agentSteps,
+  activity,
   isHovered,
 }: {
   t: Task;
   agentSteps: Record<string, string>;
+  activity: ActivityEntry[];
   isHovered?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -123,6 +126,7 @@ function TaskCard({
           <span className="cursor" style={{ color: p?.color }} />
         </div>
       )}
+      <ActivityLog activity={activity} active={isActive} color={p?.color} />
     </div>
   );
 }
@@ -146,11 +150,13 @@ function computeRail(scrollW: number, maxLane: number): { railW: number; lanePx:
 export function TaskGraph({
   tasks,
   agentSteps,
+  taskActivity,
   hoveredTaskId,
   onHoverTask,
 }: {
   tasks: Task[];
   agentSteps: Record<string, string>;
+  taskActivity: Record<string, ActivityEntry[]>;
   hoveredTaskId: string | null;
   onHoverTask: (id: string | null) => void;
 }) {
@@ -319,7 +325,12 @@ export function TaskGraph({
                     }}
                   />
                 </div>
-                <TaskCard t={t} agentSteps={agentSteps} isHovered={isHovered} />
+                <TaskCard
+                  t={t}
+                  agentSteps={agentSteps}
+                  activity={taskActivity[t.id] ?? []}
+                  isHovered={isHovered}
+                />
               </div>
             );
           })}

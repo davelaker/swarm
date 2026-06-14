@@ -42,15 +42,17 @@ function isInternalTool(name: string): boolean {
 // Build an onStreamEvent sink that maps one agent's claude stream into dashboard
 // events. Thinking blocks → agent.thinking. Each tool call appends an agent.tool
 // entry when it starts (so the transcript updates live) and is refined with a line
-// count when its result arrives. `agentId` MUST be the task's assignee so events
-// land on the same agent the file watcher started via agent.started.
-export function streamToProgress(agentId: string): (ev: StreamEvent) => void {
+// count when its result arrives. `agentId` is the task's assignee (so the file
+// watcher's agent.started lines up); `taskId` keys the transcript to this run so an
+// agent that runs several tasks keeps a separate transcript per task.
+export function streamToProgress(agentId: string, taskId: string): (ev: StreamEvent) => void {
   const pendingTool = new Map<string, { tool: string }>();
   return ev => {
     if (ev.kind === 'thinking') {
       void postEvent({
         type: 'agent.thinking',
         agent_id: agentId,
+        task_id: taskId,
         text: ev.text.slice(0, THINKING_MAX_CHARS),
       });
     } else if (ev.kind === 'tool_use') {
@@ -62,6 +64,7 @@ export function streamToProgress(agentId: string): (ev: StreamEvent) => void {
       void postEvent({
         type: 'agent.tool',
         agent_id: agentId,
+        task_id: taskId,
         id: ev.id,
         label: describeToolUse(ev.name, ev.input),
         tool: ev.name,
@@ -79,6 +82,7 @@ export function streamToProgress(agentId: string): (ev: StreamEvent) => void {
         void postEvent({
           type: 'agent.tool',
           agent_id: agentId,
+          task_id: taskId,
           id: ev.id,
           detail: `${lines} lines`,
         });

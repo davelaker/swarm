@@ -71,7 +71,6 @@ export interface ActivityEntry {
 export interface AgentState {
   active: boolean;
   step: string;
-  activity: ActivityEntry[]; // ordered transcript of thinking + tool calls for this run
   activeAt: number | null; // Date.now() when agent became active — drives elapsed timer
   verdict: Verdict | null;
   inputTokens: number | null;

@@ -14,6 +14,7 @@ import type {
   SessionSnapshot,
   Task,
   AgentState,
+  ActivityEntry,
   Finding,
   ChatMessage,
 } from '../../types';
@@ -81,6 +82,7 @@ interface RunViewProps {
   tier: string;
   tasks: ReturnType<typeof useRunSimulation>['tasks'];
   agents: ReturnType<typeof useRunSimulation>['agents'];
+  taskActivity?: Record<string, ActivityEntry[]>;
   findings: ReturnType<typeof useRunSimulation>['findings'];
   pmMsgs: ReturnType<typeof useRunSimulation>['pmMsgs'];
   spend: number;
@@ -793,6 +795,7 @@ function RunView({
   tier,
   tasks,
   agents,
+  taskActivity = {},
   findings,
   pmMsgs,
   spend,
@@ -929,6 +932,7 @@ function RunView({
           <TaskGraph
             tasks={tasks}
             agentSteps={agentSteps}
+            taskActivity={taskActivity}
             hoveredTaskId={hoveredTaskId}
             onHoverTask={setHoveredTaskId}
           />
@@ -1137,7 +1141,6 @@ function sessionToRunViewData(session: SessionSnapshot): {
   const blank: AgentState = {
     active: false,
     step: '',
-    activity: [],
     activeAt: null,
     verdict: null,
     inputTokens: null,
@@ -1335,6 +1338,7 @@ export function Running({
         tier={state.tier}
         tasks={state.tasks}
         agents={state.agents}
+        taskActivity={state.taskActivity}
         findings={state.findings}
         pmMsgs={state.pmMsgs}
         spend={state.spend}
