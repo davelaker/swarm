@@ -1115,6 +1115,50 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
       return;
     }
 
+    // ── Delete a local swarm branch ───────────────────────────────────────────────
+    // Local-only (`git branch -D`). Restricted to swarm/* branches — which also
+    // structurally protects main/master (they don't carry that prefix) — and refuses
+    // the currently checked-out branch. The UI's confirm dialog handles warning the
+    // user about unmerged/never-pushed branches before this is ever called.
+    if (route === '/branches/delete') {
+      const { branch } = payload as { branch?: string };
+      if (typeof branch !== 'string' || !branch.startsWith('swarm/')) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'only swarm/* branches can be deleted here' }));
+        return;
+      }
+      (async () => {
+        const cwd = getRoot();
+        const runGit = (args: string[]) =>
+          execFileAsync('git', args, { cwd, encoding: 'utf8' }).then(r =>
+            (r.stdout as string).trim(),
+          );
+        const current = await runGit(['branch', '--show-current']).catch(() => '');
+        if (branch === current) {
+          res.writeHead(409);
+          res.end(
+            JSON.stringify({ error: 'cannot delete the branch that is currently checked out' }),
+          );
+          return;
+        }
+        try {
+          await runGit(['branch', '-D', branch]);
+          res.writeHead(200);
+          res.end(JSON.stringify({ ok: true }));
+        } catch (err) {
+          const msg =
+            (err as { stderr?: Buffer | string }).stderr?.toString().trim() ||
+            (err as Error).message;
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: msg }));
+        }
+      })().catch(err => {
+        res.writeHead(500);
+        res.end(String(err));
+      });
+      return;
+    }
+
     // ── Live agent progress (cross-process) ──────────────────────────────────────
     // The agent driver runs in the `swarm new` loop process and POSTs thinking /
     // tool-call events here; we fan them straight out to SSE clients. Telemetry

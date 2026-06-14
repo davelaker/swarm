@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { SwarmBranch, BranchCommit } from '../../types';
+import { IconTrash } from '../common/icons';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -14,6 +15,201 @@ function timeAgo(iso: string): string {
   const d = Math.floor(h / 24);
   if (d < 30) return `${d}d ago`;
   return new Date(iso).toLocaleDateString();
+}
+
+// ─── Delete confirmation ───────────────────────────────────────────────────────
+// The consequences of deleting a swarm branch depend entirely on where its commits
+// live, so spell that out per scenario before the destructive action.
+
+const TONE = {
+  safe: {
+    color: 'var(--green)',
+    bg: 'var(--green-d)',
+    border: 'rgba(52,207,138,0.25)',
+    label: 'Safe to delete',
+  },
+  recoverable: {
+    color: 'var(--amber)',
+    bg: 'var(--amber-d)',
+    border: 'rgba(245,160,55,0.3)',
+    label: 'Recoverable from GitHub',
+  },
+  danger: {
+    color: 'var(--red)',
+    bg: 'var(--red-d)',
+    border: 'rgba(240,90,82,0.3)',
+    label: 'Permanent — lost forever',
+  },
+} as const;
+
+function deleteScenario(
+  branch: SwarmBranch,
+  defaultBranch: string,
+): { tone: keyof typeof TONE; lines: string[] } {
+  if (branch.merged) {
+    return {
+      tone: 'safe',
+      lines: [
+        `Merged into ${defaultBranch} — its commits already live there. Deleting only removes the local branch.`,
+      ],
+    };
+  }
+  if (branch.pushed) {
+    return {
+      tone: 'recoverable',
+      lines: [
+        `Not merged into ${defaultBranch}, but pushed to origin/${branch.shortName}.`,
+        `Its commits remain on GitHub and can be restored — only the local branch goes away.`,
+      ],
+    };
+  }
+  const n = branch.ahead;
+  return {
+    tone: 'danger',
+    lines: [
+      `Never pushed to GitHub and not merged into ${defaultBranch}.`,
+      `Its ${n} commit${n === 1 ? '' : 's'} exist${n === 1 ? 's' : ''} only here and will be lost forever. This cannot be undone.`,
+    ],
+  };
+}
+
+function DeleteBranchDialog({
+  branch,
+  defaultBranch,
+  onClose,
+  onDeleted,
+}: {
+  branch: SwarmBranch;
+  defaultBranch: string;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const scn = deleteScenario(branch, defaultBranch);
+  const tone = TONE[scn.tone];
+
+  const confirm = () => {
+    setBusy(true);
+    setError(null);
+    fetch('/branches/delete', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: branch.name }),
+    })
+      .then(async r => {
+        if (!r.ok) {
+          const d = (await r.json().catch(() => ({}))) as { error?: string };
+          throw new Error(d.error || `${r.status}`);
+        }
+      })
+      .then(() => {
+        onDeleted();
+        onClose();
+      })
+      .catch((e: Error) => {
+        setError(e.message);
+        setBusy(false);
+      });
+  };
+
+  const btnBase = {
+    fontSize: 12,
+    fontFamily: 'var(--mono)',
+    padding: '7px 14px',
+    borderRadius: 7,
+    border: '1px solid var(--border)',
+    background: 'transparent',
+    cursor: busy ? 'default' : 'pointer',
+  } as const;
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.55)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: 440,
+          maxWidth: '90vw',
+          background: 'var(--bg-1)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--r-lg)',
+          padding: 20,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 14,
+        }}
+      >
+        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--tx-1)' }}>
+          Delete <span style={{ fontFamily: 'var(--mono)' }}>⎇ {branch.shortName}</span>?
+        </div>
+        <div
+          style={{
+            background: tone.bg,
+            border: `1px solid ${tone.border}`,
+            borderRadius: 8,
+            padding: '10px 14px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 6,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '0.04em',
+              textTransform: 'uppercase',
+              color: tone.color,
+            }}
+          >
+            {tone.label}
+          </div>
+          {scn.lines.map((l, i) => (
+            <div key={i} style={{ fontSize: 12.5, lineHeight: 1.5, color: 'var(--tx-2)' }}>
+              {l}
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--tx-3)' }}>
+          Runs <code style={{ fontFamily: 'var(--mono)' }}>git branch -D {branch.name}</code>{' '}
+          locally — the remote is not touched.
+        </div>
+        {error && (
+          <div style={{ fontSize: 12, fontFamily: 'var(--mono)', color: 'var(--red)' }}>
+            ⚠ {error}
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button onClick={onClose} disabled={busy} style={{ ...btnBase, color: 'var(--tx-2)' }}>
+            Cancel
+          </button>
+          <button
+            onClick={confirm}
+            disabled={busy}
+            style={{
+              ...btnBase,
+              color: '#fff',
+              background: 'var(--red)',
+              borderColor: 'var(--red)',
+            }}
+          >
+            {busy ? 'Deleting…' : 'Delete branch'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── Status chip ──────────────────────────────────────────────────────────────
@@ -105,11 +301,22 @@ function CommitRow({
 
 // ─── Branch card ─────────────────────────────────────────────────────────────
 
-function BranchCard({ branch, repoUrl }: { branch: SwarmBranch; repoUrl: string | null }) {
+function BranchCard({
+  branch,
+  repoUrl,
+  defaultBranch,
+  onDeleted,
+}: {
+  branch: SwarmBranch;
+  repoUrl: string | null;
+  defaultBranch: string;
+  onDeleted: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [commits, setCommits] = useState<BranchCommit[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const commitMsg =
     branch.lastCommit.message.length > 90
@@ -139,70 +346,69 @@ function BranchCard({ branch, repoUrl }: { branch: SwarmBranch; repoUrl: string 
   const canExpand = branch.ahead > 0;
 
   return (
-    <div
-      style={{
-        background: 'var(--bg-1)',
-        border: `1px solid ${branch.isCurrent ? 'var(--blue)' : 'var(--border)'}`,
-        borderRadius: 'var(--r-lg)',
-        overflow: 'hidden',
-        opacity: branch.merged && !branch.isCurrent ? 0.7 : 1,
-      }}
-    >
-      {/* Summary row — clickable to expand */}
+    <>
+      {confirmDelete && (
+        <DeleteBranchDialog
+          branch={branch}
+          defaultBranch={defaultBranch}
+          onClose={() => setConfirmDelete(false)}
+          onDeleted={onDeleted}
+        />
+      )}
       <div
         style={{
-          padding: '14px 18px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 8,
-          cursor: canExpand ? 'pointer' : 'default',
+          background: 'var(--bg-1)',
+          border: `1px solid ${branch.isCurrent ? 'var(--blue)' : 'var(--border)'}`,
+          borderRadius: 'var(--r-lg)',
+          overflow: 'hidden',
+          opacity: branch.merged && !branch.isCurrent ? 0.7 : 1,
         }}
-        onClick={canExpand ? toggle : undefined}
       >
-        {/* Row 1: name + chips */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span
-            style={{
-              fontFamily: 'var(--mono)',
-              fontSize: 13,
-              fontWeight: 600,
-              color: branch.isCurrent ? 'var(--blue)' : 'var(--tx-1)',
-            }}
-          >
-            ⎇ {branch.shortName}
-          </span>
-          <BranchStatus branch={branch} />
-          <PrChip pr={branch.pr} />
-          {githubBranchUrl && (
-            <a
-              href={githubBranchUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={e => e.stopPropagation()}
+        {/* Summary row — clickable to expand */}
+        <div
+          style={{
+            padding: '14px 18px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            cursor: canExpand ? 'pointer' : 'default',
+          }}
+          onClick={canExpand ? toggle : undefined}
+        >
+          {/* Row 1: name + chips */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span
               style={{
-                fontSize: 11,
                 fontFamily: 'var(--mono)',
-                color: 'var(--tx-3)',
-                textDecoration: 'none',
+                fontSize: 13,
+                fontWeight: 600,
+                color: branch.isCurrent ? 'var(--blue)' : 'var(--tx-1)',
               }}
-              title="View branch on GitHub"
-              onMouseEnter={e => (e.currentTarget.style.color = 'var(--tx-1)')}
-              onMouseLeave={e => (e.currentTarget.style.color = 'var(--tx-3)')}
             >
-              ↗ GitHub
-            </a>
-          )}
-          <span style={{ flex: 1 }} />
-          <span
-            style={{
-              fontSize: 11,
-              fontFamily: 'var(--mono)',
-              color: 'var(--tx-3)',
-            }}
-          >
-            {timeAgo(branch.lastCommit.date)}
-          </span>
-          {branch.ahead > 0 && !branch.merged && (
+              ⎇ {branch.shortName}
+            </span>
+            <BranchStatus branch={branch} />
+            <PrChip pr={branch.pr} />
+            {githubBranchUrl && (
+              <a
+                href={githubBranchUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                style={{
+                  fontSize: 11,
+                  fontFamily: 'var(--mono)',
+                  color: 'var(--tx-3)',
+                  textDecoration: 'none',
+                }}
+                title="View branch on GitHub"
+                onMouseEnter={e => (e.currentTarget.style.color = 'var(--tx-1)')}
+                onMouseLeave={e => (e.currentTarget.style.color = 'var(--tx-3)')}
+              >
+                ↗ GitHub
+              </a>
+            )}
+            <span style={{ flex: 1 }} />
             <span
               style={{
                 fontSize: 11,
@@ -210,111 +416,147 @@ function BranchCard({ branch, repoUrl }: { branch: SwarmBranch; repoUrl: string 
                 color: 'var(--tx-3)',
               }}
             >
-              {branch.ahead} commit{branch.ahead !== 1 ? 's' : ''}
+              {timeAgo(branch.lastCommit.date)}
             </span>
-          )}
-          {canExpand && (
-            <span
+            {branch.ahead > 0 && !branch.merged && (
+              <span
+                style={{
+                  fontSize: 11,
+                  fontFamily: 'var(--mono)',
+                  color: 'var(--tx-3)',
+                }}
+              >
+                {branch.ahead} commit{branch.ahead !== 1 ? 's' : ''}
+              </span>
+            )}
+            {canExpand && (
+              <span
+                style={{
+                  fontSize: 11,
+                  color: 'var(--tx-3)',
+                  userSelect: 'none',
+                  transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                  display: 'inline-block',
+                  transition: 'transform 0.15s',
+                }}
+              >
+                ▶
+              </span>
+            )}
+            {!branch.isCurrent && (
+              <button
+                onClick={e => {
+                  e.stopPropagation();
+                  setConfirmDelete(true);
+                }}
+                title={`Delete branch ${branch.shortName}`}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  background: 'transparent',
+                  border: 'none',
+                  padding: '2px 4px',
+                  marginLeft: 2,
+                  cursor: 'pointer',
+                  color: 'var(--tx-3)',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.color = 'var(--red)')}
+                onMouseLeave={e => (e.currentTarget.style.color = 'var(--tx-3)')}
+              >
+                <IconTrash />
+              </button>
+            )}
+          </div>
+
+          {/* Row 2: last commit message */}
+          {commitMsg && (
+            <div
               style={{
-                fontSize: 11,
-                color: 'var(--tx-3)',
-                userSelect: 'none',
-                transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                display: 'inline-block',
-                transition: 'transform 0.15s',
+                fontSize: 12,
+                color: 'var(--tx-2)',
+                fontFamily: 'var(--mono)',
+                paddingLeft: 18,
               }}
             >
-              ▶
-            </span>
+              {branch.lastCommit.hash && (
+                <span style={{ color: 'var(--tx-3)', marginRight: 8 }}>
+                  {branch.lastCommit.hash}
+                </span>
+              )}
+              {commitMsg}
+            </div>
           )}
         </div>
 
-        {/* Row 2: last commit message */}
-        {commitMsg && (
+        {/* Expandable commit list */}
+        {expanded && (
           <div
             style={{
-              fontSize: 12,
-              color: 'var(--tx-2)',
-              fontFamily: 'var(--mono)',
-              paddingLeft: 18,
+              borderTop: '1px solid var(--border)',
+              padding: '10px 18px 14px',
+              background: 'var(--bg)',
             }}
           >
-            {branch.lastCommit.hash && (
-              <span style={{ color: 'var(--tx-3)', marginRight: 8 }}>{branch.lastCommit.hash}</span>
+            {loading && (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: 'var(--tx-3)',
+                  fontFamily: 'var(--mono)',
+                  padding: '8px 0',
+                }}
+              >
+                Loading commits…
+              </div>
             )}
-            {commitMsg}
+            {error && (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: 'var(--red)',
+                  fontFamily: 'var(--mono)',
+                  padding: '8px 0',
+                }}
+              >
+                ⚠ {error}
+              </div>
+            )}
+            {commits !== null && commits.length === 0 && (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: 'var(--tx-3)',
+                  fontFamily: 'var(--mono)',
+                  padding: '8px 0',
+                }}
+              >
+                No commits ahead of default branch.
+              </div>
+            )}
+            {commits !== null && commits.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {commits.map(c => (
+                  <CommitRow key={c.hash} commit={c} repoUrl={repoUrl} pushed={branch.pushed} />
+                ))}
+                {!branch.pushed && (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--tx-3)',
+                      fontFamily: 'var(--mono)',
+                      marginTop: 10,
+                      fontStyle: 'italic',
+                    }}
+                  >
+                    Branch not yet pushed to remote — commit links unavailable
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
-
-      {/* Expandable commit list */}
-      {expanded && (
-        <div
-          style={{
-            borderTop: '1px solid var(--border)',
-            padding: '10px 18px 14px',
-            background: 'var(--bg)',
-          }}
-        >
-          {loading && (
-            <div
-              style={{
-                fontSize: 12,
-                color: 'var(--tx-3)',
-                fontFamily: 'var(--mono)',
-                padding: '8px 0',
-              }}
-            >
-              Loading commits…
-            </div>
-          )}
-          {error && (
-            <div
-              style={{
-                fontSize: 12,
-                color: 'var(--red)',
-                fontFamily: 'var(--mono)',
-                padding: '8px 0',
-              }}
-            >
-              ⚠ {error}
-            </div>
-          )}
-          {commits !== null && commits.length === 0 && (
-            <div
-              style={{
-                fontSize: 12,
-                color: 'var(--tx-3)',
-                fontFamily: 'var(--mono)',
-                padding: '8px 0',
-              }}
-            >
-              No commits ahead of default branch.
-            </div>
-          )}
-          {commits !== null && commits.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {commits.map(c => (
-                <CommitRow key={c.hash} commit={c} repoUrl={repoUrl} pushed={branch.pushed} />
-              ))}
-              {!branch.pushed && (
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: 'var(--tx-3)',
-                    fontFamily: 'var(--mono)',
-                    marginTop: 10,
-                    fontStyle: 'italic',
-                  }}
-                >
-                  Branch not yet pushed to remote — commit links unavailable
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+    </>
   );
 }
 
@@ -501,7 +743,13 @@ export function Branches() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {open.map(b => (
-                <BranchCard key={b.name} branch={b} repoUrl={repoUrl} />
+                <BranchCard
+                  key={b.name}
+                  branch={b}
+                  repoUrl={repoUrl}
+                  defaultBranch={defaultBranch}
+                  onDeleted={load}
+                />
               ))}
             </div>
           </section>
@@ -523,7 +771,13 @@ export function Branches() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {merged.map(b => (
-                <BranchCard key={b.name} branch={b} repoUrl={repoUrl} />
+                <BranchCard
+                  key={b.name}
+                  branch={b}
+                  repoUrl={repoUrl}
+                  defaultBranch={defaultBranch}
+                  onDeleted={load}
+                />
               ))}
             </div>
           </section>
