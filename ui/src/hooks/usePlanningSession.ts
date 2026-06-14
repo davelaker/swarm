@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import type { ActivityEntry, CharterData, ChatMessage } from '../types';
+import type { ActivityEntry, CharterData, ChatMessage, SessionSnapshot } from '../types';
 import type { RunCharter, TaskGraphEntry } from '../App';
 
 function now(): string {
@@ -790,6 +790,61 @@ export function usePlanningSession(
     onExecutable(false);
   }, [onExecutable]);
 
+  // ─── reopen ─────────────────────────────────────────────────────────────────
+  // Seed a fresh, editable planning session from a past run's snapshot: restore the
+  // planning conversation + charter so the user can tweak and re-run a variant.
+  const reopen = useCallback(
+    (snap: SessionSnapshot) => {
+      clearPersisted(project);
+      started.current = true; // we provide the conversation — don't fire the opener
+      setSessionKey(k => k + 1);
+
+      const c = snap.charter;
+      const convo: ChatMessage[] = c?.planningHistory?.length
+        ? c.planningHistory.map(m => ({ from: m.from, text: m.text }))
+        : snap.goal
+          ? [{ from: 'you' as const, text: snap.goal }]
+          : [];
+      const messages: ChatMessage[] = [
+        ...convo,
+        {
+          from: 'system' as const,
+          text: 'Re-opened from history. Edit the plan or message the PM to re-scope, then Execute to run a variant.',
+          time: now(),
+        },
+      ];
+
+      const team = [...new Set(snap.tasks.map(t => t.assignee).filter(a => a && a !== 'pm'))];
+      const branchMode =
+        c?.branchMode === 'branch' || c?.branchMode === 'main' ? c.branchMode : undefined;
+
+      setState({
+        messages,
+        charter: {
+          goal: snap.goal ?? '',
+          constraints: (c?.constraints ?? []).map(text => ({ text })),
+          nongoals: (c?.nongoals ?? []).map(text => ({ text })),
+          // The originals were answered during the prior run — mark them resolved.
+          questions: (c?.questions ?? []).map(text => ({ text, resolved: true })),
+        },
+        team,
+        typing: null,
+        executable: false,
+        executableReason: 'Edit the re-opened plan or message the PM, then Execute.',
+        phase: 'scope',
+        suggestCompact: false,
+        branchMode,
+        branchName: undefined,
+        taskGraph: undefined,
+        streamingPmText: null,
+        researching: null,
+        hireSuggestion: null,
+      });
+      onExecutable(false);
+    },
+    [project, onExecutable],
+  );
+
   const dismissHire = useCallback(() => {
     setState(prev => ({ ...prev, hireSuggestion: null }));
   }, []);
@@ -798,5 +853,15 @@ export function usePlanningSession(
     setState(prev => ({ ...prev, branchName: slug || undefined }));
   }, []);
 
-  return { ...state, send, init, compact, newSession, sessionKey, setBranchName, dismissHire };
+  return {
+    ...state,
+    send,
+    init,
+    compact,
+    newSession,
+    reopen,
+    sessionKey,
+    setBranchName,
+    dismissHire,
+  };
 }

@@ -126,6 +126,8 @@ interface PlanningProps {
   serverStatus?: ServerStatus;
   recapMessage?: string | null;
   planNextKey?: number;
+  reopenKey?: number;
+  reopenSeed?: SessionSnapshot | null;
   runBlockedReason?: string | null;
   historicalSession?: SessionSnapshot;
 }
@@ -139,6 +141,8 @@ export function Planning({
   serverStatus = 'probing',
   recapMessage,
   planNextKey,
+  reopenKey,
+  reopenSeed,
   runBlockedReason,
   historicalSession,
 }: PlanningProps) {
@@ -189,6 +193,14 @@ export function Planning({
     prevPlanNextKey.current = planNextKey;
     session.newSession();
   }, [planNextKey, session.newSession]);
+
+  // "Re-open in Planning" from a historical session — seed an editable plan from it.
+  const prevReopenKey = useRef(reopenKey ?? 0);
+  useEffect(() => {
+    if (!reopenKey || reopenKey === prevReopenKey.current) return;
+    prevReopenKey.current = reopenKey;
+    if (reopenSeed) session.reopen(reopenSeed);
+  }, [reopenKey, reopenSeed, session.reopen]);
 
   // A post-run "Request changes" review arrived — send it to the PM as a message
   // (it reads it like a reviewer's CHANGES_REQUESTED and plans a coder+reviewer fix).

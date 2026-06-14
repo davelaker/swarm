@@ -76,6 +76,9 @@ export function App() {
   const [showSwitcher, setShowSwitcher] = useState(false);
   const [isInitiating, setIsInitiating] = useState(false);
   const [historicalSession, setHistoricalSession] = useState<SessionSnapshot | null>(null);
+  // "Re-open in Planning": seed an editable plan from a past session.
+  const [reopenSeed, setReopenSeed] = useState<SessionSnapshot | null>(null);
+  const [reopenKey, setReopenKey] = useState(0);
   // True once we've confirmed the correct project root (no mismatch, or switch
   // completed). The Running tab waits behind a loading screen until this is set
   // so we never show a flash of the wrong project's state.
@@ -312,6 +315,14 @@ export function App() {
     setSurface('planning');
   }, []);
 
+  // Seed an editable planning session from a viewed historical run, then leave history.
+  const handleReopen = useCallback((snap: SessionSnapshot) => {
+    setReopenSeed(snap);
+    setReopenKey(k => k + 1);
+    setHistoricalSession(null);
+    setSurface('planning');
+  }, []);
+
   // Called by Running when a PR is successfully created.
   // The URL flows down to Planning as recapMessage, where usePlanningSession
   // injects a completion chip and a PM "what's next?" prompt.
@@ -428,6 +439,13 @@ export function App() {
             }}
           >
             <span>⏱ history</span>
+            <button
+              onClick={() => historicalSession && handleReopen(historicalSession)}
+              style={{ color: 'var(--blue)', fontSize: 11, lineHeight: 1 }}
+              title="Seed a new, editable planning session from this run"
+            >
+              ↻ Re-open in Planning
+            </button>
             <button
               onClick={() => setHistoricalSession(null)}
               style={{ color: 'var(--tx-3)', fontSize: 13, lineHeight: 1 }}
@@ -556,6 +574,8 @@ export function App() {
             serverStatus={serverStatus}
             recapMessage={completionRecap}
             planNextKey={planNextKey}
+            reopenKey={reopenKey}
+            reopenSeed={reopenSeed}
             runBlockedReason={executeError}
             historicalSession={historicalSession ?? undefined}
           />
