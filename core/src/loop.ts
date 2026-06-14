@@ -554,11 +554,20 @@ export async function runLoop(): Promise<LoopResult> {
       }
     }
 
-    // Coders run in an isolated git worktree; non-coder (read-only) agents
-    // share the main working directory.
+    // Coders run in an isolated git worktree so parallel coders never collide;
+    // non-coder (read-only) agents share the main working directory.
+    //
+    // Remediation/fix coders are the exception: they run IN-PLACE on the working
+    // branch with no worktree and no merge-back. A fix task exists only to repair a
+    // previous coder's *already-merged* work, so it must build on that work
+    // directly. Branching a fresh worktree off HEAD and merging it back over the
+    // same files produced spurious "local changes would be overwritten" conflicts
+    // against the very changes it was fixing. Fix tasks are sequential (spawned by
+    // a blocked gate), so they don't need worktree isolation.
     const isCoder = task.assignee === 'coder';
+    const isFixTask = task.id.startsWith('t_fix_');
     let worktreePath: string | undefined;
-    if (isCoder) {
+    if (isCoder && !isFixTask) {
       try {
         worktreePath = createWorktree(task.id);
       } catch (err) {
