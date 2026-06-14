@@ -11,16 +11,18 @@
 
 export type StreamEvent =
   | { kind: 'thinking'; text: string }
-  | { kind: 'tool_use'; name: string; input: Record<string, unknown> }
-  | { kind: 'tool_result'; isError: boolean; text: string }
+  | { kind: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+  | { kind: 'tool_result'; id: string; isError: boolean; text: string }
   | { kind: 'result'; costUsd: number; isError: boolean };
 
 interface RawBlock {
   type?: string;
   text?: string;
   thinking?: string;
+  id?: string;
   name?: string;
   input?: Record<string, unknown>;
+  tool_use_id?: string;
   content?: unknown;
   is_error?: boolean;
 }
@@ -62,7 +64,12 @@ export function parseStreamMessage(raw: unknown): StreamEvent[] {
         if (block.type === 'thinking' && block.thinking) {
           out.push({ kind: 'thinking', text: block.thinking });
         } else if (block.type === 'tool_use' && block.name) {
-          out.push({ kind: 'tool_use', name: block.name, input: block.input ?? {} });
+          out.push({
+            kind: 'tool_use',
+            id: block.id ?? '',
+            name: block.name,
+            input: block.input ?? {},
+          });
         }
       }
       return out;
@@ -73,6 +80,7 @@ export function parseStreamMessage(raw: unknown): StreamEvent[] {
         if (block.type === 'tool_result') {
           out.push({
             kind: 'tool_result',
+            id: block.tool_use_id ?? '',
             isError: Boolean(block.is_error),
             text: toolResultText(block.content),
           });
@@ -91,6 +99,26 @@ export function parseStreamMessage(raw: unknown): StreamEvent[] {
     default:
       return [];
   }
+}
+
+// How many lines a Read tool returned. Claude Code's Read result is cat -n style
+// ("   123→content"), so the highest line-number prefix is the count; fall back to
+// counting newlines for any other shape. Returns null when there is nothing to count.
+export function readResultLineCount(text: string): number | null {
+  if (!text.trim()) {
+    return null;
+  }
+  let max = 0;
+  for (const m of text.matchAll(/(?:^|\n)\s*(\d+)→/g)) {
+    const n = Number(m[1]);
+    if (n > max) {
+      max = n;
+    }
+  }
+  if (max > 0) {
+    return max;
+  }
+  return text.split('\n').filter(l => l.length > 0).length || null;
 }
 
 // Shorten a path to its last two segments so steps read cleanly in the UI.

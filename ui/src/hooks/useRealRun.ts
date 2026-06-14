@@ -40,6 +40,15 @@ type SwarmEvent =
   | { type: 'agent.started'; agent_id: string }
   | { type: 'agent.progress'; agent_id: string; step: string }
   | { type: 'agent.thinking'; agent_id: string; text: string }
+  | {
+      type: 'agent.tool';
+      agent_id: string;
+      id: string;
+      label?: string;
+      tool?: string;
+      file?: string;
+      detail?: string;
+    }
   | { type: 'agent.finished'; agent_id: string }
   | { type: 'finding.written'; task_id: string; path: string; verdict?: string; summary?: string }
   | { type: 'log.appended'; actor: string; event: string }
@@ -479,6 +488,8 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
       };
 
     case 'agent.progress': {
+      // Live one-liner for the current action; the transcript entries come from
+      // agent.tool, so this only updates the step shown next to the agent name.
       const cur = prev.agents[ev.agent_id] ?? BLANK_AGENT;
       return {
         ...prev,
@@ -488,9 +499,54 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
             ...cur,
             active: true,
             step: ev.step,
-            activity: [...cur.activity, { kind: 'tool' as const, text: ev.step }].slice(
-              -ACTIVITY_CAP,
-            ),
+            activeAt: cur.activeAt ?? Date.now(),
+          },
+        },
+      };
+    }
+
+    case 'agent.tool': {
+      const cur = prev.agents[ev.agent_id] ?? BLANK_AGENT;
+      const idx = ev.id ? cur.activity.findIndex(e => e.kind === 'tool' && e.id === ev.id) : -1;
+      let activity = cur.activity;
+      let step = cur.step;
+      if (idx >= 0) {
+        // Refine an existing entry (e.g. add the line count once the result lands).
+        activity = cur.activity.map((e, i) =>
+          i === idx
+            ? {
+                ...e,
+                ...(ev.detail ? { detail: ev.detail } : {}),
+                ...(ev.file ? { file: ev.file } : {}),
+                ...(ev.tool ? { tool: ev.tool } : {}),
+              }
+            : e,
+        );
+      } else {
+        activity = [
+          ...cur.activity,
+          {
+            kind: 'tool' as const,
+            text: ev.label ?? '',
+            id: ev.id,
+            tool: ev.tool,
+            file: ev.file,
+            detail: ev.detail,
+          },
+        ].slice(-ACTIVITY_CAP);
+        if (ev.label) {
+          step = ev.label;
+        }
+      }
+      return {
+        ...prev,
+        agents: {
+          ...prev.agents,
+          [ev.agent_id]: {
+            ...cur,
+            active: true,
+            step,
+            activity,
             activeAt: cur.activeAt ?? Date.now(),
           },
         },

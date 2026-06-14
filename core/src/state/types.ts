@@ -98,6 +98,17 @@ export type SwarmEvent =
   | { type: 'agent.started'; agent_id: string }
   | { type: 'agent.progress'; agent_id: string; step: string }
   | { type: 'agent.thinking'; agent_id: string; text: string }
+  | {
+      // Appended to an agent's transcript on tool start, then refined (matched by id)
+      // with a line count when the tool result arrives.
+      type: 'agent.tool';
+      agent_id: string;
+      id: string;
+      label?: string;
+      tool?: string;
+      file?: string;
+      detail?: string;
+    }
   | { type: 'agent.finished'; agent_id: string }
   | { type: 'finding.written'; task_id: string; path: string; verdict?: string; summary?: string }
   | { type: 'log.appended'; actor: string; event: string }

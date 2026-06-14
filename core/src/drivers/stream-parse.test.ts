@@ -4,44 +4,63 @@ import {
   parseStreamMessage,
   describeToolUse,
   createNdjsonBuffer,
+  readResultLineCount,
   type StreamEvent,
 } from './stream-parse.js';
 
-test('parseStreamMessage extracts thinking and tool_use from an assistant message', () => {
+test('parseStreamMessage extracts thinking and tool_use (with id) from an assistant message', () => {
   const msg = {
     type: 'assistant',
     message: {
       content: [
         { type: 'thinking', thinking: 'I need to read the auth setup first.' },
         { type: 'text', text: 'Let me look at auth.ts.' },
-        { type: 'tool_use', name: 'Read', input: { file_path: '/repo/src/auth.ts' } },
+        { type: 'tool_use', id: 'tu_1', name: 'Read', input: { file_path: '/repo/src/auth.ts' } },
       ],
     },
   };
   assert.deepEqual(parseStreamMessage(msg), [
     { kind: 'thinking', text: 'I need to read the auth setup first.' },
-    { kind: 'tool_use', name: 'Read', input: { file_path: '/repo/src/auth.ts' } },
+    { kind: 'tool_use', id: 'tu_1', name: 'Read', input: { file_path: '/repo/src/auth.ts' } },
   ] satisfies StreamEvent[]);
 });
 
-test('parseStreamMessage flattens tool_result content (string and block array)', () => {
+test('parseStreamMessage flattens tool_result content (string and block array) with id', () => {
   const stringResult = {
     type: 'user',
-    message: { content: [{ type: 'tool_result', is_error: false, content: '127 lines read' }] },
+    message: {
+      content: [
+        { type: 'tool_result', tool_use_id: 'tu_1', is_error: false, content: '127 lines read' },
+      ],
+    },
   };
   assert.deepEqual(parseStreamMessage(stringResult), [
-    { kind: 'tool_result', isError: false, text: '127 lines read' },
+    { kind: 'tool_result', id: 'tu_1', isError: false, text: '127 lines read' },
   ]);
 
   const blockResult = {
     type: 'user',
     message: {
-      content: [{ type: 'tool_result', is_error: true, content: [{ type: 'text', text: 'boom' }] }],
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'tu_2',
+          is_error: true,
+          content: [{ type: 'text', text: 'boom' }],
+        },
+      ],
     },
   };
   assert.deepEqual(parseStreamMessage(blockResult), [
-    { kind: 'tool_result', isError: true, text: 'boom' },
+    { kind: 'tool_result', id: 'tu_2', isError: true, text: 'boom' },
   ]);
+});
+
+test('readResultLineCount reads the highest line-number prefix, falling back to newlines', () => {
+  assert.equal(readResultLineCount('     1→import x\n     2→const y\n   127→end'), 127);
+  assert.equal(readResultLineCount('plain line one\nplain line two'), 2);
+  assert.equal(readResultLineCount(''), null);
+  assert.equal(readResultLineCount('   '), null);
 });
 
 test('parseStreamMessage reads cost from total_cost_usd, falling back to cost_usd', () => {

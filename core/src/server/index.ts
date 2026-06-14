@@ -1122,7 +1122,9 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
     if (route === '/run/progress') {
       const ev = payload as { type?: string; agent_id?: string };
       if (
-        (ev.type === 'agent.thinking' || ev.type === 'agent.progress') &&
+        (ev.type === 'agent.thinking' ||
+          ev.type === 'agent.progress' ||
+          ev.type === 'agent.tool') &&
         typeof ev.agent_id === 'string'
       ) {
         fanout(ev as SwarmEvent);

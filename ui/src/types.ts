@@ -62,6 +62,10 @@ export interface Task {
 export interface ActivityEntry {
   kind: 'thinking' | 'tool';
   text: string;
+  id?: string; // tool_use id — lets a result event refine the matching tool entry
+  tool?: string; // tool name (Read/Edit/Bash/…) — drives the icon + verb
+  file?: string; // file path the tool acted on — rendered as a language-badged chip
+  detail?: string; // e.g. "127 lines"
 }
 
 export interface AgentState {

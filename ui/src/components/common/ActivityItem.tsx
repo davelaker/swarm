@@ -2,31 +2,99 @@ import { useState } from 'react';
 import type { ActivityEntry } from '../../types';
 import { IconEye, IconPencil, IconTerminal, IconSearch, IconFolder, IconFile } from './icons';
 
-// Pick a glyph for a tool step from the human label describeToolUse() produced.
-// Matching on the prefix keeps the icon logic in one place without threading the
-// raw tool name through every event.
-function ToolGlyph({ text }: { text: string }) {
-  if (text.startsWith('$')) {
-    return <IconTerminal size={12} />;
-  }
-  if (text.startsWith('Reading')) {
+// Icon for a tool. Prefer the structured tool name; fall back to the human label's
+// prefix (describeToolUse output) when a step arrives without one.
+function ToolGlyph({ tool, text }: { tool?: string; text: string }) {
+  const t = tool ?? '';
+  if (t === 'Read' || text.startsWith('Reading')) {
     return <IconEye size={12} />;
   }
-  if (text.startsWith('Editing') || text.startsWith('Writing')) {
+  if (t === 'Edit' || t === 'MultiEdit' || t === 'Write' || /^(Editing|Writing)/.test(text)) {
     return <IconPencil size={12} />;
   }
-  if (text.startsWith('Searching')) {
+  if (t === 'Bash' || text.startsWith('$')) {
+    return <IconTerminal size={12} />;
+  }
+  if (t === 'Grep' || t === 'Glob' || text.startsWith('Searching')) {
     return <IconSearch />;
   }
-  if (text.startsWith('Listing')) {
+  if (t === 'LS' || text.startsWith('Listing')) {
     return <IconFolder size={12} />;
   }
   return <IconFile />;
 }
 
+const TOOL_VERB: Record<string, string> = {
+  Read: 'Read',
+  Edit: 'Edit',
+  MultiEdit: 'Edit',
+  Write: 'Wrote',
+};
+
+const LANG: Record<string, { label: string; color: string }> = {
+  ts: { label: 'TS', color: '#4d8df4' },
+  tsx: { label: 'TSX', color: '#4d8df4' },
+  js: { label: 'JS', color: '#e3b341' },
+  jsx: { label: 'JSX', color: '#e3b341' },
+  json: { label: 'JSON', color: '#9aa0a6' },
+  md: { label: 'MD', color: '#9aa0a6' },
+  css: { label: 'CSS', color: '#c678dd' },
+  scss: { label: 'SCSS', color: '#c678dd' },
+  html: { label: 'HTML', color: '#e06c4f' },
+  py: { label: 'PY', color: '#4d8df4' },
+  go: { label: 'GO', color: '#4d8df4' },
+  rs: { label: 'RS', color: '#e06c4f' },
+  sh: { label: 'SH', color: '#9aa0a6' },
+  yml: { label: 'YAML', color: '#9aa0a6' },
+  yaml: { label: 'YAML', color: '#9aa0a6' },
+};
+
+function fileMeta(filePath: string): { name: string; badge: string; color: string } {
+  const name = filePath.split('/').filter(Boolean).pop() ?? filePath;
+  const ext = name.includes('.') ? name.split('.').pop()!.toLowerCase() : '';
+  const lang = LANG[ext] ?? { label: ext ? ext.toUpperCase() : 'FILE', color: 'var(--tx-3)' };
+  return { name, badge: lang.label, color: lang.color };
+}
+
+// A filename chip with a language badge, e.g. [TS] auth.ts
+function FileChip({ file }: { file: string }) {
+  const { name, badge, color } = fileMeta(file);
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 5,
+        padding: '1px 6px',
+        borderRadius: 5,
+        background: 'var(--bg-3)',
+        border: '1px solid var(--border)',
+        maxWidth: 200,
+        minWidth: 0,
+      }}
+    >
+      <span style={{ fontWeight: 700, fontSize: 9, letterSpacing: 0.3, color, flexShrink: 0 }}>
+        {badge}
+      </span>
+      <span
+        style={{
+          fontFamily: 'var(--mono)',
+          fontSize: 10.5,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {name}
+      </span>
+    </span>
+  );
+}
+
 // One row of an agent/PM activity transcript. Thinking blocks collapse to a
-// labelled one-line preview with a +/– toggle to reveal the full reasoning; tool
-// steps render with a type glyph and the action text.
+// labelled one-line preview with a +/– toggle to reveal the full reasoning. Tool
+// steps render with a type glyph; file-bearing tools show a verb, optional line
+// count, and a language-badged filename chip, others fall back to the action text.
 export function ActivityItem({ entry, color }: { entry: ActivityEntry; color?: string }) {
   const [open, setOpen] = useState(false);
 
@@ -90,7 +158,46 @@ export function ActivityItem({ entry, color }: { entry: ActivityEntry; color?: s
     );
   }
 
-  // Tool step — short single line; icon + action text.
+  const glyph = (
+    <span
+      style={{
+        width: 14,
+        flexShrink: 0,
+        display: 'flex',
+        justifyContent: 'center',
+        opacity: 0.75,
+        ...(color ? { color } : {}),
+      }}
+    >
+      <ToolGlyph tool={entry.tool} text={entry.text} />
+    </span>
+  );
+
+  // File-bearing tool: verb + optional line count + language-badged filename chip.
+  if (entry.file) {
+    const verb = (entry.tool && TOOL_VERB[entry.tool]) || entry.tool || 'Used';
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 7,
+          padding: '2px 0',
+          fontSize: 11.5,
+          lineHeight: 1.55,
+        }}
+      >
+        {glyph}
+        <span style={{ flexShrink: 0, opacity: 0.85 }}>
+          {verb}
+          {entry.detail ? ` ${entry.detail}` : ''}
+        </span>
+        <FileChip file={entry.file} />
+      </div>
+    );
+  }
+
+  // Tool without a file (Bash, search, …): icon + the action text.
   return (
     <div
       title={entry.text}
@@ -103,18 +210,7 @@ export function ActivityItem({ entry, color }: { entry: ActivityEntry; color?: s
         lineHeight: 1.55,
       }}
     >
-      <span
-        style={{
-          width: 14,
-          flexShrink: 0,
-          display: 'flex',
-          justifyContent: 'center',
-          opacity: 0.75,
-          ...(color ? { color } : {}),
-        }}
-      >
-        <ToolGlyph text={entry.text} />
-      </span>
+      {glyph}
       <span
         style={{
           flex: 1,
