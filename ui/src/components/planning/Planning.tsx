@@ -11,6 +11,7 @@ import {
 } from './Message';
 import { resolveAgentPersona } from '../../data/personas';
 import { IconSend } from '../common/icons';
+import { ActivityItem } from '../common/ActivityItem';
 import type { ServerStatus, RunCharter } from '../../App';
 import type { CharterData, SessionSnapshot } from '../../types';
 
@@ -425,31 +426,9 @@ export function Planning({
             ) : session.pmActivity && session.pmActivity.length > 0 ? (
               <div style={{ padding: '4px 2px' }}>
                 <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 4 }}>PM thinking…</div>
-                <div
-                  style={{
-                    borderLeft: '1px solid var(--bg-3)',
-                    paddingLeft: 10,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 3,
-                  }}
-                >
+                <div style={{ borderLeft: '1px solid var(--bg-3)', paddingLeft: 10 }}>
                   {session.pmActivity.map((t, i) => (
-                    <div
-                      key={i}
-                      title={t}
-                      style={{
-                        fontSize: 12,
-                        fontStyle: 'italic',
-                        opacity: 0.55,
-                        lineHeight: 1.5,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {t}
-                    </div>
+                    <ActivityItem key={i} entry={{ kind: 'thinking', text: t }} />
                   ))}
                 </div>
               </div>

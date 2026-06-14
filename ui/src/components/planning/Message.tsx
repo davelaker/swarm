@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { ChatMessage } from '../../types';
 import { PERSONAS } from '../../data/personas';
+import { ActivityItem } from '../common/ActivityItem';
 
 function Avatar({ from }: { from: string }) {
   if (from === 'you')
@@ -64,24 +65,10 @@ function ThinkingDisclosure({ blocks }: { blocks: string[] }) {
             borderLeft: '1px solid var(--bg-3)',
             paddingLeft: 10,
             marginTop: 4,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 4,
           }}
         >
           {blocks.map((b, i) => (
-            <div
-              key={i}
-              style={{
-                fontSize: 12,
-                fontStyle: 'italic',
-                opacity: 0.6,
-                lineHeight: 1.5,
-                whiteSpace: 'pre-wrap',
-              }}
-            >
-              {b}
-            </div>
+            <ActivityItem key={i} entry={{ kind: 'thinking', text: b }} />
           ))}
         </div>
       )}

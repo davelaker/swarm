@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import type { ActivityEntry, AgentState, RunStatus, Task } from '../../types';
+import type { AgentState, RunStatus, Task } from '../../types';
 import { resolveAgentPersona } from '../../data/personas';
 import { VerdictChip } from '../common/VerdictChip';
+import { ActivityItem } from '../common/ActivityItem';
 
 const BUILTIN_ORDER = ['pm', 'coder', 'tester', 'security', 'reviewer', 'negotiator'];
 
@@ -35,37 +36,6 @@ function fmtElapsed(ms: number): string {
 
 function fmtTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
-}
-
-// One line in the transcript: a thinking block (dim, italic, labelled) or a
-// tool-call step (coloured caret + the action text). Both truncate to one line
-// with the full text on hover.
-function ActivityRow({ entry, color }: { entry: ActivityEntry; color: string }) {
-  const clamp = {
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap' as const,
-  };
-  if (entry.kind === 'thinking') {
-    return (
-      <div
-        title={entry.text}
-        style={{ display: 'flex', gap: 6, fontSize: 11, lineHeight: 1.6, padding: '1px 0' }}
-      >
-        <span style={{ opacity: 0.55, flexShrink: 0 }}>Thinking</span>
-        <span style={{ opacity: 0.5, fontStyle: 'italic', ...clamp }}>{entry.text}</span>
-      </div>
-    );
-  }
-  return (
-    <div
-      title={entry.text}
-      style={{ display: 'flex', gap: 6, fontSize: 11, lineHeight: 1.6, padding: '1px 0' }}
-    >
-      <span style={{ color, flexShrink: 0 }}>›</span>
-      <span style={{ opacity: 0.85, ...clamp }}>{entry.text}</span>
-    </div>
-  );
 }
 
 // Collapsible activity transcript for one agent. Auto-expands while the agent is
@@ -125,7 +95,7 @@ function ActivityLog({ a, color }: { a: AgentState; color: string }) {
           }}
         >
           {a.activity.map((entry, i) => (
-            <ActivityRow key={i} entry={entry} color={color} />
+            <ActivityItem key={i} entry={entry} color={color} />
           ))}
         </div>
       )}
