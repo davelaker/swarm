@@ -15,13 +15,27 @@ function ToolGlyph({ tool, text }: { tool?: string; text: string }) {
   if (t === 'Bash' || text.startsWith('$')) {
     return <IconTerminal size={12} />;
   }
-  if (t === 'Grep' || t === 'Glob' || text.startsWith('Searching')) {
+  if (t === 'Grep' || t === 'Glob' || t === 'research' || text.startsWith('Searching')) {
     return <IconSearch />;
   }
   if (t === 'LS' || text.startsWith('Listing')) {
     return <IconFolder size={12} />;
   }
   return <IconFile />;
+}
+
+// Collapse a multi-line thinking block to a short single-line preview: first
+// non-empty line, clamped to a character budget at a word boundary with an
+// ellipsis. Keeps the transcript scannable; the full text lives behind the toggle.
+const PREVIEW_MAX = 110;
+function thinkingPreview(text: string): string {
+  const firstLine = (text.split('\n').find(l => l.trim()) ?? text).trim();
+  if (firstLine.length <= PREVIEW_MAX) {
+    return firstLine;
+  }
+  const cut = firstLine.slice(0, PREVIEW_MAX);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > PREVIEW_MAX * 0.6 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
 }
 
 const TOOL_VERB: Record<string, string> = {
@@ -99,7 +113,7 @@ export function ActivityItem({ entry, color }: { entry: ActivityEntry; color?: s
   const [open, setOpen] = useState(false);
 
   if (entry.kind === 'thinking') {
-    const firstLine = entry.text.split('\n').find(l => l.trim()) ?? entry.text;
+    const preview = thinkingPreview(entry.text);
     return (
       <div style={{ padding: '2px 0' }}>
         <button
@@ -135,7 +149,7 @@ export function ActivityItem({ entry, color }: { entry: ActivityEntry; color?: s
                 whiteSpace: 'nowrap',
               }}
             >
-              {firstLine}
+              {preview}
             </span>
           )}
         </button>

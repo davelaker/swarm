@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import type { ChatMessage } from '../../types';
+import type { ActivityEntry, ChatMessage } from '../../types';
 import { PERSONAS } from '../../data/personas';
 import { ActivityItem } from '../common/ActivityItem';
 
@@ -36,7 +36,7 @@ const DISPATCH_RE = /^→\s+(\w+)\s+\[([^\]]+)\]:\s*(.+)$/s;
 // Collapsible record of the extended-thinking blocks that preceded a PM reply.
 // Collapsed by default; expanding reveals the full reasoning the user watched
 // stream live during the turn.
-function ThinkingDisclosure({ blocks }: { blocks: string[] }) {
+function ThinkingDisclosure({ blocks }: { blocks: ActivityEntry[] }) {
   const [open, setOpen] = useState(false);
   return (
     <div style={{ marginBottom: 6 }}>
@@ -67,9 +67,13 @@ function ThinkingDisclosure({ blocks }: { blocks: string[] }) {
             marginTop: 4,
           }}
         >
-          {blocks.map((b, i) => (
-            <ActivityItem key={i} entry={{ kind: 'thinking', text: b }} />
-          ))}
+          {blocks.map((b, i) => {
+            // Tolerate sessions persisted before thinking became structured entries.
+            const raw = b as unknown;
+            const entry: ActivityEntry =
+              typeof raw === 'string' ? { kind: 'thinking', text: raw } : (raw as ActivityEntry);
+            return <ActivityItem key={i} entry={entry} />;
+          })}
         </div>
       )}
     </div>
@@ -83,7 +87,7 @@ function PmMessageRow({
 }: {
   text: string;
   time?: string;
-  thinking?: string[];
+  thinking?: ActivityEntry[];
 }) {
   // ── Error pill ──────────────────────────────────────────────────────────────
   if (text.startsWith('✗')) {

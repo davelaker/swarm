@@ -94,7 +94,7 @@ export interface ChatMessage {
   from: 'pm' | 'you' | 'security' | 'system';
   text: string;
   time?: string;
-  thinking?: string[]; // PM's extended-thinking blocks that preceded this reply (collapsible)
+  thinking?: ActivityEntry[]; // PM's thinking + sub-agent steps that preceded this reply (collapsible)
 }
 
 export interface PermissionRequest {

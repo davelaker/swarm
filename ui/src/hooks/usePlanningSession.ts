@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import type { CharterData, ChatMessage } from '../types';
+import type { ActivityEntry, CharterData, ChatMessage } from '../types';
 import type { RunCharter, TaskGraphEntry } from '../App';
 
 function now(): string {
@@ -23,7 +23,7 @@ interface SessionState {
   branchName?: string; // user-edited slug only (no swarm/ prefix); undefined = auto-derive from goal
   taskGraph?: TaskGraphEntry[];
   streamingPmText: string | null;
-  pmActivity?: string[]; // PM extended-thinking blocks accumulated this turn, attached to the reply when it lands
+  pmActivity?: ActivityEntry[]; // PM thinking + sub-agent steps this turn, attached to the reply when it lands
   researching: { question: string; agent?: string } | null; // active research round (agent = specialist name, or undefined for the generic Scout)
   hireSuggestion: { agentId: string; reason: string } | null; // PM's pending hire recommendation
   deploymentInfo?: string;
@@ -502,11 +502,11 @@ export function usePlanningSession(
               if (data.type === 'thinking' && typeof data.text === 'string') {
                 // PM is reasoning before it replies — append each block to this turn's
                 // transcript; it stays in state until the reply lands and absorbs it.
-                const text = String(data.text);
+                const entry: ActivityEntry = { kind: 'thinking', text: String(data.text) };
                 setState(prev => ({
                   ...prev,
                   typing: null,
-                  pmActivity: [...(prev.pmActivity ?? []), text].slice(-200),
+                  pmActivity: [...(prev.pmActivity ?? []), entry].slice(-200),
                 }));
               } else if (data.type === 'chunk' && typeof data.text === 'string') {
                 // First chunk: swap typing/research indicator for streaming text bubble.
@@ -521,19 +521,26 @@ export function usePlanningSession(
                 // Scout investigating. 'started' shows the indicator and discards any
                 // intermediate "let me check…" streamed text; 'done' falls back to the
                 // typing indicator while the PM composes its real, research-informed reply.
-                setState(prev =>
-                  data.phase === 'started'
-                    ? {
-                        ...prev,
-                        typing: null,
-                        streamingPmText: null,
-                        researching: {
-                          question: String(data.question ?? 'the codebase'),
-                          agent: typeof data.agent === 'string' ? data.agent : undefined,
-                        },
-                      }
-                    : { ...prev, researching: null, typing: 'pm' },
-                );
+                setState(prev => {
+                  if (data.phase !== 'started') {
+                    return { ...prev, researching: null, typing: 'pm' };
+                  }
+                  const question = String(data.question ?? 'the codebase');
+                  const agent = typeof data.agent === 'string' ? data.agent : undefined;
+                  // Record the sub-agent step in the transcript so its use is visible.
+                  const step: ActivityEntry = {
+                    kind: 'tool',
+                    text: `Researched “${question}” · ${agent ?? 'Scout'}`,
+                    tool: 'research',
+                  };
+                  return {
+                    ...prev,
+                    typing: null,
+                    streamingPmText: null,
+                    pmActivity: [...(prev.pmActivity ?? []), step].slice(-200),
+                    researching: { question, agent },
+                  };
+                });
               } else if (data.type === 'result') {
                 type PmResp = Parameters<typeof applyPmResponse>[1];
                 type Cu = NonNullable<PmResp['charterUpdates']>;

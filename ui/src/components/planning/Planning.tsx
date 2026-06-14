@@ -427,8 +427,8 @@ export function Planning({
               <div style={{ padding: '4px 2px' }}>
                 <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 4 }}>PM thinking…</div>
                 <div style={{ borderLeft: '1px solid var(--bg-3)', paddingLeft: 10 }}>
-                  {session.pmActivity.map((t, i) => (
-                    <ActivityItem key={i} entry={{ kind: 'thinking', text: t }} />
+                  {session.pmActivity.map((entry, i) => (
+                    <ActivityItem key={i} entry={entry} />
                   ))}
                 </div>
               </div>
