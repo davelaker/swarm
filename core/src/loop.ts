@@ -280,6 +280,32 @@ async function distillMemory(state: SwarmState): Promise<void> {
   }
 }
 
+// ─── Negotiator safety guardrail (NEGOTIATOR.md §2) ──────────────────────────
+// The Negotiator may resolve disputes, but it can NEVER rule away a correctness or
+// safety finding. `negotiable` is system-derived from the finding schema (security /
+// tester / checks → false), never self-declared. Returns the id of the first blocked,
+// non-negotiable target the Negotiator tried to downgrade — or null if all are
+// genuinely negotiable. Fails closed: an unreadable finding is treated as protected.
+async function firstNonNegotiable(taskIds: string[], state: SwarmState): Promise<string | null> {
+  for (const id of taskIds) {
+    const task = state.tasks.find(t => t.id === id);
+    if (!task?.result_ref) {
+      continue;
+    }
+    try {
+      const abs = path.resolve(swarmDir(), task.result_ref);
+      const content = await fsp.readFile(abs, 'utf8');
+      const v = validateFinding(content, id);
+      if (!v.negotiable && v.blocksDone) {
+        return id;
+      }
+    } catch {
+      return id; // fail closed — cannot safely downgrade what we can't validate
+    }
+  }
+  return null;
+}
+
 // ─── Context window sizes (tokens) ───────────────────────────────────────────
 
 const CONTEXT_WINDOWS: Record<string, number> = {
@@ -837,6 +863,16 @@ export async function runLoop(): Promise<LoopResult> {
     }
 
     if (decision.decision === 'DOWNGRADE') {
+      // S1 guardrail: refuse to downgrade a non-negotiable correctness/safety finding.
+      const protectedId = await firstNonNegotiable(decision.targetTaskIds, getState());
+      if (protectedId) {
+        const msg =
+          `Negotiator tried to downgrade a non-negotiable finding (${protectedId}). ` +
+          `A correctness or safety finding can never be ruled away — stopping so a human can decide.`;
+        appendLog('pm', `⚠ ${msg}`);
+        console.error(`  ✗ S1 guardrail: ${msg}`);
+        return { status: 'failed', totalCostUsd: totalCost, message: msg };
+      }
       for (const id of decision.targetTaskIds) {
         if (getState().tasks.some(t => t.id === id && t.status === 'blocked')) {
           updateTask(id, { status: 'done' }); // unblock — advisory finding stays on disk
