@@ -43,3 +43,25 @@ find src -name '*.ts' -newer dist/<path>.js
 ```
 
 Empty output = the compiled file is current.
+
+## Git worktree model — coders vs. fix coders (loop.ts)
+
+Coder tasks mutate the repo, so the loop isolates them; everything in this model lives
+in `loop.ts`.
+
+- **Normal coders** run in their own `git worktree` on a `swarm/<task.id>` branch off
+  `HEAD`, then merge back (`mergeWorktree`). This lets independent coders run in parallel
+  without `git add -A` theft or `files_changed` contamination.
+- **Remediation/fix coders** (`t_fix_*`, spawned by a blocked reviewer/security gate) do
+  the **opposite**: they run **in-place on the working branch with no worktree and no
+  merge-back**. They exist to repair a previous coder's *already-merged* work, so a fresh
+  worktree branched off `HEAD` would just build a second copy of the same files and then
+  fail to merge over the originals (`"local changes would be overwritten"`). Do **not**
+  reintroduce a worktree for fix tasks.
+- **Read-only agents** (tester/security/reviewer/scout) never get a worktree — they share
+  the main tree and can't write.
+
+Anything that mutates the main working tree must go through **`withMainTreeLock`**
+(merges take it briefly; an in-place fix coder holds it for its whole edit+commit run) so
+the two never overlap. Fix tasks have `depends_on: []` and can start immediately, so they
+*can* race a parallel coder's merge — the lock is what makes that safe.
