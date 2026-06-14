@@ -18,7 +18,11 @@ export function AgentCard({ a, hired, onOpen }: AgentCardProps) {
             <RoleChip role={a.role} />
           </div>
         </div>
-        {hired && <span className="lockbadge" style={{ color: 'var(--green)' }}>✓ hired</span>}
+        {hired && (
+          <span className="lockbadge" style={{ color: 'var(--green)' }}>
+            ✓ hired
+          </span>
+        )}
       </div>
       <div className="acard-desc">{a.desc}</div>
     </div>

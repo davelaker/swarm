@@ -1,5 +1,5 @@
-import fs   from 'node:fs';
-import path  from 'node:path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { swarmDir, stateFile, initWorkspace, projectContextFile, getRoot } from '../state/repo.js';
 // projectContextFile() now returns <root>/CLAUDE.md
 
@@ -18,8 +18,7 @@ function buildProjectMd(project: string): string {
   // Probe common tech stack indicators so the scaffold is pre-filled where possible.
   const cwd = process.cwd();
 
-  const hasFile = (...names: string[]) =>
-    names.some(n => fs.existsSync(path.join(cwd, n)));
+  const hasFile = (...names: string[]) => names.some(n => fs.existsSync(path.join(cwd, n)));
 
   // For monorepos: also look one level deep for package.json files
   const findPackageJsonPaths = (): string[] => {
@@ -32,7 +31,9 @@ function buildProjectMd(project: string): string {
         const sub = path.join(cwd, e.name, 'package.json');
         if (fs.existsSync(sub)) paths.push(sub);
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return paths;
   };
 
@@ -43,13 +44,18 @@ function buildProjectMd(project: string): string {
   if (pkgPaths.length > 0) {
     lines.push('- Runtime: Node.js');
     if (pkgPaths.length > 1) lines.push(`- Structure: monorepo (${pkgPaths.length} workspaces)`);
-  } else if (hasFile('pyproject.toml', 'setup.py', 'requirements.txt')) lines.push('- Runtime: Python');
+  } else if (hasFile('pyproject.toml', 'setup.py', 'requirements.txt'))
+    lines.push('- Runtime: Python');
   else if (hasFile('go.mod')) lines.push('- Runtime: Go');
   else if (hasFile('Cargo.toml')) lines.push('- Runtime: Rust');
   else if (hasFile('pom.xml', 'build.gradle')) lines.push('- Runtime: JVM');
 
   // Package manager
-  if (hasFile('pnpm-lock.yaml') || pkgPaths.some(p => fs.existsSync(path.join(path.dirname(p), 'pnpm-lock.yaml')))) lines.push('- Package manager: pnpm');
+  if (
+    hasFile('pnpm-lock.yaml') ||
+    pkgPaths.some(p => fs.existsSync(path.join(path.dirname(p), 'pnpm-lock.yaml')))
+  )
+    lines.push('- Package manager: pnpm');
   else if (hasFile('bun.lockb')) lines.push('- Package manager: bun');
   else if (hasFile('yarn.lock')) lines.push('- Package manager: yarn');
   else lines.push('- Package manager: npm');
@@ -61,30 +67,33 @@ function buildProjectMd(project: string): string {
     try {
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
       const deps = { ...pkg.dependencies, ...pkg.devDependencies };
-      if (deps['next'])         allFw.add('Next.js');
-      if (deps['react'])        allFw.add('React');
-      if (deps['vue'])          allFw.add('Vue');
-      if (deps['svelte'])       allFw.add('Svelte');
-      if (deps['express'])      allFw.add('Express');
-      if (deps['fastify'])      allFw.add('Fastify');
-      if (deps['hono'])         allFw.add('Hono');
+      if (deps['next']) allFw.add('Next.js');
+      if (deps['react']) allFw.add('React');
+      if (deps['vue']) allFw.add('Vue');
+      if (deps['svelte']) allFw.add('Svelte');
+      if (deps['express']) allFw.add('Express');
+      if (deps['fastify']) allFw.add('Fastify');
+      if (deps['hono']) allFw.add('Hono');
       if (deps['@nestjs/core']) allFw.add('NestJS');
-      if (deps['prisma'])       allFw.add('Prisma');
-      if (deps['drizzle-orm'])  allFw.add('Drizzle ORM');
-      if (deps['vite'])         allFw.add('Vite');
-      if (deps['vitest'])       allFw.add('Vitest');
-      if (deps['jest'])         allFw.add('Jest');
+      if (deps['prisma']) allFw.add('Prisma');
+      if (deps['drizzle-orm']) allFw.add('Drizzle ORM');
+      if (deps['vite']) allFw.add('Vite');
+      if (deps['vitest']) allFw.add('Vitest');
+      if (deps['jest']) allFw.add('Jest');
       if (pkg.scripts?.test && !testCmds.includes(pkg.scripts.test)) {
         const ws = path.relative(cwd, path.dirname(pkgPath)) || '.';
         testCmds.push(`\`${pkg.scripts.test}\` (${ws})`);
       }
-    } catch { /* malformed — skip */ }
+    } catch {
+      /* malformed — skip */
+    }
   }
   if (allFw.size > 0) lines.push(`- Frameworks / libraries: ${[...allFw].join(', ')}`);
   if (testCmds.length > 0) lines.push(`- Test command: ${testCmds.join(', ')}`);
 
   // TypeScript — check root or any workspace
-  const hasTsConfig = hasFile('tsconfig.json') ||
+  const hasTsConfig =
+    hasFile('tsconfig.json') ||
     pkgPaths.some(p => fs.existsSync(path.join(path.dirname(p), 'tsconfig.json')));
   if (hasTsConfig) lines.push('- Language: TypeScript');
 
@@ -101,7 +110,9 @@ function buildProjectMd(project: string): string {
       .map(e => `- \`${e.name}/\``)
       .join('\n');
     if (dirs) dirList = dirs;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   return [
     '<!-- swarm:context — read this file at the start of every task, update it when architecture or conventions change -->',
@@ -141,13 +152,11 @@ function buildProjectMd(project: string): string {
 // ─── .gitignore helper ────────────────────────────────────────────────────────
 
 function ensureGitignore(): void {
-  const root      = getRoot();
+  const root = getRoot();
   const gitignore = path.join(root, '.gitignore');
-  const entry     = '.swarm/';
+  const entry = '.swarm/';
 
-  const existing = fs.existsSync(gitignore)
-    ? fs.readFileSync(gitignore, 'utf8')
-    : '';
+  const existing = fs.existsSync(gitignore) ? fs.readFileSync(gitignore, 'utf8') : '';
 
   const lines = existing.split('\n').map(l => l.trim());
   if (lines.some(l => l === entry || l === '.swarm' || l === '/.swarm/' || l === '/.swarm')) return;

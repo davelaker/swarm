@@ -6,17 +6,17 @@ import { ToolGlyph } from '../common/ToolIcon';
 import { IconLock, IconChevronLeft } from '../common/icons';
 
 const MODELS = [
-  { label: 'Haiku 4.5',  id: 'claude-haiku-4-5-20251001' },
+  { label: 'Haiku 4.5', id: 'claude-haiku-4-5-20251001' },
   { label: 'Sonnet 4.6', id: 'claude-sonnet-4-6' },
-  { label: 'Opus 4.8',   id: 'claude-opus-4-8' },
-  { label: 'Fable 5',    id: 'claude-fable-5' },
+  { label: 'Opus 4.8', id: 'claude-opus-4-8' },
+  { label: 'Fable 5', id: 'claude-fable-5' },
 ];
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 
 const SENS_LABEL: Record<string, string> = {
-  read:    'Read access — can inspect any file in the codebase',
-  write:   'Write access — can create and modify source files',
-  shell:   'Shell access — can execute scripts, tests, and builds',
+  read: 'Read access — can inspect any file in the codebase',
+  write: 'Write access — can create and modify source files',
+  shell: 'Shell access — can execute scripts, tests, and builds',
   network: 'Network access — can fetch external data and CVE databases',
 };
 
@@ -26,31 +26,45 @@ interface BuiltinDrawerProps {
 }
 
 export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
-  const [prompt,       setPrompt]       = useState<string | null>(null);
-  const [loading,      setLoading]      = useState(true);
+  const [prompt, setPrompt] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [instructions, setInstructions] = useState('');
-  const [model,        setModel]        = useState(DEFAULT_MODEL);
-  const [saving,       setSaving]       = useState(false);
-  const saveTimer      = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const modelTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [model, setModel] = useState(DEFAULT_MODEL);
+  const [saving, setSaving] = useState(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const modelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const builtin = BUILTINS.find(b => b.id === agentId);
-  const persona  = PERSONAS[agentId];
+  const persona = PERSONAS[agentId];
 
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      fetch('/agent-prompts').then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch('/agent-instructions').then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch('/agent-models').then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([prompts, instrs, models]: [Record<string, string> | null, Record<string, string> | null, Record<string, string> | null]) => {
-      if (cancelled) return;
-      setPrompt(prompts?.[agentId] ?? null);
-      setInstructions(instrs?.[agentId] ?? '');
-      setModel(models?.[agentId] ?? DEFAULT_MODEL);
-      setLoading(false);
-    });
-    return () => { cancelled = true; };
+      fetch('/agent-prompts')
+        .then(r => (r.ok ? r.json() : null))
+        .catch(() => null),
+      fetch('/agent-instructions')
+        .then(r => (r.ok ? r.json() : null))
+        .catch(() => null),
+      fetch('/agent-models')
+        .then(r => (r.ok ? r.json() : null))
+        .catch(() => null),
+    ]).then(
+      ([prompts, instrs, models]: [
+        Record<string, string> | null,
+        Record<string, string> | null,
+        Record<string, string> | null,
+      ]) => {
+        if (cancelled) return;
+        setPrompt(prompts?.[agentId] ?? null);
+        setInstructions(instrs?.[agentId] ?? '');
+        setModel(models?.[agentId] ?? DEFAULT_MODEL);
+        setLoading(false);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
   }, [agentId]);
 
   function handleInstructionsChange(value: string) {
@@ -60,9 +74,9 @@ export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
       setSaving(true);
       try {
         await fetch('/agent-instructions', {
-          method:  'POST',
+          method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ [agentId]: value }),
+          body: JSON.stringify({ [agentId]: value }),
         });
       } finally {
         setSaving(false);
@@ -75,9 +89,9 @@ export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
     if (modelTimer.current) clearTimeout(modelTimer.current);
     modelTimer.current = setTimeout(() => {
       fetch('/agent-models', {
-        method:  'POST',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ [agentId]: value }),
+        body: JSON.stringify({ [agentId]: value }),
       }).catch(() => {});
     }, 400);
   }
@@ -95,14 +109,15 @@ export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
           <AgentIcon name={builtin.name} color={persona.color} size={22} />
           <span className="ap-nav-name">{builtin.name}</span>
           <RoleChip role={builtin.role} />
-          <LockBadge><IconLock size={9} /> built-in</LockBadge>
+          <LockBadge>
+            <IconLock size={9} /> built-in
+          </LockBadge>
         </div>
         <LockBadge>non-removable</LockBadge>
       </div>
 
       {/* ── Two-column body ──────────────────────────────────── */}
       <div className="agent-page-body">
-
         {/* Left: identity + prompt */}
         <div className="ap-col ap-col-left">
           <div className="ap-header">
@@ -111,7 +126,9 @@ export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
               <div className="ap-name">{builtin.name}</div>
               <div className="acard-sub" style={{ marginTop: 5 }}>
                 <RoleChip role={builtin.role} />
-                <LockBadge><IconLock size={9} /> built-in</LockBadge>
+                <LockBadge>
+                  <IconLock size={9} /> built-in
+                </LockBadge>
               </div>
             </div>
           </div>
@@ -130,7 +147,9 @@ export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
               <IconLock size={11} /> System prompt · read-only
             </div>
             <div className="prompt-block ap-prompt-block" style={{ position: 'relative' }}>
-              <span className="prompt-lock"><IconLock size={10} /> locked</span>
+              <span className="prompt-lock">
+                <IconLock size={10} /> locked
+              </span>
               {loading && (
                 <span style={{ color: 'var(--tx-3)', fontFamily: 'var(--mono)', fontSize: 12 }}>
                   Loading…
@@ -152,7 +171,10 @@ export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
             <div className="dsec-label">Tool permissions</div>
             {builtin.tools.map((t, i) => (
               <div key={i} className={`toolitem ${t.sens !== 'read' ? 'caution' : ''} ${t.sens}`}>
-                <span className={`tool-i ${t.sens}`} style={{ flex: '0 0 26px', width: 26, height: 26 }}>
+                <span
+                  className={`tool-i ${t.sens}`}
+                  style={{ flex: '0 0 26px', width: 26, height: 26 }}
+                >
                   <ToolGlyph sens={t.sens} size={13} />
                 </span>
                 <div style={{ flex: 1 }}>
@@ -166,14 +188,30 @@ export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
           <div className="dsec">
             <div className="dsec-label">Model</div>
             <select className="sel" value={model} onChange={e => handleModelChange(e.target.value)}>
-              {MODELS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+              {MODELS.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
             </select>
           </div>
 
           <div className="dsec">
             <div className="dsec-label">
               Additional instructions
-              {saving && <span style={{ fontWeight: 400, color: 'var(--tx-3)', textTransform: 'none', letterSpacing: 0 }}> · saving…</span>}
+              {saving && (
+                <span
+                  style={{
+                    fontWeight: 400,
+                    color: 'var(--tx-3)',
+                    textTransform: 'none',
+                    letterSpacing: 0,
+                  }}
+                >
+                  {' '}
+                  · saving…
+                </span>
+              )}
             </div>
             <textarea
               className="ta"
@@ -184,7 +222,6 @@ export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
             />
           </div>
         </div>
-
       </div>
     </div>
   );

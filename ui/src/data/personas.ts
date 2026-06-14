@@ -2,12 +2,24 @@ import type { Persona } from '../types';
 import { AGENT_BY_ID } from './marketAgents';
 
 export const PERSONAS: Record<string, Persona> = {
-  pm:         { id: 'pm',         name: 'Project Manager', short: 'PM', color: '#a585f5', role: 'Referee' },
-  coder:      { id: 'coder',      name: 'Coder',           short: 'CO', color: '#4d8df4', role: 'Implementation' },
-  tester:     { id: 'tester',     name: 'Tester',          short: 'TE', color: '#34cf8a', role: 'Verification' },
-  security:   { id: 'security',   name: 'Security',        short: 'SE', color: '#e8a93a', role: 'Review' },
-  reviewer:   { id: 'reviewer',   name: 'Code Reviewer',   short: 'CR', color: '#c084fc', role: 'Quality' },
-  negotiator: { id: 'negotiator', name: 'Negotiator',      short: 'NE', color: '#ef8043', role: 'Arbitration' },
+  pm: { id: 'pm', name: 'Project Manager', short: 'PM', color: '#a585f5', role: 'Referee' },
+  coder: { id: 'coder', name: 'Coder', short: 'CO', color: '#4d8df4', role: 'Implementation' },
+  tester: { id: 'tester', name: 'Tester', short: 'TE', color: '#34cf8a', role: 'Verification' },
+  security: { id: 'security', name: 'Security', short: 'SE', color: '#e8a93a', role: 'Review' },
+  reviewer: {
+    id: 'reviewer',
+    name: 'Code Reviewer',
+    short: 'CR',
+    color: '#c084fc',
+    role: 'Quality',
+  },
+  negotiator: {
+    id: 'negotiator',
+    name: 'Negotiator',
+    short: 'NE',
+    color: '#ef8043',
+    role: 'Arbitration',
+  },
 };
 
 function initials(name: string): string {
@@ -16,7 +28,15 @@ function initials(name: string): string {
   return s.toUpperCase() || name.slice(0, 2).toUpperCase();
 }
 
-const FALLBACK_COLORS = ['#5bb8c4', '#d97aa8', '#7c9af2', '#62c98a', '#e0a14a', '#c98ae0', '#e07a7a'];
+const FALLBACK_COLORS = [
+  '#5bb8c4',
+  '#d97aa8',
+  '#7c9af2',
+  '#62c98a',
+  '#e0a14a',
+  '#c98ae0',
+  '#e07a7a',
+];
 function hashId(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;

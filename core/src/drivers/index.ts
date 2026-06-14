@@ -1,9 +1,9 @@
 // Driver factory — picks the right implementation based on environment.
 // Everything above this (loop, dispatch, state) is driver-agnostic.
 
-import { execSync }      from 'node:child_process';
+import { execSync } from 'node:child_process';
 import { agentSdkDriver } from './agent-sdk.js';
-import { apiKeyDriver }   from './api-key.js';
+import { apiKeyDriver } from './api-key.js';
 import type { AgentDriver } from './types.js';
 
 export type DriverMode = 'agent-sdk' | 'api-key';
@@ -11,7 +11,7 @@ export type DriverMode = 'agent-sdk' | 'api-key';
 function detect(): DriverMode {
   const explicit = process.env.SWARM_DRIVER?.toLowerCase();
   if (explicit === 'agent-sdk') return 'agent-sdk';
-  if (explicit === 'api-key')   return 'api-key';
+  if (explicit === 'api-key') return 'api-key';
 
   // Explicit API key → use it
   if (process.env.ANTHROPIC_API_KEY) return 'api-key';

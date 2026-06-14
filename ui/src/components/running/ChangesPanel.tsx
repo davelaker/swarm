@@ -6,7 +6,7 @@ import 'diff2html/bundles/css/diff2html.min.css';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ReviewComment {
-  id:   string;
+  id: string;
   file: string;
   line: number | null;
   text: string;
@@ -31,15 +31,37 @@ function buildReviewMessage(comments: ReviewComment[]): string {
 
 function EmptyDiff() {
   return (
-    <div style={{
-      flex: 1, display: 'flex', flexDirection: 'column',
-      alignItems: 'center', justifyContent: 'center', gap: 10,
-      color: 'var(--tx-3)', padding: 40,
-    }}>
-      <div style={{ fontSize: 13, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+    <div
+      style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        color: 'var(--tx-3)',
+        padding: 40,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 13,
+          fontWeight: 600,
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em',
+        }}
+      >
         No changes detected
       </div>
-      <div style={{ fontSize: 12, color: 'var(--tx-3)', textAlign: 'center', maxWidth: 300, lineHeight: 1.6 }}>
+      <div
+        style={{
+          fontSize: 12,
+          color: 'var(--tx-3)',
+          textAlign: 'center',
+          maxWidth: 300,
+          lineHeight: 1.6,
+        }}
+      >
         No uncommitted or unpushed changes found in the working tree.
       </div>
     </div>
@@ -49,12 +71,16 @@ function EmptyDiff() {
 // ─── Review sidebar ───────────────────────────────────────────────────────────
 
 function ReviewPane({
-  comments, onUpdate, onRemove, onSubmit, submitting,
+  comments,
+  onUpdate,
+  onRemove,
+  onSubmit,
+  submitting,
 }: {
-  comments:   ReviewComment[];
-  onUpdate:   (id: string, text: string) => void;
-  onRemove:   (id: string) => void;
-  onSubmit:   () => void;
+  comments: ReviewComment[];
+  onUpdate: (id: string, text: string) => void;
+  onRemove: (id: string) => void;
+  onSubmit: () => void;
   submitting: boolean;
 }) {
   const hasText = comments.some(c => c.text.trim());
@@ -64,14 +90,25 @@ function ReviewPane({
       <div className="panel-head">
         <span>Review</span>
         <span className="spacer" />
-        <span className="mono" style={{ fontSize: 11, color: 'var(--tx-3)', textTransform: 'none', letterSpacing: 0 }}>
+        <span
+          className="mono"
+          style={{ fontSize: 11, color: 'var(--tx-3)', textTransform: 'none', letterSpacing: 0 }}
+        >
           {comments.length} {comments.length === 1 ? 'note' : 'notes'}
         </span>
       </div>
 
       <div className="review-scroll">
         {comments.length === 0 ? (
-          <div style={{ padding: '16px 14px', color: 'var(--tx-3)', fontFamily: 'var(--mono)', fontSize: 11, lineHeight: 1.6 }}>
+          <div
+            style={{
+              padding: '16px 14px',
+              color: 'var(--tx-3)',
+              fontFamily: 'var(--mono)',
+              fontSize: 11,
+              lineHeight: 1.6,
+            }}
+          >
             Click any line in the diff to annotate it.
           </div>
         ) : (
@@ -83,9 +120,17 @@ function ReviewPane({
                 </span>
                 <button
                   onClick={() => onRemove(c.id)}
-                  style={{ marginLeft: 'auto', color: 'var(--tx-3)', fontSize: 13, lineHeight: 1, flexShrink: 0 }}
+                  style={{
+                    marginLeft: 'auto',
+                    color: 'var(--tx-3)',
+                    fontSize: 13,
+                    lineHeight: 1,
+                    flexShrink: 0,
+                  }}
                   title="Remove"
-                >×</button>
+                >
+                  ×
+                </button>
               </div>
               <textarea
                 className="review-text"
@@ -109,7 +154,16 @@ function ReviewPane({
           {submitting ? 'Sending…' : 'Request changes'}
         </button>
         {hasText && (
-          <div style={{ marginTop: 6, fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--tx-3)', textAlign: 'center', lineHeight: 1.4 }}>
+          <div
+            style={{
+              marginTop: 6,
+              fontSize: 10,
+              fontFamily: 'var(--mono)',
+              color: 'var(--tx-3)',
+              textAlign: 'center',
+              lineHeight: 1.4,
+            }}
+          >
             Sends to the PM, which plans a coder + reviewer to apply the fixes.
           </div>
         )}
@@ -120,21 +174,34 @@ function ReviewPane({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function ChangesPanel({ onRequestChanges }: { onRequestChanges?: (message: string) => void }) {
-  const [diffText,   setDiffText]   = useState<string | null>(null);
-  const [loading,    setLoading]    = useState(true);
+export function ChangesPanel({
+  onRequestChanges,
+}: {
+  onRequestChanges?: (message: string) => void;
+}) {
+  const [diffText, setDiffText] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [comments,   setComments]   = useState<ReviewComment[]>([]);
+  const [comments, setComments] = useState<ReviewComment[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const [submitted,  setSubmitted]  = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const diffRef = useRef<HTMLDivElement>(null);
 
   // ── Fetch diff ──────────────────────────────────────────────────────────────
   useEffect(() => {
     fetch('/run/diff')
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); })
-      .then(t => { setDiffText(t); setLoading(false); })
-      .catch((e: Error) => { setFetchError(e.message); setLoading(false); });
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.text();
+      })
+      .then(t => {
+        setDiffText(t);
+        setLoading(false);
+      })
+      .catch((e: Error) => {
+        setFetchError(e.message);
+        setLoading(false);
+      });
   }, []);
 
   // ── Click-to-annotate ───────────────────────────────────────────────────────
@@ -161,19 +228,24 @@ export function ChangesPanel({ onRequestChanges }: { onRequestChanges?: (message
       if (!fileName) return;
 
       // Highlight the clicked row
-      container.querySelectorAll('tr.diff-selected').forEach(r => r.classList.remove('diff-selected'));
+      container
+        .querySelectorAll('tr.diff-selected')
+        .forEach(r => r.classList.remove('diff-selected'));
       row.classList.add('diff-selected');
 
       // Add a comment entry (or focus existing one for same file+line)
       setComments(prev => {
         const existing = prev.find(c => c.file === fileName && c.line === line);
         if (existing) return prev; // already annotated — just highlight
-        return [...prev, {
-          id:   Math.random().toString(36).slice(2),
-          file: fileName,
-          line,
-          text: '',
-        }];
+        return [
+          ...prev,
+          {
+            id: Math.random().toString(36).slice(2),
+            file: fileName,
+            line,
+            text: '',
+          },
+        ];
       });
     };
 
@@ -183,10 +255,9 @@ export function ChangesPanel({ onRequestChanges }: { onRequestChanges?: (message
 
   // ── Actions ─────────────────────────────────────────────────────────────────
   const updateComment = (id: string, text: string) =>
-    setComments(prev => prev.map(c => c.id === id ? { ...c, text } : c));
+    setComments(prev => prev.map(c => (c.id === id ? { ...c, text } : c)));
 
-  const removeComment = (id: string) =>
-    setComments(prev => prev.filter(c => c.id !== id));
+  const removeComment = (id: string) => setComments(prev => prev.filter(c => c.id !== id));
 
   const submitReview = () => {
     const msg = buildReviewMessage(comments);
@@ -205,7 +276,9 @@ export function ChangesPanel({ onRequestChanges }: { onRequestChanges?: (message
     return (
       <div className="run-changes">
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--tx-3)' }}>loading diff…</span>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--tx-3)' }}>
+            loading diff…
+          </span>
         </div>
       </div>
     );
@@ -214,8 +287,19 @@ export function ChangesPanel({ onRequestChanges }: { onRequestChanges?: (message
   if (fetchError) {
     return (
       <div className="run-changes">
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8 }}>
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--red)' }}>⚠ {fetchError}</span>
+        <div
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexDirection: 'column',
+            gap: 8,
+          }}
+        >
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--red)' }}>
+            ⚠ {fetchError}
+          </span>
         </div>
       </div>
     );
@@ -223,13 +307,15 @@ export function ChangesPanel({ onRequestChanges }: { onRequestChanges?: (message
 
   const isEmpty = !diffText?.trim();
 
-  const diffHtml = isEmpty ? '' : Diff2Html.html(diffText!, {
-    drawFileList:  true,
-    matching:      'lines',
-    outputFormat:  'line-by-line',
-    renderNothingWhenEmpty: true,
-    colorScheme:   ColorSchemeType.DARK,
-  });
+  const diffHtml = isEmpty
+    ? ''
+    : Diff2Html.html(diffText!, {
+        drawFileList: true,
+        matching: 'lines',
+        outputFormat: 'line-by-line',
+        renderNothingWhenEmpty: true,
+        colorScheme: ColorSchemeType.DARK,
+      });
 
   return (
     <div className="run-changes">
@@ -240,31 +326,44 @@ export function ChangesPanel({ onRequestChanges }: { onRequestChanges?: (message
         ) : (
           <>
             {submitted && (
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 8,
-                padding: '8px 14px', background: 'rgba(52,207,138,0.08)',
-                borderBottom: '1px solid rgba(52,207,138,0.2)',
-                fontSize: 12, fontFamily: 'var(--mono)', color: 'var(--green)',
-              }}>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '8px 14px',
+                  background: 'rgba(52,207,138,0.08)',
+                  borderBottom: '1px solid rgba(52,207,138,0.2)',
+                  fontSize: 12,
+                  fontFamily: 'var(--mono)',
+                  color: 'var(--green)',
+                }}
+              >
                 <span>✓</span>
-                <span>Sent to the PM — see Planning, where it's scoping a coder + reviewer to apply your changes.</span>
-                <button onClick={() => setSubmitted(false)} style={{ marginLeft: 'auto', color: 'var(--green)', opacity: 0.7 }}>×</button>
+                <span>
+                  Sent to the PM — see Planning, where it's scoping a coder + reviewer to apply your
+                  changes.
+                </span>
+                <button
+                  onClick={() => setSubmitted(false)}
+                  style={{ marginLeft: 'auto', color: 'var(--green)', opacity: 0.7 }}
+                >
+                  ×
+                </button>
               </div>
             )}
-            <div
-              dangerouslySetInnerHTML={{ __html: diffHtml }}
-            />
+            <div dangerouslySetInnerHTML={{ __html: diffHtml }} />
           </>
         )}
       </div>
 
       {/* Review sidebar */}
       <ReviewPane
-        comments   = {comments}
-        onUpdate   = {updateComment}
-        onRemove   = {removeComment}
-        onSubmit   = {submitReview}
-        submitting = {submitting}
+        comments={comments}
+        onUpdate={updateComment}
+        onRemove={removeComment}
+        onSubmit={submitReview}
+        submitting={submitting}
       />
     </div>
   );

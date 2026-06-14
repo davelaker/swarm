@@ -13,7 +13,7 @@
  * Protocol: MCP JSON-RPC 2.0 over stdio (newline-delimited JSON).
  */
 
-import * as fs       from 'node:fs';
+import * as fs from 'node:fs';
 import * as readline from 'node:readline';
 
 const outputPath = process.env.PM_OUTPUT_PATH;
@@ -51,7 +51,8 @@ const SUBMIT_TOOL = {
       },
       deployment_info: {
         type: 'string',
-        description: 'How this project gets deployed. Set only when first learned; omit on all other turns.',
+        description:
+          'How this project gets deployed. Set only when first learned; omit on all other turns.',
       },
       charter_updates: {
         type: 'object',
@@ -82,7 +83,10 @@ const SUBMIT_TOOL = {
             type: 'object',
             description: 'If the user just answered an open question, resolve it.',
             properties: {
-              index:  { type: 'number', description: '0-based index of the question being resolved' },
+              index: {
+                type: 'number',
+                description: '0-based index of the question being resolved',
+              },
               answer: { type: 'string' },
             },
             required: ['index', 'answer'],
@@ -90,18 +94,21 @@ const SUBMIT_TOOL = {
           branch_mode: {
             type: 'string',
             enum: ['branch', 'main'],
-            description: "Git workflow for this run. 'branch' = create a feature branch (recommended). 'main' = commit directly to main.",
+            description:
+              "Git workflow for this run. 'branch' = create a feature branch (recommended). 'main' = commit directly to main.",
           },
           branch_name: {
             type: 'string',
-            description: "Short kebab-case slug for the feature branch (2-4 words, no numbers, max 40 chars). Set whenever branch_mode is 'branch'. E.g. 'fix-auth-redirect', 'add-stripe-webhook'.",
+            description:
+              "Short kebab-case slug for the feature branch (2-4 words, no numbers, max 40 chars). Set whenever branch_mode is 'branch'. E.g. 'fix-auth-redirect', 'add-stripe-webhook'.",
           },
         },
       },
       team_add: {
         type: 'array',
         items: { type: 'string' },
-        description: 'REQUIRED on every turn. Agent IDs for the recommended team. Re-emit the full current team every call — omitting it is a schema error. Minimum: ["coder", "reviewer"].',
+        description:
+          'REQUIRED on every turn. Agent IDs for the recommended team. Re-emit the full current team every call — omitting it is a schema error. Minimum: ["coder", "reviewer"].',
       },
       enable_execute: {
         type: 'boolean',
@@ -109,11 +116,13 @@ const SUBMIT_TOOL = {
       },
       disable_execute: {
         type: 'boolean',
-        description: 'Set true to re-disable Execute if new information reveals a blocker after it was already enabled.',
+        description:
+          'Set true to re-disable Execute if new information reveals a blocker after it was already enabled.',
       },
       disable_reason: {
         type: 'string',
-        description: 'Brief reason why Execute is being disabled (shown as tooltip on the button). Required if disable_execute is true.',
+        description:
+          'Brief reason why Execute is being disabled (shown as tooltip on the button). Required if disable_execute is true.',
       },
       task_graph: {
         type: 'array',
@@ -124,10 +133,18 @@ const SUBMIT_TOOL = {
         items: {
           type: 'object',
           properties: {
-            id:         { type: 'string', description: 'Unique task ID, e.g. t1, t2, t_audit.' },
-            assignee:   { type: 'string', description: 'Agent ID: builtin (coder/tester/security/reviewer) or a marketplace agent ID from the hired roster.' },
-            title:      { type: 'string', description: 'Clear instruction for the agent.' },
-            depends_on: { type: 'array', items: { type: 'string' }, description: 'IDs that must complete first.' },
+            id: { type: 'string', description: 'Unique task ID, e.g. t1, t2, t_audit.' },
+            assignee: {
+              type: 'string',
+              description:
+                'Agent ID: builtin (coder/tester/security/reviewer) or a marketplace agent ID from the hired roster.',
+            },
+            title: { type: 'string', description: 'Clear instruction for the agent.' },
+            depends_on: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'IDs that must complete first.',
+            },
           },
           required: ['id', 'assignee', 'title', 'depends_on'],
         },
@@ -143,11 +160,13 @@ const SUBMIT_TOOL = {
         properties: {
           question: {
             type: 'string',
-            description: 'A specific, answerable question about the existing codebase for the Scout to investigate.',
+            description:
+              'A specific, answerable question about the existing codebase for the Scout to investigate.',
           },
           target: {
             type: 'string',
-            description: 'Optional. The id of a HIRED specialist to run this research (e.g. "db" for live database questions). Omit to use the generic read-only Scout (source-code only). Only name a specialist that is shown ✓ HIRED in the marketplace list.',
+            description:
+              'Optional. The id of a HIRED specialist to run this research (e.g. "db" for live database questions). Omit to use the generic read-only Scout (source-code only). Only name a specialist that is shown ✓ HIRED in the marketplace list.',
           },
         },
       },
@@ -156,8 +175,16 @@ const SUBMIT_TOOL = {
         description:
           'Recommend the user hire a marketplace specialist that would materially improve THIS project. Use the exact agent id from the marketplace list. The UI shows your reason as a one-click "Hire" call-to-action. Only suggest a NOT-hired agent that genuinely fits; do not suggest one already hired, and do not force-fit.',
         properties: {
-          agent_id: { type: 'string', description: 'The marketplace agent id to recommend hiring (e.g. "product-researcher").' },
-          reason:   { type: 'string', description: 'One sentence, user-facing: why hiring this specialist would help this project.' },
+          agent_id: {
+            type: 'string',
+            description:
+              'The marketplace agent id to recommend hiring (e.g. "product-researcher").',
+          },
+          reason: {
+            type: 'string',
+            description:
+              'One sentence, user-facing: why hiring this specialist would help this project.',
+          },
         },
       },
     },
@@ -193,21 +220,18 @@ rl.on('line', (line: string) => {
         serverInfo: { name: 'pm_responder', version: '1.0.0' },
       },
     });
-
   } else if (msg.method === 'notifications/initialized') {
     // No response for notifications.
-
   } else if (msg.method === 'tools/list') {
     send({
       jsonrpc: '2.0',
       id: msg.id,
       result: { tools: [SUBMIT_TOOL] },
     });
-
   } else if (msg.method === 'tools/call') {
     const params = msg.params as { name: string; arguments: Record<string, unknown> } | undefined;
     if (params?.name === 'submit_pm_response') {
-      const args    = params.arguments ?? {};
+      const args = params.arguments ?? {};
       const teamAdd = args.team_add as unknown[] | undefined;
       const teamEmpty = !Array.isArray(teamAdd) || teamAdd.length === 0;
 
@@ -216,18 +240,27 @@ rl.on('line', (line: string) => {
       // After that we accept anyway (see counter comment) so the user is never stuck.
       if (teamEmpty && teamRejects < MAX_TEAM_REJECTS) {
         teamRejects++;
-        process.stderr.write(`[pm-mcp] rejected: team_add missing or empty (reject ${teamRejects}/${MAX_TEAM_REJECTS})\n`);
+        process.stderr.write(
+          `[pm-mcp] rejected: team_add missing or empty (reject ${teamRejects}/${MAX_TEAM_REJECTS})\n`,
+        );
         send({
           jsonrpc: '2.0',
           id: msg.id,
           result: {
-            content: [{ type: 'text', text: 'REJECTED: team_add is required and must not be empty. Re-submit submit_pm_response NOW with the same reply plus team_add set to at least ["coder", "reviewer"] (add "tester"/"security" as the task warrants). This call was NOT recorded — nothing was saved until team_add is present.' }],
+            content: [
+              {
+                type: 'text',
+                text: 'REJECTED: team_add is required and must not be empty. Re-submit submit_pm_response NOW with the same reply plus team_add set to at least ["coder", "reviewer"] (add "tester"/"security" as the task warrants). This call was NOT recorded — nothing was saved until team_add is present.',
+              },
+            ],
             isError: true,
           },
         });
       } else {
         if (teamEmpty) {
-          process.stderr.write(`[pm-mcp] accepting despite empty team_add after ${teamRejects} rejects — downstream fallback will apply\n`);
+          process.stderr.write(
+            `[pm-mcp] accepting despite empty team_add after ${teamRejects} rejects — downstream fallback will apply\n`,
+          );
         }
         try {
           fs.writeFileSync(outputPath!, JSON.stringify(args));
@@ -248,7 +281,6 @@ rl.on('line', (line: string) => {
         error: { code: -32601, message: `Unknown tool: ${params?.name ?? '(none)'}` },
       });
     }
-
   } else if (typeof msg.id !== 'undefined') {
     // Respond to unrecognised requests (not notifications) with method-not-found.
     send({

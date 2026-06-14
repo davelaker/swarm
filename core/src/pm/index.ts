@@ -13,15 +13,20 @@
 //   4. mcp-server.js captures the tool arguments and writes them to the temp file.
 //   5. Read the temp file → PmResponse. No heuristics, no fallbacks.
 
-import { spawn }            from 'node:child_process';
-import { randomUUID }       from 'node:crypto';
-import * as fs              from 'node:fs';
-import * as os              from 'node:os';
-import * as path            from 'node:path';
-import { fileURLToPath }    from 'node:url';
-import Anthropic            from '@anthropic-ai/sdk';
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import Anthropic from '@anthropic-ai/sdk';
 import { getConfig, getConfigOptional } from '../config.js';
-import { loadProjectContextBounded, loadSubdirContextBounded, getRoot, swarmDir } from '../state/repo.js';
+import {
+  loadProjectContextBounded,
+  loadSubdirContextBounded,
+  getRoot,
+  swarmDir,
+} from '../state/repo.js';
 import { execFileSync } from 'node:child_process';
 import type { SubdirFile } from '../state/repo.js';
 import { loadRoster } from '../state/roster.js';
@@ -38,10 +43,10 @@ import type { RosterEntry } from '../state/types.js';
 // single source of truth in dev; the small tsx startup cost is worth correctness.
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
+const __dirname = path.dirname(__filename);
 
-const IS_TSX     = __filename.endsWith('.ts');
-const MCP_CMD    = IS_TSX ? 'tsx' : 'node';
+const IS_TSX = __filename.endsWith('.ts');
+const MCP_CMD = IS_TSX ? 'tsx' : 'node';
 const MCP_SERVER = IS_TSX
   ? path.join(__dirname, 'mcp-server.ts')
   : path.join(__dirname, 'mcp-server.js');
@@ -54,39 +59,39 @@ export interface HistoryMessage {
 }
 
 export interface PmCharter {
-  goal?:        string;
+  goal?: string;
   constraints?: string[];
-  nongoals?:    string[];
-  questions?:   string[];
-  branchMode?:  'branch' | 'main';
+  nongoals?: string[];
+  questions?: string[];
+  branchMode?: 'branch' | 'main';
 }
 
 export interface TaskGraphEntry {
-  id:         string;
-  assignee:   'coder' | 'tester' | 'security' | 'reviewer';
-  title:      string;
+  id: string;
+  assignee: 'coder' | 'tester' | 'security' | 'reviewer';
+  title: string;
   depends_on: string[];
 }
 
 export interface PmResponse {
-  reply:              string;
+  reply: string;
   securityInterject?: string;
-  deploymentInfo?:    string;
-  suggestCompact?:    boolean;
+  deploymentInfo?: string;
+  suggestCompact?: boolean;
   charterUpdates?: {
-    goal?:              string;
-    newConstraints?:    string[];
-    newNongoals?:       string[];
-    newQuestions?:      string[];
-    resolvedQuestion?:  { index: number; answer: string };
-    branchMode?:        'branch' | 'main';
-    branchName?:        string;
+    goal?: string;
+    newConstraints?: string[];
+    newNongoals?: string[];
+    newQuestions?: string[];
+    resolvedQuestion?: { index: number; answer: string };
+    branchMode?: 'branch' | 'main';
+    branchName?: string;
   };
-  taskGraph?:      TaskGraphEntry[];
-  teamAdd?:        string[];
-  enableExecute?:  boolean;
+  taskGraph?: TaskGraphEntry[];
+  teamAdd?: string[];
+  enableExecute?: boolean;
   disableExecute?: boolean;
-  disableReason?:  string;
+  disableReason?: string;
   researchRequest?: { question: string; target?: string };
   hireSuggestion?: { agentId: string; reason: string };
 }
@@ -247,18 +252,24 @@ You MUST call the \`submit_pm_response\` tool to deliver your response. Plain te
 
 function formatHistory(history: HistoryMessage[]): string {
   if (!history.length) return '(no prior conversation)';
-  return history.map(m => {
-    const who = m.from === 'you' ? 'User' : m.from === 'security' ? '[Security]' : 'PM';
-    return `${who}: ${m.text}`;
-  }).join('\n');
+  return history
+    .map(m => {
+      const who = m.from === 'you' ? 'User' : m.from === 'security' ? '[Security]' : 'PM';
+      return `${who}: ${m.text}`;
+    })
+    .join('\n');
 }
 
 function formatRoster(roster: RosterEntry[]): string {
   const enabled = roster.filter(a => a.enabled);
   if (!enabled.length) return '';
   const lines = enabled.map(a => {
-    const job = a.prompt.split('\n').find(l => l.startsWith('Your job:'))?.replace('Your job:', '').trim()
-      ?? 'specialist agent';
+    const job =
+      a.prompt
+        .split('\n')
+        .find(l => l.startsWith('Your job:'))
+        ?.replace('Your job:', '')
+        .trim() ?? 'specialist agent';
 
     // Surface what this specialist can ACTUALLY do that builtin agents cannot —
     // chiefly live connector/DB access. Without this the PM assumes the coder can
@@ -281,9 +292,11 @@ function formatRoster(roster: RosterEntry[]): string {
     const capStr = caps.length ? `  CAN: ${caps.join(' | ')}.` : '';
     return `  [${a.id}] ${a.name} — ${job}.${capStr}`;
   });
-  return `Hired specialist roster (use the ID in brackets as the task_graph assignee). ` +
+  return (
+    `Hired specialist roster (use the ID in brackets as the task_graph assignee). ` +
     `ONLY these agents can reach external data or services (databases, APIs, connectors) — ` +
-    `the builtin coder/tester/reviewer/security cannot:\n${lines.join('\n')}`;
+    `the builtin coder/tester/reviewer/security cannot:\n${lines.join('\n')}`
+  );
 }
 
 function estimateTokens(...parts: (string | null | undefined)[]): number {
@@ -294,19 +307,20 @@ function formatSubdirContext(files: SubdirFile[]): string {
   if (!files.length) return '';
   const truncatedCount = files.filter(f => f.truncated).length;
   const header = `Subdirectory context files (${files.length} file${files.length > 1 ? 's' : ''}${truncatedCount ? `, ${truncatedCount} truncated` : ''} — product features and domain knowledge; technical conventions are for execution agents):`;
-  const body   = files.map(f => `--- ${f.relPath} ---\n${f.content}`).join('\n\n');
+  const body = files.map(f => `--- ${f.relPath} ---\n${f.content}`).join('\n\n');
   return `${header}\n${body}`;
 }
 
 function formatCharter(charter: PmCharter | null, team: string[]): string {
   if (!charter && !team.length) return '';
   const parts: string[] = ['Charter:'];
-  if (charter?.goal)                 parts.push(`goal="${charter.goal}"`);
-  if (charter?.constraints?.length)  parts.push(`constraints=[${charter.constraints.join(' | ')}]`);
-  if (charter?.nongoals?.length)     parts.push(`nongoals=[${charter.nongoals.join(' | ')}]`);
-  if (charter?.questions?.length)    parts.push(`openQ=[${charter.questions.map((q, i) => `${i}:${q}`).join(' | ')}]`);
-  if (charter?.branchMode)           parts.push(`branch_mode=${charter.branchMode}`);
-  if (team.length)                   parts.push(`team=[${team.join(', ')}]`);
+  if (charter?.goal) parts.push(`goal="${charter.goal}"`);
+  if (charter?.constraints?.length) parts.push(`constraints=[${charter.constraints.join(' | ')}]`);
+  if (charter?.nongoals?.length) parts.push(`nongoals=[${charter.nongoals.join(' | ')}]`);
+  if (charter?.questions?.length)
+    parts.push(`openQ=[${charter.questions.map((q, i) => `${i}:${q}`).join(' | ')}]`);
+  if (charter?.branchMode) parts.push(`branch_mode=${charter.branchMode}`);
+  if (team.length) parts.push(`team=[${team.join(', ')}]`);
   return parts.join(' ');
 }
 
@@ -335,7 +349,8 @@ function parsePmData(data: Record<string, unknown>): PmResponse {
   // Fall back to deriving team from task_graph assignees when team_add was omitted
   if (!resolvedTeam?.length && Array.isArray(data.task_graph)) {
     const assignees = (data.task_graph as Array<Record<string, unknown>>)
-      .map(t => String(t.assignee)).filter(Boolean);
+      .map(t => String(t.assignee))
+      .filter(Boolean);
     if (assignees.length) resolvedTeam = [...new Set(assignees)];
   }
   // Last-resort safety net: the model dumped the plan into reply prose and emitted
@@ -357,49 +372,63 @@ function parsePmData(data: Record<string, unknown>): PmResponse {
   const branchMode: 'branch' | 'main' | undefined =
     branchModeRaw === 'main' ? 'main' : branchModeRaw === 'branch' ? 'branch' : undefined;
   const branchName: string | undefined = cu.branch_name
-    ? String(cu.branch_name).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || undefined
+    ? String(cu.branch_name)
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 40) || undefined
     : undefined;
 
   let taskGraph: TaskGraphEntry[] | undefined;
   if (Array.isArray(data.task_graph)) {
     const entries = (data.task_graph as Array<Record<string, unknown>>)
-      .filter(e => e && typeof e.id === 'string' && typeof e.assignee === 'string' && typeof e.title === 'string')
+      .filter(
+        e =>
+          e &&
+          typeof e.id === 'string' &&
+          typeof e.assignee === 'string' &&
+          typeof e.title === 'string',
+      )
       .map(e => ({
-        id:         String(e.id),
-        assignee:   String(e.assignee) as TaskGraphEntry['assignee'],
-        title:      String(e.title),
+        id: String(e.id),
+        assignee: String(e.assignee) as TaskGraphEntry['assignee'],
+        title: String(e.title),
         depends_on: Array.isArray(e.depends_on) ? e.depends_on.map(String) : [],
       }));
     if (entries.length > 0) taskGraph = entries;
   }
 
   return {
-    reply:             String(data.reply ?? ''),
+    reply: String(data.reply ?? ''),
     securityInterject: data.security_interject ? String(data.security_interject) : undefined,
-    deploymentInfo:    data.deployment_info    ? String(data.deployment_info)    : undefined,
-    suggestCompact:    Boolean(data.suggest_compact) || undefined,
+    deploymentInfo: data.deployment_info ? String(data.deployment_info) : undefined,
+    suggestCompact: Boolean(data.suggest_compact) || undefined,
     charterUpdates: {
-      goal:             cu.goal             ? String(cu.goal)                              : undefined,
-      newConstraints:   Array.isArray(cu.new_constraints) ? cu.new_constraints.map(String) : undefined,
-      newNongoals:      Array.isArray(cu.new_nongoals)    ? cu.new_nongoals.map(String)    : undefined,
-      newQuestions:     Array.isArray(cu.new_questions)   ? cu.new_questions.map(String)   : undefined,
+      goal: cu.goal ? String(cu.goal) : undefined,
+      newConstraints: Array.isArray(cu.new_constraints)
+        ? cu.new_constraints.map(String)
+        : undefined,
+      newNongoals: Array.isArray(cu.new_nongoals) ? cu.new_nongoals.map(String) : undefined,
+      newQuestions: Array.isArray(cu.new_questions) ? cu.new_questions.map(String) : undefined,
       resolvedQuestion: rv,
       branchMode,
       branchName,
     },
     taskGraph,
-    teamAdd:        resolvedTeam,
-    enableExecute:  Boolean(data.enable_execute),
+    teamAdd: resolvedTeam,
+    enableExecute: Boolean(data.enable_execute),
     disableExecute: Boolean(data.disable_execute),
-    disableReason:  data.disable_reason ? String(data.disable_reason) : undefined,
-    researchRequest: (data.research_request && typeof (data.research_request as any).question === 'string')
-      ? {
-          question: String((data.research_request as any).question),
-          ...(typeof (data.research_request as any).target === 'string'
-            ? { target: String((data.research_request as any).target) }
-            : {}),
-        }
-      : undefined,
+    disableReason: data.disable_reason ? String(data.disable_reason) : undefined,
+    researchRequest:
+      data.research_request && typeof (data.research_request as any).question === 'string'
+        ? {
+            question: String((data.research_request as any).question),
+            ...(typeof (data.research_request as any).target === 'string'
+              ? { target: String((data.research_request as any).target) }
+              : {}),
+          }
+        : undefined,
     hireSuggestion: parseHireSuggestion(data.hire_suggestion),
   };
 }
@@ -411,7 +440,10 @@ function parseHireSuggestion(raw: unknown): { agentId: string; reason: string } 
   const agentId = typeof h.agent_id === 'string' ? h.agent_id.trim() : '';
   if (!agentId || !CATALOG_BY_ID[agentId]) return undefined; // unknown id → ignore
   const reason = typeof h.reason === 'string' ? h.reason.trim() : '';
-  return { agentId, reason: reason || `${CATALOG_BY_ID[agentId].name} would help with this project.` };
+  return {
+    agentId,
+    reason: reason || `${CATALOG_BY_ID[agentId].name} would help with this project.`,
+  };
 }
 
 // ─── Anthropic SDK tool definition (mirrors mcp-server.ts SUBMIT_TOOL) ────────
@@ -425,20 +457,20 @@ const SUBMIT_PM_TOOL: Anthropic.Tool = {
     type: 'object',
     required: ['reply', 'team_add', 'task_graph'],
     properties: {
-      reply:              { type: 'string' },
+      reply: { type: 'string' },
       security_interject: { type: 'string' },
-      deployment_info:    { type: 'string' },
+      deployment_info: { type: 'string' },
       charter_updates: {
         type: 'object',
         properties: {
-          goal:             { type: 'string' },
-          new_constraints:  { type: 'array', items: { type: 'string' } },
-          new_nongoals:     { type: 'array', items: { type: 'string' } },
-          new_questions:    { type: 'array', items: { type: 'string' } },
+          goal: { type: 'string' },
+          new_constraints: { type: 'array', items: { type: 'string' } },
+          new_nongoals: { type: 'array', items: { type: 'string' } },
+          new_questions: { type: 'array', items: { type: 'string' } },
           resolved_question: {
             type: 'object',
             properties: {
-              index:  { type: 'number' },
+              index: { type: 'number' },
               answer: { type: 'string' },
             },
             required: ['index', 'answer'],
@@ -447,18 +479,23 @@ const SUBMIT_PM_TOOL: Anthropic.Tool = {
           branch_name: { type: 'string' },
         },
       },
-      team_add:       { type: 'array', items: { type: 'string' }, description: 'REQUIRED on every turn. Re-emit the full current team every call. Minimum: ["coder", "reviewer"].' },
+      team_add: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'REQUIRED on every turn. Re-emit the full current team every call. Minimum: ["coder", "reviewer"].',
+      },
       enable_execute: { type: 'boolean' },
-      disable_execute:{ type: 'boolean' },
+      disable_execute: { type: 'boolean' },
       disable_reason: { type: 'string' },
       task_graph: {
         type: 'array',
         items: {
           type: 'object',
           properties: {
-            id:         { type: 'string' },
-            assignee:   { type: 'string' },
-            title:      { type: 'string' },
+            id: { type: 'string' },
+            assignee: { type: 'string' },
+            title: { type: 'string' },
             depends_on: { type: 'array', items: { type: 'string' } },
           },
           required: ['id', 'assignee', 'title', 'depends_on'],
@@ -470,8 +507,16 @@ const SUBMIT_PM_TOOL: Anthropic.Tool = {
         description:
           'Set this when you need to understand the existing codebase to plan well — a read-only Scout will investigate your question and report back, and you\'ll continue planning with that context. Use a specific, answerable question (e.g. "How does the current auth middleware validate sessions, and where?"). Omit it when you already have enough context — most simple/clarifying turns need no research.',
         properties: {
-          question: { type: 'string', description: 'A specific, answerable question about the existing codebase for the Scout to investigate.' },
-          target:   { type: 'string', description: 'Optional. The id of a HIRED specialist to run this research (e.g. "db" for live database questions). Omit to use the generic read-only Scout (source-code only). Only name a specialist that is shown ✓ HIRED in the marketplace list.' },
+          question: {
+            type: 'string',
+            description:
+              'A specific, answerable question about the existing codebase for the Scout to investigate.',
+          },
+          target: {
+            type: 'string',
+            description:
+              'Optional. The id of a HIRED specialist to run this research (e.g. "db" for live database questions). Omit to use the generic read-only Scout (source-code only). Only name a specialist that is shown ✓ HIRED in the marketplace list.',
+          },
         },
       },
       hire_suggestion: {
@@ -479,8 +524,16 @@ const SUBMIT_PM_TOOL: Anthropic.Tool = {
         description:
           'Recommend the user hire a marketplace specialist that would materially improve THIS project. Use the exact agent id from the marketplace list. The UI shows your reason as a one-click "Hire" call-to-action. Only suggest a NOT-hired agent that genuinely fits; do not suggest one already hired, and do not force-fit.',
         properties: {
-          agent_id: { type: 'string', description: 'The marketplace agent id to recommend hiring (e.g. "product-researcher").' },
-          reason:   { type: 'string', description: 'One sentence, user-facing: why hiring this specialist would help this project.' },
+          agent_id: {
+            type: 'string',
+            description:
+              'The marketplace agent id to recommend hiring (e.g. "product-researcher").',
+          },
+          reason: {
+            type: 'string',
+            description:
+              'One sentence, user-facing: why hiring this specialist would help this project.',
+          },
         },
       },
     },
@@ -492,11 +545,11 @@ const SUBMIT_PM_TOOL: Anthropic.Tool = {
 // no hidden second inference round. TTFT ≈ pure model latency (~0.8–1.5s).
 
 async function runPmMessageApi(
-  pmSystemPrompt:      string,
-  conversationPrompt:  string,
-  onChunk?:            (text: string) => void,
+  pmSystemPrompt: string,
+  conversationPrompt: string,
+  onChunk?: (text: string) => void,
 ): Promise<PmResponse> {
-  const cfg    = getConfig();
+  const cfg = getConfig();
   const client = new Anthropic({ apiKey: cfg.anthropicApiKey });
 
   type ApiMessage = Anthropic.MessageParam;
@@ -505,24 +558,27 @@ async function runPmMessageApi(
   const MAX_ATTEMPTS = 3;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const stream = client.messages.stream({
-      model:       'claude-sonnet-4-6',
-      max_tokens:  16_000,
-      system: [{
-        type:          'text',
-        text:          pmSystemPrompt,
-        cache_control: { type: 'ephemeral' },
-      }],
-      tools:       [SUBMIT_PM_TOOL],
+      model: 'claude-sonnet-4-6',
+      max_tokens: 16_000,
+      system: [
+        {
+          type: 'text',
+          text: pmSystemPrompt,
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
+      tools: [SUBMIT_PM_TOOL],
       tool_choice: { type: 'tool', name: 'submit_pm_response' },
       messages,
     });
 
     // Only stream reply chunks on the first attempt — retries are correction turns.
-    const extractor = (attempt === 1 && onChunk) ? new ReplyExtractor() : null;
+    const extractor = attempt === 1 && onChunk ? new ReplyExtractor() : null;
 
     stream.on('streamEvent', (ev: Anthropic.MessageStreamEvent) => {
       if (
-        extractor && onChunk &&
+        extractor &&
+        onChunk &&
         ev.type === 'content_block_delta' &&
         ev.delta.type === 'input_json_delta'
       ) {
@@ -535,13 +591,13 @@ async function runPmMessageApi(
     console.log(`[pm/api] attempt ${attempt} usage:`, JSON.stringify(finalMsg.usage));
 
     const toolBlock = finalMsg.content.find(
-      (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === 'submit_pm_response'
+      (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === 'submit_pm_response',
     );
     if (!toolBlock) {
       throw new Error('PM did not call submit_pm_response (direct API path)');
     }
 
-    const data    = toolBlock.input as Record<string, unknown>;
+    const data = toolBlock.input as Record<string, unknown>;
     const teamAdd = data.team_add as unknown[] | undefined;
 
     if (Array.isArray(teamAdd) && teamAdd.length > 0) {
@@ -555,12 +611,15 @@ async function runPmMessageApi(
       { role: 'assistant', content: finalMsg.content },
       {
         role: 'user',
-        content: [{
-          type:       'tool_result' as const,
-          tool_use_id: toolBlock.id,
-          content:    'REJECTED: team_add is required and must not be empty. Re-submit NOW with at least ["coder", "reviewer"] in team_add. This call was not recorded.',
-          is_error:   true,
-        }],
+        content: [
+          {
+            type: 'tool_result' as const,
+            tool_use_id: toolBlock.id,
+            content:
+              'REJECTED: team_add is required and must not be empty. Re-submit NOW with at least ["coder", "reviewer"] in team_add. This call was not recorded.',
+            is_error: true,
+          },
+        ],
       },
     ];
   }
@@ -571,7 +630,7 @@ async function runPmMessageApi(
 // ─── Reply extractor — pulls the "reply" string from streaming input_json_delta ─
 
 class ReplyExtractor {
-  private buf     = '';
+  private buf = '';
   private state: 'seek-key' | 'seek-quote' | 'in-string' | 'done' = 'seek-key';
   private escaped = false;
 
@@ -586,14 +645,17 @@ class ReplyExtractor {
         if (this.buf.length > 15) this.buf = this.buf.slice(-15);
         return '';
       }
-      this.buf  = this.buf.slice(idx + '"reply":'.length);
+      this.buf = this.buf.slice(idx + '"reply":'.length);
       this.state = 'seek-quote';
     }
 
     if (this.state === 'seek-quote') {
       const t = this.buf.trimStart();
-      if (!t.startsWith('"')) { if (t.length > 0) this.state = 'done'; return ''; }
-      this.buf  = t.slice(1);
+      if (!t.startsWith('"')) {
+        if (t.length > 0) this.state = 'done';
+        return '';
+      }
+      this.buf = t.slice(1);
       this.state = 'in-string';
     }
 
@@ -602,19 +664,30 @@ class ReplyExtractor {
         const ch = this.buf[i];
         if (this.escaped) {
           switch (ch) {
-            case '"':  out += '"';  break;
-            case '\\': out += '\\'; break;
-            case 'n':  out += '\n'; break;
-            case 'r':  out += '\r'; break;
-            case 't':  out += '\t'; break;
-            default:   out += ch;
+            case '"':
+              out += '"';
+              break;
+            case '\\':
+              out += '\\';
+              break;
+            case 'n':
+              out += '\n';
+              break;
+            case 'r':
+              out += '\r';
+              break;
+            case 't':
+              out += '\t';
+              break;
+            default:
+              out += ch;
           }
           this.escaped = false;
         } else if (ch === '\\') {
           this.escaped = true;
         } else if (ch === '"') {
           this.state = 'done';
-          this.buf   = this.buf.slice(i + 1);
+          this.buf = this.buf.slice(i + 1);
           return out;
         } else {
           out += ch;
@@ -647,7 +720,11 @@ const REPO_DIGEST_QUESTION =
 
 function currentGitHead(): string | null {
   try {
-    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: getRoot(), encoding: 'utf8', stdio: 'pipe' }).trim();
+    return execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: getRoot(),
+      encoding: 'utf8',
+      stdio: 'pipe',
+    }).trim();
   } catch {
     return null; // not a git repo, or no commits yet (greenfield)
   }
@@ -661,7 +738,9 @@ function readCachedDigest(): string {
   try {
     const cached = fs.readFileSync(path.join(swarmDir(), 'repo-digest.md'), 'utf8');
     if (cached.startsWith(stamp)) return cached.slice(stamp.length).replace(/^\n/, '');
-  } catch { /* no cache yet */ }
+  } catch {
+    /* no cache yet */
+  }
   return '';
 }
 
@@ -675,61 +754,85 @@ function ensureRepoDigestInBackground(): void {
   const head = currentGitHead();
   if (!head || readCachedDigest()) return; // greenfield, or already fresh
   digestInFlight = true;
-  getDriver().runScout(REPO_DIGEST_QUESTION)
+  getDriver()
+    .runScout(REPO_DIGEST_QUESTION)
     .then(r => {
       if (r.digest?.trim()) {
         fs.mkdirSync(swarmDir(), { recursive: true });
-        fs.writeFileSync(path.join(swarmDir(), 'repo-digest.md'), `<!-- head: ${head} -->\n${r.digest}`);
+        fs.writeFileSync(
+          path.join(swarmDir(), 'repo-digest.md'),
+          `<!-- head: ${head} -->\n${r.digest}`,
+        );
       }
     })
     .catch(err => console.warn(`[pm] repo digest generation failed: ${(err as Error).message}`))
-    .finally(() => { digestInFlight = false; });
+    .finally(() => {
+      digestInFlight = false;
+    });
 }
 
 export async function runPmMessage(
-  text:        string,
-  history:     HistoryMessage[],
-  charter?:    PmCharter,
-  team?:       string[],
-  onChunk?:    (text: string) => void,
-  onResearch?: (status: { phase: 'started' | 'done'; question: string; summary?: string; agent?: string }) => void,
+  text: string,
+  history: HistoryMessage[],
+  charter?: PmCharter,
+  team?: string[],
+  onChunk?: (text: string) => void,
+  onResearch?: (status: {
+    phase: 'started' | 'done';
+    question: string;
+    summary?: string;
+    agent?: string;
+  }) => void,
 ): Promise<PmResponse> {
   getConfigOptional();
-  const projectCtx  = loadProjectContextBounded();
+  const projectCtx = loadProjectContextBounded();
   const subdirFiles = loadSubdirContextBounded();
   const subdirBlock = formatSubdirContext(subdirFiles);
   const projectRoot = getRoot();
   const projectName = path.basename(projectRoot);
 
-  const roster          = loadRoster();
-  const rosterBlock     = formatRoster(roster);
+  const roster = loadRoster();
+  const rosterBlock = formatRoster(roster);
   const marketplaceBlock = formatMarketplace(roster.filter(a => a.enabled).map(a => a.id));
-  const repoDigest      = readCachedDigest();          // instant; '' until the background pass lands
-  const recentHistory   = charter ? history.slice(-6) : history;
-  const exchangeCount   = history.filter(m => m.from === 'you').length;
-  const charterBlock    = formatCharter(charter ?? null, team ?? []);
-  const estimatedTokens = estimateTokens(PM_SYSTEM, projectCtx, subdirBlock, charterBlock, rosterBlock, formatHistory(recentHistory), text);
-  const ctxNote         = contextNote(estimatedTokens, exchangeCount);
+  const repoDigest = readCachedDigest(); // instant; '' until the background pass lands
+  const recentHistory = charter ? history.slice(-6) : history;
+  const exchangeCount = history.filter(m => m.from === 'you').length;
+  const charterBlock = formatCharter(charter ?? null, team ?? []);
+  const estimatedTokens = estimateTokens(
+    PM_SYSTEM,
+    projectCtx,
+    subdirBlock,
+    charterBlock,
+    rosterBlock,
+    formatHistory(recentHistory),
+    text,
+  );
+  const ctxNote = contextNote(estimatedTokens, exchangeCount);
 
   // Build the conversation prompt, optionally appending Scout digests gathered on
   // earlier rounds of THIS user message so the PM plans with real context.
-  const buildConversationPrompt = (researchNotes: string): string => [
-    `Current project: ${projectName} (${projectRoot})`,
-    projectCtx  ? `\nProject context (CLAUDE.md):\n${projectCtx}\n`  : '',
-    repoDigest  ? `\nRepository overview (auto-generated by the Scout — a map of the existing code):\n${repoDigest}\n` : '',
-    subdirBlock ? `\n${subdirBlock}\n`                                 : '',
-    charterBlock ? `${charterBlock}\n`                                 : '',
-    rosterBlock  ? `${rosterBlock}\n`                                  : '',
-    `${marketplaceBlock}\n`,
-    recentHistory.length
-      ? `Recent conversation:\n${formatHistory(recentHistory)}\n`
-      : '',
-    `User's latest message: ${text}`,
-    researchNotes ? `\nResearch findings gathered this turn (from the Scout):\n${researchNotes}` : '',
-    ctxNote ? `\n${ctxNote}` : '',
-    '',
-    'Continue as the PM. Call submit_pm_response with your reply and any charter updates.',
-  ].filter(Boolean).join('\n');
+  const buildConversationPrompt = (researchNotes: string): string =>
+    [
+      `Current project: ${projectName} (${projectRoot})`,
+      projectCtx ? `\nProject context (CLAUDE.md):\n${projectCtx}\n` : '',
+      repoDigest
+        ? `\nRepository overview (auto-generated by the Scout — a map of the existing code):\n${repoDigest}\n`
+        : '',
+      subdirBlock ? `\n${subdirBlock}\n` : '',
+      charterBlock ? `${charterBlock}\n` : '',
+      rosterBlock ? `${rosterBlock}\n` : '',
+      `${marketplaceBlock}\n`,
+      recentHistory.length ? `Recent conversation:\n${formatHistory(recentHistory)}\n` : '',
+      `User's latest message: ${text}`,
+      researchNotes
+        ? `\nResearch findings gathered this turn (from the Scout):\n${researchNotes}`
+        : '',
+      ctxNote ? `\n${ctxNote}` : '',
+      '',
+      'Continue as the PM. Call submit_pm_response with your reply and any charter updates.',
+    ]
+      .filter(Boolean)
+      .join('\n');
 
   const { loadBuiltinInstructions } = await import('../state/builtin-instructions.js');
   const builtinInstr = loadBuiltinInstructions();
@@ -768,8 +871,8 @@ export async function runPmMessage(
     // the generic Scout cannot; otherwise run the generic source-only Scout. An
     // unknown / not-hired target silently falls back to the generic Scout.
     const target = response.researchRequest?.target?.trim();
-    const hired  = target ? roster.find(a => a.id === target && a.enabled) : undefined;
-    const who    = hired ? hired.name : 'Scout';
+    const hired = target ? roster.find(a => a.id === target && a.enabled) : undefined;
+    const who = hired ? hired.name : 'Scout';
 
     onResearch?.({ phase: 'started', question, agent: hired?.name });
     try {
@@ -782,7 +885,12 @@ export async function runPmMessage(
       const msg = (err as Error).message;
       console.warn(`[pm] research failed (${who}): ${msg}`);
       researchNotes += `\n### Q: ${question}  (researched by ${who})\n(research unavailable: ${msg})\n`;
-      onResearch?.({ phase: 'done', question, summary: `research unavailable: ${msg}`, agent: hired?.name });
+      onResearch?.({
+        phase: 'done',
+        question,
+        summary: `research unavailable: ${msg}`,
+        agent: hired?.name,
+      });
     }
   }
 }
@@ -793,16 +901,16 @@ export async function runPmMessage(
 // it once per round.
 
 function runPmMessageSubprocess(
-  pmSystemPrompt:     string,
+  pmSystemPrompt: string,
   conversationPrompt: string,
-  projectRoot:        string,
-  onChunk?:           (text: string) => void,
+  projectRoot: string,
+  onChunk?: (text: string) => void,
 ): Promise<PmResponse> {
-  void onChunk;   // subprocess path does not stream incremental reply chunks today
+  void onChunk; // subprocess path does not stream incremental reply chunks today
   // ── Temp files ────────────────────────────────────────────────────────────
-  const uuid        = randomUUID();
-  const outputPath  = path.join(os.tmpdir(), `pm-output-${uuid}.json`);
-  const configPath  = path.join(os.tmpdir(), `pm-config-${uuid}.json`);
+  const uuid = randomUUID();
+  const outputPath = path.join(os.tmpdir(), `pm-output-${uuid}.json`);
+  const configPath = path.join(os.tmpdir(), `pm-config-${uuid}.json`);
 
   // --mcp-config expects a file path, not inline JSON.
   // MCP_CMD/MCP_SERVER handle both tsx (dev) and node (compiled) environments.
@@ -810,8 +918,8 @@ function runPmMessageSubprocess(
     mcpServers: {
       pm_responder: {
         command: MCP_CMD,
-        args:    [MCP_SERVER],
-        env:     { PM_OUTPUT_PATH: outputPath },
+        args: [MCP_SERVER],
+        env: { PM_OUTPUT_PATH: outputPath },
       },
     },
   };
@@ -819,13 +927,18 @@ function runPmMessageSubprocess(
 
   const args = [
     '--print',
-    '--output-format',  'json',
+    '--output-format',
+    'json',
     '--no-session-persistence',
-    '--model',          'claude-sonnet-4-6',
-    '--strict-mcp-config',                // ignore all other MCP servers
-    '--mcp-config',     configPath,
-    '--allowedTools',   'mcp__pm_responder__submit_pm_response',
-    '--system-prompt',  pmSystemPrompt,
+    '--model',
+    'claude-sonnet-4-6',
+    '--strict-mcp-config', // ignore all other MCP servers
+    '--mcp-config',
+    configPath,
+    '--allowedTools',
+    'mcp__pm_responder__submit_pm_response',
+    '--system-prompt',
+    pmSystemPrompt,
     '--',
     conversationPrompt,
   ];
@@ -835,17 +948,29 @@ function runPmMessageSubprocess(
     let stderr = '';
 
     const proc = spawn('claude', args, {
-      cwd:   projectRoot,
+      cwd: projectRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    proc.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
+    proc.stdout.on('data', (d: Buffer) => {
+      stdout += d.toString();
+    });
 
-    proc.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+    proc.stderr.on('data', (d: Buffer) => {
+      stderr += d.toString();
+    });
 
     const cleanup = () => {
-      try { fs.unlinkSync(outputPath); } catch { /* ok */ }
-      try { fs.unlinkSync(configPath); } catch { /* ok */ }
+      try {
+        fs.unlinkSync(outputPath);
+      } catch {
+        /* ok */
+      }
+      try {
+        fs.unlinkSync(configPath);
+      } catch {
+        /* ok */
+      }
     };
 
     // Per-call cap for one PM inference. Generous because a cold tsx MCP start plus a
@@ -869,14 +994,20 @@ function runPmMessageSubprocess(
 
       // Log cost if available (envelope may or may not parse cleanly)
       try {
-        const envelope = JSON.parse(stdout) as { cost_usd?: number; is_error?: boolean; result?: unknown };
+        const envelope = JSON.parse(stdout) as {
+          cost_usd?: number;
+          is_error?: boolean;
+          result?: unknown;
+        };
         if (envelope.cost_usd) console.log(`[pm] cost: $${envelope.cost_usd.toFixed(4)}`);
         if (envelope.is_error) {
           cleanup();
           reject(new Error(`claude API error: ${JSON.stringify(envelope.result).slice(0, 300)}`));
           return;
         }
-      } catch { /* envelope not parseable — not fatal, carry on */ }
+      } catch {
+        /* envelope not parseable — not fatal, carry on */
+      }
 
       if (code !== 0 && !fs.existsSync(outputPath)) {
         const detail = stderr.slice(0, 300) || stdout.slice(0, 300) || '(no output)';

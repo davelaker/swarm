@@ -11,21 +11,21 @@ function now(): string {
 type Phase = 'start' | 'goal' | 'scope' | 'nongoals' | 'questions' | 'team' | 'ready';
 
 interface SessionState {
-  messages:         ChatMessage[];
-  charter:          CharterData;
-  team:             string[];
-  typing:           string | null;
-  executable:       boolean;
+  messages: ChatMessage[];
+  charter: CharterData;
+  team: string[];
+  typing: string | null;
+  executable: boolean;
   executableReason: string;
-  phase:            Phase;
-  suggestCompact:   boolean;
-  branchMode?:      'branch' | 'main';
-  branchName?:      string;   // user-edited slug only (no swarm/ prefix); undefined = auto-derive from goal
-  taskGraph?:       TaskGraphEntry[];
-  streamingPmText:  string | null;
-  researching:      { question: string; agent?: string } | null;   // active research round (agent = specialist name, or undefined for the generic Scout)
-  hireSuggestion:   { agentId: string; reason: string } | null;  // PM's pending hire recommendation
-  deploymentInfo?:  string;
+  phase: Phase;
+  suggestCompact: boolean;
+  branchMode?: 'branch' | 'main';
+  branchName?: string; // user-edited slug only (no swarm/ prefix); undefined = auto-derive from goal
+  taskGraph?: TaskGraphEntry[];
+  streamingPmText: string | null;
+  researching: { question: string; agent?: string } | null; // active research round (agent = specialist name, or undefined for the generic Scout)
+  hireSuggestion: { agentId: string; reason: string } | null; // PM's pending hire recommendation
+  deploymentInfo?: string;
 }
 
 // ─── localStorage persistence ─────────────────────────────────────────────────
@@ -67,16 +67,27 @@ function storageKey(_project: string): string {
     const root = localStorage.getItem(ROOT_KEY);
     if (root) {
       // Derive a safe suffix from the full path, e.g. "/Users/david/Sites/foo" → "foo-a3b"
-      const name   = root.split('/').filter(Boolean).pop() ?? 'default';
+      const name = root.split('/').filter(Boolean).pop() ?? 'default';
       const suffix = root.length.toString(36); // cheap disambiguator for same-name projects
       return `swarm-session-v2-${name}-${suffix}`;
     }
-  } catch { /* private mode */ }
+  } catch {
+    /* private mode */
+  }
   return `swarm-session-v1`; // legacy fallback
 }
 
-type PersistedState = Pick<SessionState,
-  'messages' | 'charter' | 'team' | 'phase' | 'executable' | 'executableReason' | 'branchMode' | 'branchName' | 'taskGraph'
+type PersistedState = Pick<
+  SessionState,
+  | 'messages'
+  | 'charter'
+  | 'team'
+  | 'phase'
+  | 'executable'
+  | 'executableReason'
+  | 'branchMode'
+  | 'branchName'
+  | 'taskGraph'
 > & { savedAt: number };
 
 function loadPersisted(project: string): Omit<PersistedState, 'savedAt'> | null {
@@ -98,23 +109,29 @@ function loadPersisted(project: string): Omit<PersistedState, 'savedAt'> | null 
 function persist(s: SessionState, project: string) {
   try {
     const p: PersistedState = {
-      messages:         s.messages,
-      charter:          s.charter,
-      team:             s.team,
-      phase:            s.phase,
-      executable:       s.executable,
+      messages: s.messages,
+      charter: s.charter,
+      team: s.team,
+      phase: s.phase,
+      executable: s.executable,
       executableReason: s.executableReason,
-      branchMode:       s.branchMode,
-      branchName:       s.branchName,
-      taskGraph:        s.taskGraph,
-      savedAt:          Date.now(),
+      branchMode: s.branchMode,
+      branchName: s.branchName,
+      taskGraph: s.taskGraph,
+      savedAt: Date.now(),
     };
     localStorage.setItem(storageKey(project), JSON.stringify(p));
-  } catch { /* quota exceeded or private mode — ignore */ }
+  } catch {
+    /* quota exceeded or private mode — ignore */
+  }
 }
 
 function clearPersisted(project: string) {
-  try { localStorage.removeItem(storageKey(project)); } catch { /* ok */ }
+  try {
+    localStorage.removeItem(storageKey(project));
+  } catch {
+    /* ok */
+  }
 }
 
 const DEFAULT_REASON = 'Complete the planning conversation to unlock Execute';
@@ -122,7 +139,13 @@ const DEFAULT_REASON = 'Complete the planning conversation to unlock Execute';
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
 export function usePlanningSession(
-  onExecutable: (v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => void,
+  onExecutable: (
+    v: boolean,
+    goal?: string,
+    charter?: RunCharter,
+    team?: string[],
+    reason?: string,
+  ) => void,
   project = 'default',
   recapMessage?: string | null,
   runBlockedReason?: string | null,
@@ -132,41 +155,41 @@ export function usePlanningSession(
     const p = loadPersisted(project);
     if (p) {
       return {
-        messages:         p.messages,
-        charter:          p.charter  ?? { goal: '', constraints: [], nongoals: [], questions: [] },
-        team:             p.team     ?? [],
-        typing:           null,
-        executable:       p.executable      ?? false,
+        messages: p.messages,
+        charter: p.charter ?? { goal: '', constraints: [], nongoals: [], questions: [] },
+        team: p.team ?? [],
+        typing: null,
+        executable: p.executable ?? false,
         executableReason: p.executableReason ?? DEFAULT_REASON,
-        phase:            p.phase   ?? 'goal',
-        suggestCompact:   false,
-        branchMode:       p.branchMode,
-        branchName:       p.branchName,
-        taskGraph:        p.taskGraph,
-        streamingPmText:  null,
-        researching:      null,
-        hireSuggestion:   null,
+        phase: p.phase ?? 'goal',
+        suggestCompact: false,
+        branchMode: p.branchMode,
+        branchName: p.branchName,
+        taskGraph: p.taskGraph,
+        streamingPmText: null,
+        researching: null,
+        hireSuggestion: null,
       };
     }
     return {
-      messages:         [],
-      charter:          { goal: '', constraints: [], nongoals: [], questions: [] },
-      team:             [],
-      typing:           null,
-      executable:       false,
+      messages: [],
+      charter: { goal: '', constraints: [], nongoals: [], questions: [] },
+      team: [],
+      typing: null,
+      executable: false,
       executableReason: DEFAULT_REASON,
-      phase:            'start',
-      suggestCompact:   false,
-      branchMode:       undefined,
-      streamingPmText:  null,
-      researching:      null,
-      hireSuggestion:   null,
+      phase: 'start',
+      suggestCompact: false,
+      branchMode: undefined,
+      streamingPmText: null,
+      researching: null,
+      hireSuggestion: null,
     };
   });
 
   // Persist on every meaningful state change (skip transient 'typing' flicker).
   useEffect(() => {
-    if (state.phase === 'start') return;  // nothing worth saving yet
+    if (state.phase === 'start') return; // nothing worth saving yet
     persist(state, project);
   }, [state, project]);
 
@@ -179,11 +202,11 @@ export function usePlanningSession(
     if (p?.executable && p.charter?.goal) {
       const charter: RunCharter = {
         constraints: (p.charter.constraints ?? []).map((c: { text: string }) => c.text),
-        nongoals:    (p.charter.nongoals    ?? []).map((n: { text: string }) => n.text),
-        questions:   (p.charter.questions   ?? []).map((q: { text: string }) => q.text),
-        branchMode:  p.branchMode,
-        branchName:  p.branchName,
-        taskGraph:   p.taskGraph,
+        nongoals: (p.charter.nongoals ?? []).map((n: { text: string }) => n.text),
+        questions: (p.charter.questions ?? []).map((q: { text: string }) => q.text),
+        branchMode: p.branchMode,
+        branchName: p.branchName,
+        taskGraph: p.taskGraph,
       };
       onExecutableRef.current(true, p.charter.goal, charter, p.team ?? []);
     }
@@ -191,13 +214,16 @@ export function usePlanningSession(
 
   // ─── Schedule helper (used only by init) ─────────────────────────────────
 
-  const schedule = useCallback((steps: Array<{ delay: number; fn: (prev: SessionState) => SessionState }>) => {
-    let offset = 0;
-    steps.forEach(({ delay, fn }) => {
-      offset += delay;
-      setTimeout(() => setState(prev => fn(prev)), offset);
-    });
-  }, []);
+  const schedule = useCallback(
+    (steps: Array<{ delay: number; fn: (prev: SessionState) => SessionState }>) => {
+      let offset = 0;
+      steps.forEach(({ delay, fn }) => {
+        offset += delay;
+        setTimeout(() => setState(prev => fn(prev)), offset);
+      });
+    },
+    [],
+  );
 
   // ─── Post-run recap injection ─────────────────────────────────────────────
   // When a recap message arrives (after a PR is created), append a system chip
@@ -212,31 +238,36 @@ export function usePlanningSession(
     const prUrl = recapMessage;
     setState(prev => ({
       ...prev,
-      executable:       false,
+      executable: false,
       executableReason: DEFAULT_REASON,
       // Full clean slate for the next task: clear the goal (and thus the charter
       // title), all charter lists, the team, and the branch — nothing from the
       // finished task should carry over into the next one.
-      charter:    { goal: '', constraints: [], nongoals: [], questions: [] },
-      team:       [],
+      charter: { goal: '', constraints: [], nongoals: [], questions: [] },
+      team: [],
       branchMode: undefined,
       branchName: undefined,
-      phase:      'goal' as Phase,
+      phase: 'goal' as Phase,
       messages: [
         ...prev.messages,
         { from: 'system' as const, text: '✓ Run complete · PR opened', time: now() },
       ],
     }));
     schedule([
-      { delay: 600,  fn: p => ({ ...p, typing: 'pm' }) },
-      { delay: 1500, fn: p => ({
+      { delay: 600, fn: p => ({ ...p, typing: 'pm' }) },
+      {
+        delay: 1500,
+        fn: p => ({
           ...p,
-          typing:   null,
-          messages: [...p.messages, {
-            from: 'pm' as const,
-            text: `[View PR ↗](${prUrl})\n\nWhat would you like to work on next?`,
-            time: now(),
-          }],
+          typing: null,
+          messages: [
+            ...p.messages,
+            {
+              from: 'pm' as const,
+              text: `[View PR ↗](${prUrl})\n\nWhat would you like to work on next?`,
+              time: now(),
+            },
+          ],
         }),
       },
     ]);
@@ -261,255 +292,344 @@ export function usePlanningSession(
 
   // ─── Apply a real PM API response to state ────────────────────────────────
 
-  const applyPmResponse = useCallback((prev: SessionState, resp: {
-    reply: string;
-    securityInterject?: string;
-    charterUpdates?: {
-      goal?: string;
-      newConstraints?: string[];
-      newNongoals?: string[];
-      newQuestions?: string[];
-      resolvedQuestion?: { index: number; answer: string };
-      branchMode?: 'branch' | 'main';
-      branchName?: string;
-    };
-    taskGraph?: TaskGraphEntry[];
-    teamAdd?: string[];
-    enableExecute?:  boolean;
-    disableExecute?: boolean;
-    disableReason?:  string;
-  }): SessionState => {
-    const cu = resp.charterUpdates ?? {};
-    const respondedAt = now();
-    const newMessages = [
-      ...(resp.securityInterject
-        ? [{ from: 'security' as const, text: resp.securityInterject, time: respondedAt }]
-        : []),
-      { from: 'pm' as const, text: resp.reply, time: respondedAt },
-    ];
-
-    let questions = prev.charter.questions;
-    if (cu.resolvedQuestion !== undefined) {
-      questions = questions.map((q, i) =>
-        i === cu.resolvedQuestion!.index
-          ? { text: q.text + '  →  ' + cu.resolvedQuestion!.answer, resolved: true }
-          : q
-      );
-    }
-    if (cu.newQuestions?.length) {
-      questions = [...questions, ...cu.newQuestions.map(t => ({ text: t }))];
-    }
-    // PM rules forbid enabling Execute while questions are unresolved. If any
-    // remain open here, the PM answered them in conversation but forgot to emit
-    // resolved_question — auto-resolve so the charter reflects reality.
-    if (resp.enableExecute) {
-      questions = questions.map(q => q.resolved ? q : { ...q, resolved: true });
-    }
-
-    const newTeam = resp.teamAdd?.length
-      ? [...prev.team, ...resp.teamAdd.filter(t => !prev.team.includes(t))]
-      : prev.team;
-
-    const newExecutable = resp.enableExecute  ? true
-                        : resp.disableExecute ? false
-                        : prev.executable;
-
-    const newReason = resp.disableExecute
-      ? (resp.disableReason || 'PM needs more information before proceeding')
-      : resp.enableExecute
-        ? ''
-        : prev.executableReason;
-
-    const newPhase: Phase = resp.enableExecute  ? 'ready'
-      : resp.disableExecute                     ? 'scope'
-      : cu.goal && prev.phase === 'goal'         ? 'scope'
-      : cu.newConstraints?.length && prev.phase === 'scope' ? 'nongoals'
-      : cu.newQuestions?.length   && prev.phase === 'nongoals' ? 'questions'
-      : prev.phase;
-
-    return {
-      ...prev,
-      typing:           null,
-      phase:            newPhase,
-      messages:         [...prev.messages, ...newMessages],
-      executable:       newExecutable,
-      executableReason: newReason,
-      team:             newTeam,
-      branchMode:       cu.branchMode ?? prev.branchMode,
-      // Keep user's edit if present; otherwise adopt the PM's suggestion
-      branchName:       prev.branchName ?? cu.branchName,
-      taskGraph:        resp.taskGraph ?? prev.taskGraph,
-      charter: {
-        ...prev.charter,
-        goal: cu.goal ?? prev.charter.goal,
-        constraints: cu.newConstraints?.length
-          ? [...prev.charter.constraints, ...cu.newConstraints.filter(c => !prev.charter.constraints.find(x => x.text === c)).map(t => ({ text: t }))]
-          : prev.charter.constraints,
-        nongoals: cu.newNongoals?.length
-          ? [...prev.charter.nongoals, ...cu.newNongoals.filter(c => !prev.charter.nongoals.find(x => x.text === c)).map(t => ({ text: t }))]
-          : prev.charter.nongoals,
-        questions,
+  const applyPmResponse = useCallback(
+    (
+      prev: SessionState,
+      resp: {
+        reply: string;
+        securityInterject?: string;
+        charterUpdates?: {
+          goal?: string;
+          newConstraints?: string[];
+          newNongoals?: string[];
+          newQuestions?: string[];
+          resolvedQuestion?: { index: number; answer: string };
+          branchMode?: 'branch' | 'main';
+          branchName?: string;
+        };
+        taskGraph?: TaskGraphEntry[];
+        teamAdd?: string[];
+        enableExecute?: boolean;
+        disableExecute?: boolean;
+        disableReason?: string;
       },
-    };
-  }, []);
+    ): SessionState => {
+      const cu = resp.charterUpdates ?? {};
+      const respondedAt = now();
+      const newMessages = [
+        ...(resp.securityInterject
+          ? [{ from: 'security' as const, text: resp.securityInterject, time: respondedAt }]
+          : []),
+        { from: 'pm' as const, text: resp.reply, time: respondedAt },
+      ];
+
+      let questions = prev.charter.questions;
+      if (cu.resolvedQuestion !== undefined) {
+        questions = questions.map((q, i) =>
+          i === cu.resolvedQuestion!.index
+            ? { text: q.text + '  →  ' + cu.resolvedQuestion!.answer, resolved: true }
+            : q,
+        );
+      }
+      if (cu.newQuestions?.length) {
+        questions = [...questions, ...cu.newQuestions.map(t => ({ text: t }))];
+      }
+      // PM rules forbid enabling Execute while questions are unresolved. If any
+      // remain open here, the PM answered them in conversation but forgot to emit
+      // resolved_question — auto-resolve so the charter reflects reality.
+      if (resp.enableExecute) {
+        questions = questions.map(q => (q.resolved ? q : { ...q, resolved: true }));
+      }
+
+      const newTeam = resp.teamAdd?.length
+        ? [...prev.team, ...resp.teamAdd.filter(t => !prev.team.includes(t))]
+        : prev.team;
+
+      const newExecutable = resp.enableExecute
+        ? true
+        : resp.disableExecute
+          ? false
+          : prev.executable;
+
+      const newReason = resp.disableExecute
+        ? resp.disableReason || 'PM needs more information before proceeding'
+        : resp.enableExecute
+          ? ''
+          : prev.executableReason;
+
+      const newPhase: Phase = resp.enableExecute
+        ? 'ready'
+        : resp.disableExecute
+          ? 'scope'
+          : cu.goal && prev.phase === 'goal'
+            ? 'scope'
+            : cu.newConstraints?.length && prev.phase === 'scope'
+              ? 'nongoals'
+              : cu.newQuestions?.length && prev.phase === 'nongoals'
+                ? 'questions'
+                : prev.phase;
+
+      return {
+        ...prev,
+        typing: null,
+        phase: newPhase,
+        messages: [...prev.messages, ...newMessages],
+        executable: newExecutable,
+        executableReason: newReason,
+        team: newTeam,
+        branchMode: cu.branchMode ?? prev.branchMode,
+        // Keep user's edit if present; otherwise adopt the PM's suggestion
+        branchName: prev.branchName ?? cu.branchName,
+        taskGraph: resp.taskGraph ?? prev.taskGraph,
+        charter: {
+          ...prev.charter,
+          goal: cu.goal ?? prev.charter.goal,
+          constraints: cu.newConstraints?.length
+            ? [
+                ...prev.charter.constraints,
+                ...cu.newConstraints
+                  .filter(c => !prev.charter.constraints.find(x => x.text === c))
+                  .map(t => ({ text: t })),
+              ]
+            : prev.charter.constraints,
+          nongoals: cu.newNongoals?.length
+            ? [
+                ...prev.charter.nongoals,
+                ...cu.newNongoals
+                  .filter(c => !prev.charter.nongoals.find(x => x.text === c))
+                  .map(t => ({ text: t })),
+              ]
+            : prev.charter.nongoals,
+          questions,
+        },
+      };
+    },
+    [],
+  );
 
   // ─── send ─────────────────────────────────────────────────────────────────
 
-  const send = useCallback((text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
+  const send = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
 
-    const sentAt = now();
-    setState(prev => ({
-      ...prev,
-      messages:        [...prev.messages, { from: 'you', text: trimmed, time: sentAt }],
-      typing:          'pm',
-      streamingPmText: null,
-    }));
+      const sentAt = now();
+      setState(prev => ({
+        ...prev,
+        messages: [...prev.messages, { from: 'you', text: trimmed, time: sentAt }],
+        typing: 'pm',
+        streamingPmText: null,
+      }));
 
-    const historySnapshot = state.messages;
+      const historySnapshot = state.messages;
 
-    let activeRoot: string | undefined;
-    try { activeRoot = localStorage.getItem(ROOT_KEY) ?? undefined; } catch { /* ok */ }
+      let activeRoot: string | undefined;
+      try {
+        activeRoot = localStorage.getItem(ROOT_KEY) ?? undefined;
+      } catch {
+        /* ok */
+      }
 
-    // Inactivity timeout, not a total cap: a PM turn can now chain several backend
-    // calls (repo digest → PM → Scout/specialist research → PM), each up to ~90s, so a
-    // fixed total would abort mid-research. Instead we abort only if NO SSE event
-    // arrives for INACTIVITY_MS — and research emits start/done events, so a long but
-    // progressing turn stays alive. The largest gap between events is one backend call.
-    const INACTIVITY_MS = 160_000;
-    const ctrl = new AbortController();
-    let idleTimer: ReturnType<typeof setTimeout>;
-    const bumpIdle = () => {
-      clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => ctrl.abort(new DOMException('inactivity timeout', 'TimeoutError')), INACTIVITY_MS);
-    };
-    bumpIdle();
+      // Inactivity timeout, not a total cap: a PM turn can now chain several backend
+      // calls (repo digest → PM → Scout/specialist research → PM), each up to ~90s, so a
+      // fixed total would abort mid-research. Instead we abort only if NO SSE event
+      // arrives for INACTIVITY_MS — and research emits start/done events, so a long but
+      // progressing turn stays alive. The largest gap between events is one backend call.
+      const INACTIVITY_MS = 160_000;
+      const ctrl = new AbortController();
+      let idleTimer: ReturnType<typeof setTimeout>;
+      const bumpIdle = () => {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(
+          () => ctrl.abort(new DOMException('inactivity timeout', 'TimeoutError')),
+          INACTIVITY_MS,
+        );
+      };
+      bumpIdle();
 
-    fetch('/pm/message', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        text:    trimmed,
-        history: historySnapshot,
-        charter: {
-          goal:        state.charter.goal || undefined,
-          constraints: state.charter.constraints.map(c => c.text),
-          nongoals:    state.charter.nongoals.map(n => n.text),
-          questions:   state.charter.questions.map(q => q.text),
-        },
-        team: state.team,
-        activeRoot,
-      }),
-      signal:  ctrl.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          const body = await response.json().catch(() => ({})) as Record<string, unknown>;
-          throw new Error(typeof body.error === 'string' ? body.error : `server ${response.status}`);
-        }
-        if (!response.body) throw new Error('No response body');
+      fetch('/pm/message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: trimmed,
+          history: historySnapshot,
+          charter: {
+            goal: state.charter.goal || undefined,
+            constraints: state.charter.constraints.map(c => c.text),
+            nongoals: state.charter.nongoals.map(n => n.text),
+            questions: state.charter.questions.map(q => q.text),
+          },
+          team: state.team,
+          activeRoot,
+        }),
+        signal: ctrl.signal,
+      })
+        .then(async response => {
+          if (!response.ok) {
+            const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+            throw new Error(
+              typeof body.error === 'string' ? body.error : `server ${response.status}`,
+            );
+          }
+          if (!response.body) throw new Error('No response body');
 
-        const reader  = response.body.getReader();
-        const decoder = new TextDecoder();
-        let   buffer  = '';
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          bumpIdle();   // progress arrived — reset the inactivity timer
-          buffer += decoder.decode(value, { stream: true });
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            bumpIdle(); // progress arrived — reset the inactivity timer
+            buffer += decoder.decode(value, { stream: true });
 
-          // SSE events are delimited by \n\n
-          const parts = buffer.split('\n\n');
-          buffer = parts.pop() ?? '';
+            // SSE events are delimited by \n\n
+            const parts = buffer.split('\n\n');
+            buffer = parts.pop() ?? '';
 
-          for (const part of parts) {
-            if (!part.startsWith('data: ')) continue;
-            const data = JSON.parse(part.slice(6)) as Record<string, unknown>;
+            for (const part of parts) {
+              if (!part.startsWith('data: ')) continue;
+              const data = JSON.parse(part.slice(6)) as Record<string, unknown>;
 
-            if (data.type === 'chunk' && typeof data.text === 'string') {
-              // First chunk: swap typing/research indicator for streaming text bubble.
-              setState(prev => ({
-                ...prev,
-                typing:          null,
-                researching:     null,
-                streamingPmText: (prev.streamingPmText ?? '') + data.text,
-              }));
-            } else if (data.type === 'research') {
-              // Scout investigating. 'started' shows the indicator and discards any
-              // intermediate "let me check…" streamed text; 'done' falls back to the
-              // typing indicator while the PM composes its real, research-informed reply.
-              setState(prev => data.phase === 'started'
-                ? { ...prev, typing: null, streamingPmText: null, researching: { question: String(data.question ?? 'the codebase'), agent: typeof data.agent === 'string' ? data.agent : undefined } }
-                : { ...prev, researching: null, typing: 'pm' });
-            } else if (data.type === 'result') {
-              type PmResp = Parameters<typeof applyPmResponse>[1];
-              type Cu    = NonNullable<PmResp['charterUpdates']>;
-              const cu   = (data.charterUpdates ?? {}) as Cu;
-              const hs = (data.hireSuggestion as { agentId?: unknown; reason?: unknown } | undefined);
-              const hireSuggestion = hs && typeof hs.agentId === 'string'
-                ? { agentId: hs.agentId, reason: typeof hs.reason === 'string' ? hs.reason : '' }
-                : null;
-              setState(prev => {
-                const next        = applyPmResponse(prev, data as PmResp);
-                const withClear   = { ...next, streamingPmText: null };
-                const withExtras  = data.deploymentInfo
-                  ? { ...withClear, deploymentInfo: String(data.deploymentInfo) }
-                  : withClear;
-                const withCompact = data.suggestCompact ? { ...withExtras, suggestCompact: true } : withExtras;
-                // Keep an existing suggestion until the user acts, but a fresh one replaces it.
-                return hireSuggestion ? { ...withCompact, hireSuggestion } : withCompact;
-              });
-              if (data.enableExecute) {
-                const goal = cu.goal ?? state.charter.goal ?? trimmed;
-                const deploymentInfo = (data.deploymentInfo as string | undefined) ?? state.deploymentInfo;
-                const charter: RunCharter = {
-                  constraints:     [...state.charter.constraints.map(c => c.text), ...((cu.newConstraints as string[] | undefined) ?? [])],
-                  nongoals:        [...state.charter.nongoals.map(n => n.text),    ...((cu.newNongoals    as string[] | undefined) ?? [])],
-                  questions:       [...state.charter.questions.map(q => q.text),   ...((cu.newQuestions   as string[] | undefined) ?? [])],
-                  branchMode:      cu.branchMode ?? state.branchMode,
-                  branchName:      state.branchName ?? (cu.branchName as string | undefined),
-                  taskGraph:       (data as { taskGraph?: TaskGraphEntry[] }).taskGraph ?? state.taskGraph,
-                  planningHistory: state.messages
-                    .filter(m => m.from === 'pm' || m.from === 'you')
-                    .map(m => ({ from: m.from as 'pm' | 'you', text: m.text })),
-                  ...(deploymentInfo ? { deploymentInfo } : {}),
-                };
-                const team = [...state.team, ...((data.teamAdd as string[] | undefined)?.filter(t => !state.team.includes(t)) ?? [])];
-                onExecutable(true, goal, charter, team);
-              } else if (data.disableExecute) {
-                onExecutable(false, undefined, undefined, undefined,
-                  (data.disableReason as string | undefined) || 'PM needs more information before proceeding');
+              if (data.type === 'chunk' && typeof data.text === 'string') {
+                // First chunk: swap typing/research indicator for streaming text bubble.
+                setState(prev => ({
+                  ...prev,
+                  typing: null,
+                  researching: null,
+                  streamingPmText: (prev.streamingPmText ?? '') + data.text,
+                }));
+              } else if (data.type === 'research') {
+                // Scout investigating. 'started' shows the indicator and discards any
+                // intermediate "let me check…" streamed text; 'done' falls back to the
+                // typing indicator while the PM composes its real, research-informed reply.
+                setState(prev =>
+                  data.phase === 'started'
+                    ? {
+                        ...prev,
+                        typing: null,
+                        streamingPmText: null,
+                        researching: {
+                          question: String(data.question ?? 'the codebase'),
+                          agent: typeof data.agent === 'string' ? data.agent : undefined,
+                        },
+                      }
+                    : { ...prev, researching: null, typing: 'pm' },
+                );
+              } else if (data.type === 'result') {
+                type PmResp = Parameters<typeof applyPmResponse>[1];
+                type Cu = NonNullable<PmResp['charterUpdates']>;
+                const cu = (data.charterUpdates ?? {}) as Cu;
+                const hs = data.hireSuggestion as
+                  | { agentId?: unknown; reason?: unknown }
+                  | undefined;
+                const hireSuggestion =
+                  hs && typeof hs.agentId === 'string'
+                    ? {
+                        agentId: hs.agentId,
+                        reason: typeof hs.reason === 'string' ? hs.reason : '',
+                      }
+                    : null;
+                setState(prev => {
+                  const next = applyPmResponse(prev, data as PmResp);
+                  const withClear = { ...next, streamingPmText: null };
+                  const withExtras = data.deploymentInfo
+                    ? { ...withClear, deploymentInfo: String(data.deploymentInfo) }
+                    : withClear;
+                  const withCompact = data.suggestCompact
+                    ? { ...withExtras, suggestCompact: true }
+                    : withExtras;
+                  // Keep an existing suggestion until the user acts, but a fresh one replaces it.
+                  return hireSuggestion ? { ...withCompact, hireSuggestion } : withCompact;
+                });
+                if (data.enableExecute) {
+                  const goal = cu.goal ?? state.charter.goal ?? trimmed;
+                  const deploymentInfo =
+                    (data.deploymentInfo as string | undefined) ?? state.deploymentInfo;
+                  const charter: RunCharter = {
+                    constraints: [
+                      ...state.charter.constraints.map(c => c.text),
+                      ...((cu.newConstraints as string[] | undefined) ?? []),
+                    ],
+                    nongoals: [
+                      ...state.charter.nongoals.map(n => n.text),
+                      ...((cu.newNongoals as string[] | undefined) ?? []),
+                    ],
+                    questions: [
+                      ...state.charter.questions.map(q => q.text),
+                      ...((cu.newQuestions as string[] | undefined) ?? []),
+                    ],
+                    branchMode: cu.branchMode ?? state.branchMode,
+                    branchName: state.branchName ?? (cu.branchName as string | undefined),
+                    taskGraph:
+                      (data as { taskGraph?: TaskGraphEntry[] }).taskGraph ?? state.taskGraph,
+                    planningHistory: state.messages
+                      .filter(m => m.from === 'pm' || m.from === 'you')
+                      .map(m => ({ from: m.from as 'pm' | 'you', text: m.text })),
+                    ...(deploymentInfo ? { deploymentInfo } : {}),
+                  };
+                  const team = [
+                    ...state.team,
+                    ...((data.teamAdd as string[] | undefined)?.filter(
+                      t => !state.team.includes(t),
+                    ) ?? []),
+                  ];
+                  onExecutable(true, goal, charter, team);
+                } else if (data.disableExecute) {
+                  onExecutable(
+                    false,
+                    undefined,
+                    undefined,
+                    undefined,
+                    (data.disableReason as string | undefined) ||
+                      'PM needs more information before proceeding',
+                  );
+                }
+              } else if (data.type === 'error') {
+                setState(prev => ({
+                  ...prev,
+                  typing: null,
+                  streamingPmText: null,
+                  messages: [
+                    ...prev.messages,
+                    {
+                      from: 'system' as const,
+                      text: `PM error: ${String(data.error ?? 'unknown')}`,
+                    },
+                  ],
+                }));
               }
-            } else if (data.type === 'error') {
-              setState(prev => ({
-                ...prev,
-                typing:          null,
-                streamingPmText: null,
-                messages:        [...prev.messages, { from: 'system' as const, text: `PM error: ${String(data.error ?? 'unknown')}` }],
-              }));
             }
           }
-        }
-      })
-      .catch((err: Error) => {
-        const isTimeout = err.name === 'TimeoutError' || err.name === 'AbortError';
-        const notice = isTimeout
-          ? 'PM went quiet (no progress for over 2 minutes). Try again or check the server logs.'
-          : err.message.startsWith('server ') || err.message === 'Failed to fetch'
-            ? 'PM server not reachable. Run `swarm dev` in the core/ directory, then resend.'
-            : `PM error: ${err.message}`;
-        setState(prev => ({
-          ...prev,
-          typing:          null,
-          streamingPmText: null,
-          researching:     null,
-          messages:        [...prev.messages, { from: 'system' as const, text: notice }],
-        }));
-      })
-      .finally(() => clearTimeout(idleTimer));
-  }, [state.messages, state.charter, state.team, state.branchMode, state.taskGraph, applyPmResponse, onExecutable]);
+        })
+        .catch((err: Error) => {
+          const isTimeout = err.name === 'TimeoutError' || err.name === 'AbortError';
+          const notice = isTimeout
+            ? 'PM went quiet (no progress for over 2 minutes). Try again or check the server logs.'
+            : err.message.startsWith('server ') || err.message === 'Failed to fetch'
+              ? 'PM server not reachable. Run `swarm dev` in the core/ directory, then resend.'
+              : `PM error: ${err.message}`;
+          setState(prev => ({
+            ...prev,
+            typing: null,
+            streamingPmText: null,
+            researching: null,
+            messages: [...prev.messages, { from: 'system' as const, text: notice }],
+          }));
+        })
+        .finally(() => clearTimeout(idleTimer));
+    },
+    [
+      state.messages,
+      state.charter,
+      state.team,
+      state.branchMode,
+      state.taskGraph,
+      applyPmResponse,
+      onExecutable,
+    ],
+  );
 
   // ─── compact ──────────────────────────────────────────────────────────────
 
@@ -517,30 +637,31 @@ export function usePlanningSession(
     setState(prev => ({ ...prev, typing: 'pm', suggestCompact: false }));
 
     const history = state.messages.filter(m => m.from !== 'system');
-    const request = 'Please provide a concise summary of our planning discussion in one short paragraph — covering the goal, key constraints, non-goals, and any open questions. Keep it under 100 words. This will replace our conversation history to save context.';
+    const request =
+      'Please provide a concise summary of our planning discussion in one short paragraph — covering the goal, key constraints, non-goals, and any open questions. Keep it under 100 words. This will replace our conversation history to save context.';
 
     fetch('/pm/message', {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        text:    request,
+      body: JSON.stringify({
+        text: request,
         history,
         charter: {
-          goal:        state.charter.goal || undefined,
+          goal: state.charter.goal || undefined,
           constraints: state.charter.constraints.map(c => c.text),
-          nongoals:    state.charter.nongoals.map(n => n.text),
-          questions:   state.charter.questions.map(q => q.text),
+          nongoals: state.charter.nongoals.map(n => n.text),
+          questions: state.charter.questions.map(q => q.text),
         },
         team: state.team,
       }),
-      signal:  AbortSignal.timeout(120_000),
+      signal: AbortSignal.timeout(120_000),
     })
-      .then(async (response) => {
+      .then(async response => {
         if (!response.ok || !response.body) throw new Error(`${response.status}`);
-        const reader  = response.body.getReader();
+        const reader = response.body.getReader();
         const decoder = new TextDecoder();
-        let   buffer  = '';
-        let   reply   = '';
+        let buffer = '';
+        let reply = '';
 
         while (true) {
           const { done, value } = await reader.read();
@@ -557,11 +678,14 @@ export function usePlanningSession(
 
         setState(prev => ({
           ...prev,
-          typing:          null,
+          typing: null,
           streamingPmText: null,
           messages: [
             { from: 'pm' as const, text: reply },
-            { from: 'system' as const, text: 'Conversation compacted — earlier messages cleared to save context.' },
+            {
+              from: 'system' as const,
+              text: 'Conversation compacted — earlier messages cleared to save context.',
+            },
           ],
         }));
       })
@@ -575,36 +699,41 @@ export function usePlanningSession(
 
   const started = useRef(loadPersisted(project) !== null);
 
-  const init = useCallback((projectName?: string, projectStack?: string, switchedPath?: string) => {
-    if (started.current) return;
-    started.current = true;
+  const init = useCallback(
+    (projectName?: string, projectStack?: string, switchedPath?: string) => {
+      if (started.current) return;
+      started.current = true;
 
-    let greeting: string;
-    if (switchedPath) {
-      const name = projectName ?? switchedPath.split('/').filter(Boolean).pop() ?? 'this project';
-      const parts = [`Switched to **${name}** — \`${switchedPath}\``];
-      if (projectStack) parts.push(projectStack);
-      parts.push("What are we building?");
-      greeting = parts.join('\n\n');
-    } else if (projectName) {
-      greeting = projectStack
-        ? `I can see this is **${projectName}** (${projectStack}). What are we building this session?`
-        : `I can see this is **${projectName}**. What are we building this session?`;
-    } else {
-      greeting = "Before I staff anything — what are we building?";
-    }
+      let greeting: string;
+      if (switchedPath) {
+        const name = projectName ?? switchedPath.split('/').filter(Boolean).pop() ?? 'this project';
+        const parts = [`Switched to **${name}** — \`${switchedPath}\``];
+        if (projectStack) parts.push(projectStack);
+        parts.push('What are we building?');
+        greeting = parts.join('\n\n');
+      } else if (projectName) {
+        greeting = projectStack
+          ? `I can see this is **${projectName}** (${projectStack}). What are we building this session?`
+          : `I can see this is **${projectName}**. What are we building this session?`;
+      } else {
+        greeting = 'Before I staff anything — what are we building?';
+      }
 
-    schedule([
-      { delay: 400, fn: p => ({ ...p, typing: 'pm' }) },
-      { delay: 900, fn: p => ({
-          ...p,
-          typing:   null,
-          phase:    'goal' as Phase,
-          messages: [{ from: 'pm', text: greeting, time: now() }],
-        }),
-      },
-    ]);
-  }, [schedule]);
+      schedule([
+        { delay: 400, fn: p => ({ ...p, typing: 'pm' }) },
+        {
+          delay: 900,
+          fn: p => ({
+            ...p,
+            typing: null,
+            phase: 'goal' as Phase,
+            messages: [{ from: 'pm', text: greeting, time: now() }],
+          }),
+        },
+      ]);
+    },
+    [schedule],
+  );
 
   // ─── newSession ───────────────────────────────────────────────────────────
   // Clears persisted state and resets to blank. Exposed so the UI can offer
@@ -619,17 +748,17 @@ export function usePlanningSession(
     started.current = false;
     setSessionKey(k => k + 1);
     setState({
-      messages:         [],
-      charter:          { goal: '', constraints: [], nongoals: [], questions: [] },
-      team:             [],
-      typing:           null,
-      executable:       false,
+      messages: [],
+      charter: { goal: '', constraints: [], nongoals: [], questions: [] },
+      team: [],
+      typing: null,
+      executable: false,
       executableReason: DEFAULT_REASON,
-      phase:            'start',
-      suggestCompact:   false,
-      streamingPmText:  null,
-      researching:      null,
-      hireSuggestion:   null,
+      phase: 'start',
+      suggestCompact: false,
+      streamingPmText: null,
+      researching: null,
+      hireSuggestion: null,
     });
     onExecutable(false);
   }, [onExecutable]);

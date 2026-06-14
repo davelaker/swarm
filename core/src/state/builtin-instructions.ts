@@ -1,14 +1,14 @@
 // Per-project custom instruction overlays for built-in agents.
 // Stored in .swarm/builtin-instructions.json alongside roster.json.
 
-import * as fs   from 'node:fs';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getRoot } from './repo.js';
 
 export interface BuiltinInstructions {
-  pm:       string;
-  coder:    string;
-  tester:   string;
+  pm: string;
+  coder: string;
+  tester: string;
   reviewer: string;
   security: string;
 }

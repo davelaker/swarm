@@ -1,12 +1,20 @@
 import { execSync } from 'node:child_process';
 import path from 'node:path';
-import fs   from 'node:fs';
-import { swarmDir, stateFile, initWorkspace, addTask, getState, appendLog, getRoot } from '../state/repo.js';
-import { classify }  from '../agents/classifier.js';
-import { runLoop }   from '../loop.js';
+import fs from 'node:fs';
+import {
+  swarmDir,
+  stateFile,
+  initWorkspace,
+  addTask,
+  getState,
+  appendLog,
+  getRoot,
+} from '../state/repo.js';
+import { classify } from '../agents/classifier.js';
+import { runLoop } from '../loop.js';
 import { resetControl } from '../loop-control.js';
 import { getConfig } from '../config.js';
-import { bus }       from '../state/events.js';
+import { bus } from '../state/events.js';
 import type { Task, Tier, RunCharter, TaskGraphEntry } from '../state/types.js';
 
 function pmProgress(step: string): void {
@@ -42,16 +50,16 @@ export function checkGitClean(cwd: string): void {
   const dirty = status
     .split('\n')
     .filter(l => l.trim())
-    .filter(l => !l.startsWith('??'))           // ignore untracked
-    .filter(l => !SWARM_OWNED.has(l.slice(3)))  // ignore swarm-managed files
+    .filter(l => !l.startsWith('??')) // ignore untracked
+    .filter(l => !SWARM_OWNED.has(l.slice(3))) // ignore swarm-managed files
     .join('\n')
     .trim();
 
   if (dirty) {
     const preview = dirty.split('\n').slice(0, 6).join('\n');
-    const more    = dirty.split('\n').length > 6 ? '\n  …' : '';
+    const more = dirty.split('\n').length > 6 ? '\n  …' : '';
     throw new Error(
-      `Uncommitted changes detected — commit or stash before running agents:\n\n${preview}${more}\n\nTo bypass: SWARM_SKIP_GIT_CHECK=1`
+      `Uncommitted changes detected — commit or stash before running agents:\n\n${preview}${more}\n\nTo bypass: SWARM_SKIP_GIT_CHECK=1`,
     );
   }
 }
@@ -60,50 +68,86 @@ export function checkGitClean(cwd: string): void {
 
 function buildFromPmGraph(entries: TaskGraphEntry[], cfg: ReturnType<typeof getConfig>): Task[] {
   return entries.map(e => ({
-    id:         e.id,
-    title:      e.title,
-    status:     'pending' as const,
-    owner:      cfg.owner,
-    assignee:   e.assignee,
+    id: e.id,
+    title: e.title,
+    status: 'pending' as const,
+    owner: cfg.owner,
+    assignee: e.assignee,
     depends_on: e.depends_on,
-    artifacts:  [],
+    artifacts: [],
     result_ref: null,
-    attempts:   0,
+    attempts: 0,
     ...(e.model ? { model: e.model } : {}),
   }));
 }
 
-function buildTaskGraph(goal: string, tier: Tier, sensitive: boolean, securityAudit: boolean, cfg: ReturnType<typeof getConfig>): Task[] {
+function buildTaskGraph(
+  goal: string,
+  tier: Tier,
+  sensitive: boolean,
+  securityAudit: boolean,
+  cfg: ReturnType<typeof getConfig>,
+): Task[] {
   // Security-first: the goal IS a security audit — security leads, coder applies findings
   if (securityAudit) {
     const auditTask: Task = {
-      id: 't1', title: `Security audit: ${goal}`, status: 'pending',
-      owner: cfg.owner, assignee: 'security',
-      depends_on: [], artifacts: [], result_ref: null, attempts: 0,
+      id: 't1',
+      title: `Security audit: ${goal}`,
+      status: 'pending',
+      owner: cfg.owner,
+      assignee: 'security',
+      depends_on: [],
+      artifacts: [],
+      result_ref: null,
+      attempts: 0,
     };
     const fixCoder: Task = {
-      id: 't2', title: 'Apply fixes for all critical/high findings from security audit (.swarm/t1.md)', status: 'pending',
-      owner: cfg.owner, assignee: 'coder',
-      depends_on: ['t1'], artifacts: [], result_ref: null, attempts: 0,
+      id: 't2',
+      title: 'Apply fixes for all critical/high findings from security audit (.swarm/t1.md)',
+      status: 'pending',
+      owner: cfg.owner,
+      assignee: 'coder',
+      depends_on: ['t1'],
+      artifacts: [],
+      result_ref: null,
+      attempts: 0,
     };
     const tester: Task = {
-      id: 't3', title: 'Run test suite — verify no regressions', status: 'pending',
-      owner: cfg.owner, assignee: 'tester',
-      depends_on: ['t2'], artifacts: [], result_ref: null, attempts: 0,
+      id: 't3',
+      title: 'Run test suite — verify no regressions',
+      status: 'pending',
+      owner: cfg.owner,
+      assignee: 'tester',
+      depends_on: ['t2'],
+      artifacts: [],
+      result_ref: null,
+      attempts: 0,
     };
     const reviewer: Task = {
-      id: 't4', title: 'Code review — correctness, robustness, design', status: 'pending',
-      owner: cfg.owner, assignee: 'reviewer',
-      depends_on: ['t2'], artifacts: [], result_ref: null, attempts: 0,
+      id: 't4',
+      title: 'Code review — correctness, robustness, design',
+      status: 'pending',
+      owner: cfg.owner,
+      assignee: 'reviewer',
+      depends_on: ['t2'],
+      artifacts: [],
+      result_ref: null,
+      attempts: 0,
     };
     return [auditTask, fixCoder, tester, reviewer];
   }
 
   // Standard coder-first graph
   const base: Task = {
-    id: 't1', title: goal, status: 'pending',
-    owner: cfg.owner, assignee: 'coder',
-    depends_on: [], artifacts: [], result_ref: null, attempts: 0,
+    id: 't1',
+    title: goal,
+    status: 'pending',
+    owner: cfg.owner,
+    assignee: 'coder',
+    depends_on: [],
+    artifacts: [],
+    result_ref: null,
+    attempts: 0,
   };
 
   if (tier === 'bugfix' && !sensitive) {
@@ -111,19 +155,37 @@ function buildTaskGraph(goal: string, tier: Tier, sensitive: boolean, securityAu
   }
 
   const tester: Task = {
-    id: 't2', title: 'Run test suite — verify no regressions', status: 'pending',
-    owner: cfg.owner, assignee: 'tester',
-    depends_on: ['t1'], artifacts: [], result_ref: null, attempts: 0,
+    id: 't2',
+    title: 'Run test suite — verify no regressions',
+    status: 'pending',
+    owner: cfg.owner,
+    assignee: 'tester',
+    depends_on: ['t1'],
+    artifacts: [],
+    result_ref: null,
+    attempts: 0,
   };
   const security: Task = {
-    id: 't3', title: 'Security audit — review changed files for vulnerabilities', status: 'pending',
-    owner: cfg.owner, assignee: 'security',
-    depends_on: ['t1'], artifacts: [], result_ref: null, attempts: 0,
+    id: 't3',
+    title: 'Security audit — review changed files for vulnerabilities',
+    status: 'pending',
+    owner: cfg.owner,
+    assignee: 'security',
+    depends_on: ['t1'],
+    artifacts: [],
+    result_ref: null,
+    attempts: 0,
   };
   const reviewer: Task = {
-    id: 't4', title: 'Code review — correctness, robustness, design', status: 'pending',
-    owner: cfg.owner, assignee: 'reviewer',
-    depends_on: ['t1'], artifacts: [], result_ref: null, attempts: 0,
+    id: 't4',
+    title: 'Code review — correctness, robustness, design',
+    status: 'pending',
+    owner: cfg.owner,
+    assignee: 'reviewer',
+    depends_on: ['t1'],
+    artifacts: [],
+    result_ref: null,
+    attempts: 0,
   };
 
   return [base, tester, security, reviewer];
@@ -132,9 +194,9 @@ function buildTaskGraph(goal: string, tier: Tier, sensitive: boolean, securityAu
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 export async function runNew(
-  goal:        string,
-  charter?:    RunCharter,
-  _team?:      string[],   // informational — graph is built from tier, not PM team list
+  goal: string,
+  charter?: RunCharter,
+  _team?: string[], // informational — graph is built from tier, not PM team list
   branchName?: string,
 ): Promise<void> {
   const cfg = getConfig();
@@ -160,11 +222,11 @@ export async function runNew(
   const earlyState = {
     ...getState(),
     goal,
-    tier:       'feature' as Tier,   // provisional — updated after classify
-    charter:    charter ?? { constraints: [], nongoals: [], questions: [] },
+    tier: 'feature' as Tier, // provisional — updated after classify
+    charter: charter ?? { constraints: [], nongoals: [], questions: [] },
     branchName: branchName,
-    tasks:      [],
-    log:        [],
+    tasks: [],
+    log: [],
   };
   const tmpEarly = stateFile() + '.tmp';
   fs.writeFileSync(tmpEarly, JSON.stringify(earlyState, null, 2), 'utf8');
@@ -174,7 +236,9 @@ export async function runNew(
   pmProgress('classifying goal…');
   console.log('  ▸ classifying goal…');
   const cls = await classify(goal);
-  console.log(`  ✓ tier: ${cls.tier.toUpperCase()}${cls.sensitive ? ' + sensitive path detected' : ''}`);
+  console.log(
+    `  ✓ tier: ${cls.tier.toUpperCase()}${cls.sensitive ? ' + sensitive path detected' : ''}`,
+  );
   console.log(`    ${cls.reasoning}\n`);
   pmProgress(`tier: ${cls.tier}${cls.sensitive ? ' · sensitive' : ''} — building task graph…`);
 
@@ -183,7 +247,7 @@ export async function runNew(
 
   // ── Update state with real tier ────────────────────────────────────────────
   const freshState = {
-    ...getState(),   // earlyState already written — tasks=[], log=[]
+    ...getState(), // earlyState already written — tasks=[], log=[]
     tier: cls.tier,
   };
   const tmp = stateFile() + '.tmp';
@@ -198,7 +262,9 @@ export async function runNew(
   for (const t of tasks) addTask(t);
   // Don't echo graph or constraints to the PM chat — the task graph panel shows
   // the structure already, and the user wrote the constraints in Planning.
-  pmProgress(`graph ready · ${tasks.length} task${tasks.length === 1 ? '' : 's'} · starting agents…`);
+  pmProgress(
+    `graph ready · ${tasks.length} task${tasks.length === 1 ? '' : 's'} · starting agents…`,
+  );
 
   console.log(`  project: ${getState().project}`);
   console.log(`  goal:    ${goal}`);
@@ -219,7 +285,9 @@ export async function runNew(
   }
 
   const finalState = getState();
-  const findings   = finalState.tasks.filter(t => t.result_ref).map(t => `  · ${t.id}: .swarm/${t.result_ref}`);
+  const findings = finalState.tasks
+    .filter(t => t.result_ref)
+    .map(t => `  · ${t.id}: .swarm/${t.result_ref}`);
   if (findings.length) {
     console.log('\n  Findings:');
     findings.forEach(f => console.log(f));

@@ -3,28 +3,28 @@
 // See DESIGN.md §5.3 for write-scope and tool allowlist.
 
 import Anthropic from '@anthropic-ai/sdk';
-import fs        from 'node:fs';
-import fsp       from 'node:fs/promises';
-import path      from 'node:path';
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
+import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { getConfig }             from '../config.js';
-import { getRoot }               from '../state/repo.js';
-import { CODER_SYSTEM }          from './prompts.js';
+import { getConfig } from '../config.js';
+import { getRoot } from '../state/repo.js';
+import { CODER_SYSTEM } from './prompts.js';
 import { buildCachedSystem, logCacheStats, CACHE_BETA } from './cache.js';
-import { requestPermission }     from '../drivers/permission-broker.js';
+import { requestPermission } from '../drivers/permission-broker.js';
 import type { Task, SwarmState } from '../state/types.js';
 
 // ─── Cost metering ────────────────────────────────────────────────────────────
 // Pricing per million tokens. Update when model pricing changes.
 const PRICING: Record<string, { input: number; output: number }> = {
-  'claude-opus-4-8':             { input: 15,  output: 75  },
-  'claude-sonnet-4-6':           { input: 3,   output: 15  },
-  'claude-haiku-4-5-20251001':   { input: 0.8, output: 4   },
+  'claude-opus-4-8': { input: 15, output: 75 },
+  'claude-sonnet-4-6': { input: 3, output: 15 },
+  'claude-haiku-4-5-20251001': { input: 0.8, output: 4 },
   // Legacy model IDs kept for compatibility
-  'claude-opus-4-5-20251101':    { input: 15,  output: 75  },
-  'claude-sonnet-4-5-20251101':  { input: 3,   output: 15  },
+  'claude-opus-4-5-20251101': { input: 15, output: 75 },
+  'claude-sonnet-4-5-20251101': { input: 3, output: 15 },
   // Fallback for any unknown model
-  default:                        { input: 3,   output: 15  },
+  default: { input: 3, output: 15 },
 };
 
 export function tokensToDollars(model: string, inputTokens: number, outputTokens: number): number {
@@ -36,7 +36,7 @@ export function tokensToDollars(model: string, inputTokens: number, outputTokens
 
 const TOOLS: Anthropic.Tool[] = [
   {
-    name:        'read_file',
+    name: 'read_file',
     description: 'Read the full contents of a file in the project.',
     input_schema: {
       type: 'object',
@@ -47,38 +47,50 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
-    name:        'write_file',
+    name: 'write_file',
     description: 'Write (or overwrite) a file in the project.',
     input_schema: {
       type: 'object',
       properties: {
-        path:    { type: 'string', description: 'Path relative to the project root.' },
+        path: { type: 'string', description: 'Path relative to the project root.' },
         content: { type: 'string', description: 'Full content to write.' },
       },
       required: ['path', 'content'],
     },
   },
   {
-    name:        'list_files',
+    name: 'list_files',
     description: 'List files in a directory (non-recursive by default).',
     input_schema: {
       type: 'object',
       properties: {
-        dir:       { type: 'string', description: 'Directory relative to project root. Defaults to ".".' },
+        dir: {
+          type: 'string',
+          description: 'Directory relative to project root. Defaults to ".".',
+        },
         recursive: { type: 'boolean', description: 'List recursively. Defaults to false.' },
       },
     },
   },
   {
-    name:        'done',
-    description: 'Signal that all changes are complete. Call this once — and only once — when finished.',
+    name: 'done',
+    description:
+      'Signal that all changes are complete. Call this once — and only once — when finished.',
     input_schema: {
       type: 'object',
       properties: {
-        summary:       { type: 'string', description: 'One-line summary of what was implemented (shown as the card headline).' },
-        detail:        { type: 'string', description: 'A substantive paragraph (4-6 sentences) covering: what you changed and in which files/functions; why you chose this approach; any non-obvious design decisions or constraints; what the reviewer should pay closest attention to. Do not restate the task title.' },
+        summary: {
+          type: 'string',
+          description: 'One-line summary of what was implemented (shown as the card headline).',
+        },
+        detail: {
+          type: 'string',
+          description:
+            'A substantive paragraph (4-6 sentences) covering: what you changed and in which files/functions; why you chose this approach; any non-obvious design decisions or constraints; what the reviewer should pay closest attention to. Do not restate the task title.',
+        },
         files_changed: {
-          type: 'array', items: { type: 'string' },
+          type: 'array',
+          items: { type: 'string' },
           description: 'Relative paths of files that were created or modified.',
         },
       },
@@ -100,11 +112,16 @@ function safeJoin(rel: string): string {
   return abs;
 }
 
-async function executeTool(name: string, input: Record<string, unknown>, task: Task): Promise<string> {
+async function executeTool(
+  name: string,
+  input: Record<string, unknown>,
+  task: Task,
+): Promise<string> {
   // Gate write operations — surfaced to the user before executing.
   if (name === 'write_file') {
     const decision = await requestPermission(task.assignee, name, input);
-    if (decision === 'deny') return `Permission denied: user rejected writing ${input.path ?? 'file'}.`;
+    if (decision === 'deny')
+      return `Permission denied: user rejected writing ${input.path ?? 'file'}.`;
   }
 
   switch (name) {
@@ -120,13 +137,15 @@ async function executeTool(name: string, input: Record<string, unknown>, task: T
       return `Written: ${input.path}`;
     }
     case 'list_files': {
-      const dir     = safeJoin(String(input.dir ?? '.'));
+      const dir = safeJoin(String(input.dir ?? '.'));
       const recurse = Boolean(input.recursive);
       if (!fs.existsSync(dir)) return `Error: directory not found: ${input.dir}`;
       if (recurse) {
         const entries = await fsp.readdir(dir, { recursive: true });
         return (entries as string[])
-          .filter(e => !e.includes('node_modules') && !e.includes('.git') && !e.startsWith('.swarm'))
+          .filter(
+            e => !e.includes('node_modules') && !e.includes('.git') && !e.startsWith('.swarm'),
+          )
           .join('\n');
       }
       const entries = await fsp.readdir(dir, { withFileTypes: true });
@@ -142,30 +161,32 @@ async function executeTool(name: string, input: Record<string, unknown>, task: T
 // ─── Coder result ─────────────────────────────────────────────────────────────
 
 export interface CoderResult {
-  summary:       string;
-  detail:        string;
-  filesChanged:  string[];
-  inputTokens:   number;
-  outputTokens:  number;
-  costUsd:       number;
-  model:         string;
+  summary: string;
+  detail: string;
+  filesChanged: string[];
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  model: string;
 }
 
 // ─── Main agent loop ──────────────────────────────────────────────────────────
 
-export async function runCoder(task: Task, state: SwarmState, verbose = true): Promise<CoderResult> {
-  const cfg    = getConfig();
+export async function runCoder(
+  task: Task,
+  state: SwarmState,
+  verbose = true,
+): Promise<CoderResult> {
+  const cfg = getConfig();
   const client = new Anthropic({ apiKey: cfg.anthropicApiKey });
-  const model  = cfg.coderModel;
+  const model = cfg.coderModel;
 
-  const charter    = state.charter;
+  const charter = state.charter;
 
   // Security-audit-first flow: if a security task ran before this coder task,
   // inject the audit findings so the coder knows exactly what to fix.
-  const priorSecTask = state.tasks.find(t =>
-    t.assignee === 'security' &&
-    t.status === 'done' &&
-    task.depends_on.includes(t.id)
+  const priorSecTask = state.tasks.find(
+    t => t.assignee === 'security' && t.status === 'done' && task.depends_on.includes(t.id),
   );
   const auditCtx = priorSecTask?.result_ref
     ? `Security audit findings to fix: ${priorSecTask.result_ref}\nRead the findings file first, then address all CRITICAL and HIGH severity issues.`
@@ -175,26 +196,26 @@ export async function runCoder(task: Task, state: SwarmState, verbose = true): P
     `Task: ${task.title}`,
     state.goal ? `Goal: ${state.goal}` : '',
     ...(charter?.constraints?.length ? [`Constraints: ${charter.constraints.join(' | ')}`] : []),
-    ...(charter?.nongoals?.length    ? [`Non-goals: ${charter.nongoals.join(' | ')}`] : []),
-    ...(charter?.questions?.length   ? [`Clarifications: ${charter.questions.join(' | ')}`] : []),
+    ...(charter?.nongoals?.length ? [`Non-goals: ${charter.nongoals.join(' | ')}`] : []),
+    ...(charter?.questions?.length ? [`Clarifications: ${charter.questions.join(' | ')}`] : []),
     auditCtx,
-  ].filter(Boolean).join('\n');
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   // System blocks: cached system prompt + PROJECT.md (8 KB cap)
   const systemBlocks = buildCachedSystem(CODER_SYSTEM, 8192);
 
-  const messages: Anthropic.MessageParam[] = [
-    { role: 'user', content: userPrompt },
-  ];
+  const messages: Anthropic.MessageParam[] = [{ role: 'user', content: userPrompt }];
 
-  let totalInput  = 0;
+  let totalInput = 0;
   let totalOutput = 0;
-  let totalCost   = 0;   // tracks cache-adjusted cost inline
-  let summary     = '';
-  let detail      = '';
+  let totalCost = 0; // tracks cache-adjusted cost inline
+  let summary = '';
+  let detail = '';
   let filesChanged: string[] = [];
-  let iterations  = 0;
-  const MAX_ITER  = 20;
+  let iterations = 0;
+  const MAX_ITER = 20;
 
   if (verbose) {
     console.log(`\n  [coder] dispatched: "${task.title}"`);
@@ -211,15 +232,15 @@ export async function runCoder(task: Task, state: SwarmState, verbose = true): P
     const response = await client.beta.messages.create({
       model,
       max_tokens: 8192,
-      system:     systemBlocks,
-      tools:      TOOLS as Parameters<typeof client.beta.messages.create>[0]['tools'],
-      messages:   messages as Parameters<typeof client.beta.messages.create>[0]['messages'],
-      betas:      [CACHE_BETA],
+      system: systemBlocks,
+      tools: TOOLS as Parameters<typeof client.beta.messages.create>[0]['tools'],
+      messages: messages as Parameters<typeof client.beta.messages.create>[0]['messages'],
+      betas: [CACHE_BETA],
     });
 
-    totalInput  += response.usage.input_tokens;
+    totalInput += response.usage.input_tokens;
     totalOutput += response.usage.output_tokens;
-    totalCost   += logCacheStats('coder', response.usage, PRICING[model]?.input ?? 3);
+    totalCost += logCacheStats('coder', response.usage, PRICING[model]?.input ?? 3);
 
     // Print any text the model produced
     if (verbose) {
@@ -247,11 +268,11 @@ export async function runCoder(task: Task, state: SwarmState, verbose = true): P
         const result = await executeTool(block.name, block.input as Record<string, unknown>, task);
 
         if (block.name === 'done') {
-          const inp  = block.input as { summary: string; detail?: string; files_changed: string[] };
-          summary      = inp.summary;
-          detail       = inp.detail ?? '';
+          const inp = block.input as { summary: string; detail?: string; files_changed: string[] };
+          summary = inp.summary;
+          detail = inp.detail ?? '';
           filesChanged = inp.files_changed ?? [];
-          calledDone   = true;
+          calledDone = true;
         }
 
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
@@ -276,14 +297,23 @@ export async function runCoder(task: Task, state: SwarmState, verbose = true): P
   if (filesChanged.length === 0) {
     try {
       const raw = execFileSync('git', ['status', '--porcelain'], {
-        cwd: projectRoot(), encoding: 'utf8',
+        cwd: projectRoot(),
+        encoding: 'utf8',
       });
-      const detected = raw.split('\n')
+      const detected = raw
+        .split('\n')
         .filter(l => l.trim() && !l.startsWith('!!'))
-        .map(l => l.slice(3).trim().replace(/ -> .+$/, ''))
+        .map(l =>
+          l
+            .slice(3)
+            .trim()
+            .replace(/ -> .+$/, ''),
+        )
         .filter(f => f && !f.endsWith('/'));
       if (detected.length) filesChanged = detected;
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    }
   }
 
   // Second pass: committed changes not yet merged to the base branch.
@@ -296,30 +326,60 @@ export async function runCoder(task: Task, state: SwarmState, verbose = true): P
     for (const base of bases) {
       try {
         const out = execFileSync(
-          'git', ['log', '--name-only', '--pretty=format:', `${base}..HEAD`],
+          'git',
+          ['log', '--name-only', '--pretty=format:', `${base}..HEAD`],
           { cwd: projectRoot(), encoding: 'utf8' },
         );
-        const detected = [...new Set(out.split('\n').map(l => l.trim()).filter(Boolean))];
-        if (detected.length) { filesChanged = detected; break; }
-      } catch { /* try next base */ }
+        const detected = [
+          ...new Set(
+            out
+              .split('\n')
+              .map(l => l.trim())
+              .filter(Boolean),
+          ),
+        ];
+        if (detected.length) {
+          filesChanged = detected;
+          break;
+        }
+      } catch {
+        /* try next base */
+      }
     }
   }
   // Absolute last resort: single commit on a branch with no known base.
   if (filesChanged.length === 0) {
     try {
-      const out = execFileSync('git', ['diff', '--name-only', 'HEAD~1'],
-        { cwd: projectRoot(), encoding: 'utf8' });
-      const detected = out.split('\n').map(l => l.trim()).filter(Boolean);
+      const out = execFileSync('git', ['diff', '--name-only', 'HEAD~1'], {
+        cwd: projectRoot(),
+        encoding: 'utf8',
+      });
+      const detected = out
+        .split('\n')
+        .map(l => l.trim())
+        .filter(Boolean);
       if (detected.length) filesChanged = detected;
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    }
   }
 
   // totalCost already accumulates cache costs from each iteration
   const costUsd = tokensToDollars(model, totalInput, totalOutput) + totalCost;
   if (verbose) {
     console.log(`\n  [coder] done — ${summary}`);
-    console.log(`  [coder] tokens: ${totalInput} in / ${totalOutput} out  cost: $${costUsd.toFixed(4)}\n`);
+    console.log(
+      `  [coder] tokens: ${totalInput} in / ${totalOutput} out  cost: $${costUsd.toFixed(4)}\n`,
+    );
   }
 
-  return { summary, detail, filesChanged, inputTokens: totalInput, outputTokens: totalOutput, costUsd, model };
+  return {
+    summary,
+    detail,
+    filesChanged,
+    inputTokens: totalInput,
+    outputTokens: totalOutput,
+    costUsd,
+    model,
+  };
 }

@@ -18,7 +18,7 @@ export const CACHE_BETA = 'prompt-caching-2024-07-31' as const;
 // Build the system block array: [systemPrompt, optionalProjectCtx].
 // Both blocks are marked ephemeral so they can be cached.
 export function buildCachedSystem(
-  systemPrompt:   string,
+  systemPrompt: string,
   projectCtxMax = 8192,
 ): BetaTextBlockParam[] {
   const blocks: BetaTextBlockParam[] = [
@@ -28,8 +28,8 @@ export function buildCachedSystem(
   const ctx = loadProjectContextBounded(projectCtxMax);
   if (ctx) {
     blocks.push({
-      type:          'text',
-      text:          `Project context (CLAUDE.md):\n${ctx}`,
+      type: 'text',
+      text: `Project context (CLAUDE.md):\n${ctx}`,
       cache_control: { type: 'ephemeral' },
     } as BetaTextBlockParam);
   }
@@ -39,15 +39,15 @@ export function buildCachedSystem(
 
 // Log cache stats when non-zero; returns the cache-adjusted cost in USD.
 export function logCacheStats(
-  agentTag:     string,
-  usage:        { cache_creation_input_tokens?: number | null; cache_read_input_tokens?: number | null },
-  inputPrice:   number,   // price per million input tokens
+  agentTag: string,
+  usage: { cache_creation_input_tokens?: number | null; cache_read_input_tokens?: number | null },
+  inputPrice: number, // price per million input tokens
 ): number {
   const write = usage.cache_creation_input_tokens ?? 0;
-  const read  = usage.cache_read_input_tokens     ?? 0;
+  const read = usage.cache_read_input_tokens ?? 0;
   if (write > 0 || read > 0) {
     console.log(`  [${agentTag}] cache: ${write} write tokens, ${read} read tokens`);
   }
   // Cache write costs 1.25× input; cache read costs 0.10× input
-  return ((write * inputPrice * 1.25) + (read * inputPrice * 0.10)) / 1_000_000;
+  return (write * inputPrice * 1.25 + read * inputPrice * 0.1) / 1_000_000;
 }

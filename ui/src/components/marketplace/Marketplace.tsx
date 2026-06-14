@@ -14,7 +14,7 @@ async function fetchRoster(): Promise<HiredAgent[]> {
   try {
     const r = await fetch('/marketplace/roster');
     if (!r.ok) return [];
-    const data = await r.json() as HiredAgent[];
+    const data = (await r.json()) as HiredAgent[];
     return Array.isArray(data) ? data : [];
   } catch {
     return [];
@@ -24,9 +24,9 @@ async function fetchRoster(): Promise<HiredAgent[]> {
 async function persistRoster(roster: HiredAgent[]): Promise<void> {
   try {
     await fetch('/marketplace/roster', {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(roster),
+      body: JSON.stringify(roster),
     });
   } catch {
     // Non-fatal — server may be offline; roster stays in local state.
@@ -47,17 +47,21 @@ function withPrompt(agent: HiredAgent): HiredAgent {
 
 const BUILTIN_IDS = new Set(BUILTINS.map(b => b.id));
 
-export function Marketplace({ projectName, focusAgentId, onFocusConsumed }: {
-  projectName?:     string;
-  focusAgentId?:    string | null;
+export function Marketplace({
+  projectName,
+  focusAgentId,
+  onFocusConsumed,
+}: {
+  projectName?: string;
+  focusAgentId?: string | null;
   onFocusConsumed?: () => void;
 }) {
-  const [tab,            setTab]            = useState<'browse' | 'team'>('team');
-  const [roleF,          setRoleF]          = useState('All');
-  const [query,          setQuery]          = useState('');
-  const [drawer,         setDrawer]         = useState<MarketAgent | null>(null);
-  const [upgrading,      setUpgrading]      = useState(false);
-  const [team,           setTeam]           = useState<HiredAgent[]>([]);
+  const [tab, setTab] = useState<'browse' | 'team'>('team');
+  const [roleF, setRoleF] = useState('All');
+  const [query, setQuery] = useState('');
+  const [drawer, setDrawer] = useState<MarketAgent | null>(null);
+  const [upgrading, setUpgrading] = useState(false);
+  const [team, setTeam] = useState<HiredAgent[]>([]);
   const [viewingBuiltin, setViewingBuiltin] = useState<string | null>(null);
 
   // Load roster from server on mount; fall back to empty list. Enrich each entry
@@ -72,7 +76,10 @@ export function Marketplace({ projectName, focusAgentId, onFocusConsumed }: {
   useEffect(() => {
     if (!focusAgentId) return;
     const def = AGENT_BY_ID[focusAgentId];
-    if (def) { setTab('browse'); setDrawer(def); }
+    if (def) {
+      setTab('browse');
+      setDrawer(def);
+    }
     onFocusConsumed?.();
   }, [focusAgentId, onFocusConsumed]);
 
@@ -82,24 +89,35 @@ export function Marketplace({ projectName, focusAgentId, onFocusConsumed }: {
     persistRoster(next);
   }, []);
 
-  const roles    = ['All', ...Array.from(new Set(MARKET_AGENTS.map(a => a.role)))];
+  const roles = ['All', ...Array.from(new Set(MARKET_AGENTS.map(a => a.role)))];
   const hiredIds = new Set(team.map(t => t.id));
 
-  const filtered = MARKET_AGENTS.filter(a =>
-    (roleF === 'All' || a.role === roleF) &&
-    (query === '' || (a.name + a.desc + a.role).toLowerCase().includes(query.toLowerCase()))
+  const filtered = MARKET_AGENTS.filter(
+    a =>
+      (roleF === 'All' || a.role === roleF) &&
+      (query === '' || (a.name + a.desc + a.role).toLowerCase().includes(query.toLowerCase())),
   ).map(a => AGENT_BY_ID[a.id]);
 
   const doHire = (cfg: Omit<HiredAgent, 'upgradeAvailable'>) => {
     const full = withPrompt({ ...cfg, upgradeAvailable: false });
     saveTeam([...team.filter(x => x.id !== cfg.id), full]);
-    setDrawer(null); setTab('team');
+    setDrawer(null);
+    setTab('team');
   };
 
   const applyUpgrade = () => {
-    const next = team.map(h => h.id === 'ux'
-      ? { ...h, version: UX_UPGRADE.to, upgradeAvailable: false, grantedTools: [...h.grantedTools, { name: UX_UPGRADE.newTool.name, sens: UX_UPGRADE.newTool.sens }] }
-      : h
+    const next = team.map(h =>
+      h.id === 'ux'
+        ? {
+            ...h,
+            version: UX_UPGRADE.to,
+            upgradeAvailable: false,
+            grantedTools: [
+              ...h.grantedTools,
+              { name: UX_UPGRADE.newTool.name, sens: UX_UPGRADE.newTool.sens },
+            ],
+          }
+        : h,
     );
     saveTeam(next);
     setUpgrading(false);
@@ -121,7 +139,10 @@ export function Marketplace({ projectName, focusAgentId, onFocusConsumed }: {
         <button className={`mkt-tab ${tab === 'team' ? 'on' : ''}`} onClick={() => setTab('team')}>
           My Team <span className="cnt">{BUILTINS.length + team.length}</span>
         </button>
-        <button className={`mkt-tab ${tab === 'browse' ? 'on' : ''}`} onClick={() => setTab('browse')}>
+        <button
+          className={`mkt-tab ${tab === 'browse' ? 'on' : ''}`}
+          onClick={() => setTab('browse')}
+        >
           Browse <span className="cnt">{MARKET_AGENTS.length}</span>
         </button>
       </div>
@@ -131,7 +152,9 @@ export function Marketplace({ projectName, focusAgentId, onFocusConsumed }: {
           <MyTeam
             team={team}
             projectName={projectName}
-            onToggle={id => saveTeam(team.map(h => h.id === id ? { ...h, enabled: !h.enabled } : h))}
+            onToggle={id =>
+              saveTeam(team.map(h => (h.id === id ? { ...h, enabled: !h.enabled } : h)))
+            }
             onRemove={id => saveTeam(team.filter(h => h.id !== id))}
             onUpgrade={() => setUpgrading(true)}
             onViewAgent={handleViewAgent}
@@ -144,15 +167,30 @@ export function Marketplace({ projectName, focusAgentId, onFocusConsumed }: {
             <div className="filterbar">
               <div className="chipgroup">
                 {roles.map(r => (
-                  <button key={r} className={`fchip ${roleF === r ? 'on' : ''}`} onClick={() => setRoleF(r)}>{r}</button>
+                  <button
+                    key={r}
+                    className={`fchip ${roleF === r ? 'on' : ''}`}
+                    onClick={() => setRoleF(r)}
+                  >
+                    {r}
+                  </button>
                 ))}
               </div>
               <SearchBar value={query} onChange={setQuery} />
             </div>
             <div className="grid">
-              {filtered.map(a => <AgentCard key={a.id} a={a} hired={hiredIds.has(a.id)} onOpen={setDrawer} />)}
+              {filtered.map(a => (
+                <AgentCard key={a.id} a={a} hired={hiredIds.has(a.id)} onOpen={setDrawer} />
+              ))}
               {filtered.length === 0 && (
-                <div style={{ color: 'var(--tx-3)', fontFamily: 'var(--mono)', fontSize: 13, padding: '30px 2px' }}>
+                <div
+                  style={{
+                    color: 'var(--tx-3)',
+                    fontFamily: 'var(--mono)',
+                    fontSize: 13,
+                    padding: '30px 2px',
+                  }}
+                >
                   No agents match those filters.
                 </div>
               )}
@@ -161,9 +199,19 @@ export function Marketplace({ projectName, focusAgentId, onFocusConsumed }: {
         )}
       </div>
 
-      {drawer && <AgentPage a={drawer} hired={hiredIds.has(drawer.id)} projectName={projectName} onClose={() => setDrawer(null)} onConfirm={doHire} />}
-      {upgrading      && <UpgradeModal  onClose={() => setUpgrading(false)}                   onApply={applyUpgrade} />}
-      {viewingBuiltin && <BuiltinDrawer agentId={viewingBuiltin}                              onClose={() => setViewingBuiltin(null)} />}
+      {drawer && (
+        <AgentPage
+          a={drawer}
+          hired={hiredIds.has(drawer.id)}
+          projectName={projectName}
+          onClose={() => setDrawer(null)}
+          onConfirm={doHire}
+        />
+      )}
+      {upgrading && <UpgradeModal onClose={() => setUpgrading(false)} onApply={applyUpgrade} />}
+      {viewingBuiltin && (
+        <BuiltinDrawer agentId={viewingBuiltin} onClose={() => setViewingBuiltin(null)} />
+      )}
     </div>
   );
 }

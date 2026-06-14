@@ -7,16 +7,16 @@
 //   swarm eval [<cases>]    — run the eval harness (Phase 1 exit criteria)
 //   swarm dev               — start the dashboard server
 
-import { runInit }        from './commands/init.js';
-import { runCheck }       from './commands/check.js';
-import { runNew }         from './commands/new.js';
-import { runStatus }      from './commands/status.js';
-import { runEval }        from './eval/index.js';
-import { startServer }    from './server/index.js';
+import { runInit } from './commands/init.js';
+import { runCheck } from './commands/check.js';
+import { runNew } from './commands/new.js';
+import { runStatus } from './commands/status.js';
+import { runEval } from './eval/index.js';
+import { startServer } from './server/index.js';
 import { getConfigOptional } from './config.js';
 import { driverBanner, getDriverMode } from './drivers/index.js';
 
-const [,, cmd = 'help', ...rest] = process.argv;
+const [, , cmd = 'help', ...rest] = process.argv;
 
 switch (cmd) {
   case 'init': {

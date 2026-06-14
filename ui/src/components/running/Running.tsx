@@ -1,15 +1,22 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import type React from 'react';
-import { useRunSimulation }  from '../../hooks/useRunSimulation';
-import { useRealRun }        from '../../hooks/useRealRun';
-import { TaskGraph }         from './TaskGraph';
-import { AgentsPanel }       from './AgentsPanel';
-import { FindingsFeed }      from './FindingsFeed';
-import { ChangesPanel }      from './ChangesPanel';
-import { PermissionGate }    from './PermissionGate';
-import { Message }           from '../planning/Message';
-import { IconSend }          from '../common/icons';
-import type { RunStatus, SessionSnapshot, Task, AgentState, Finding, ChatMessage } from '../../types';
+import { useRunSimulation } from '../../hooks/useRunSimulation';
+import { useRealRun } from '../../hooks/useRealRun';
+import { TaskGraph } from './TaskGraph';
+import { AgentsPanel } from './AgentsPanel';
+import { FindingsFeed } from './FindingsFeed';
+import { ChangesPanel } from './ChangesPanel';
+import { PermissionGate } from './PermissionGate';
+import { Message } from '../planning/Message';
+import { IconSend } from '../common/icons';
+import type {
+  RunStatus,
+  SessionSnapshot,
+  Task,
+  AgentState,
+  Finding,
+  ChatMessage,
+} from '../../types';
 
 // ─── Drag-to-resize ──────────────────────────────────────────────────────────
 
@@ -28,51 +35,64 @@ function useDragResize(
     return initialPx;
   });
   const pxRef = useRef(px);
-  useEffect(() => { pxRef.current = px; }, [px]);
+  useEffect(() => {
+    pxRef.current = px;
+  }, [px]);
 
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const startX  = e.clientX;
-    const startPx = pxRef.current;
-    const clamp   = (v: number) => Math.min(max, Math.max(min, v));
-    const onMove  = (ev: MouseEvent) => setPx(clamp(startPx + sign * (ev.clientX - startX)));
-    const onUp    = (ev: MouseEvent) => {
-      const final = clamp(startPx + sign * (ev.clientX - startX));
-      setPx(final);
-      try { localStorage.setItem(storageKey, String(final)); } catch {}
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup',   onUp);
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup',   onUp);
-  }, [max, min, sign, storageKey]);
+  const onMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startPx = pxRef.current;
+      const clamp = (v: number) => Math.min(max, Math.max(min, v));
+      const onMove = (ev: MouseEvent) => setPx(clamp(startPx + sign * (ev.clientX - startX)));
+      const onUp = (ev: MouseEvent) => {
+        const final = clamp(startPx + sign * (ev.clientX - startX));
+        setPx(final);
+        try {
+          localStorage.setItem(storageKey, String(final));
+        } catch {}
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [max, min, sign, storageKey],
+  );
 
   return [px, onMouseDown];
 }
 
-function DragHandle({ gridColumn, onMouseDown }: { gridColumn: number; onMouseDown: (e: React.MouseEvent) => void }) {
+function DragHandle({
+  gridColumn,
+  onMouseDown,
+}: {
+  gridColumn: number;
+  onMouseDown: (e: React.MouseEvent) => void;
+}) {
   return <div className="run-drag-handle" style={{ gridColumn }} onMouseDown={onMouseDown} />;
 }
 
 // ─── Shared view ──────────────────────────────────────────────────────────────
 
 interface RunViewProps {
-  project:       string;
-  tier:          string;
-  tasks:         ReturnType<typeof useRunSimulation>['tasks'];
-  agents:        ReturnType<typeof useRunSimulation>['agents'];
-  findings:      ReturnType<typeof useRunSimulation>['findings'];
-  pmMsgs:        ReturnType<typeof useRunSimulation>['pmMsgs'];
-  spend:         number;
-  spendCap:      number;
-  status:        RunStatus;
-  connected?:    boolean;
+  project: string;
+  tier: string;
+  tasks: ReturnType<typeof useRunSimulation>['tasks'];
+  agents: ReturnType<typeof useRunSimulation>['agents'];
+  findings: ReturnType<typeof useRunSimulation>['findings'];
+  pmMsgs: ReturnType<typeof useRunSimulation>['pmMsgs'];
+  spend: number;
+  spendCap: number;
+  status: RunStatus;
+  connected?: boolean;
   alreadyPushed?: boolean;
-  branchName?:   string;
-  elapsedMs?:    number | null;
-  onPause?:      () => void;
-  onAbort?:      () => void;
-  onPrCreated?:  (url: string) => void;
+  branchName?: string;
+  elapsedMs?: number | null;
+  onPause?: () => void;
+  onAbort?: () => void;
+  onPrCreated?: (url: string) => void;
   onRequestChanges?: (message: string) => void;
 }
 
@@ -87,17 +107,24 @@ function formatElapsed(ms: number): string {
   return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
 }
 
-function RunSummary({ tasks, findings, spend, elapsedMs }: {
-  tasks:     RunViewProps['tasks'];
-  findings:  RunViewProps['findings'];
-  spend:     number;
+function RunSummary({
+  tasks,
+  findings,
+  spend,
+  elapsedMs,
+}: {
+  tasks: RunViewProps['tasks'];
+  findings: RunViewProps['findings'];
+  spend: number;
   elapsedMs: number | null | undefined;
 }) {
-  const total  = tasks.length;
+  const total = tasks.length;
   // 'blocked' = "changes requested" — the task did its job; only true failures count here.
   const failed = tasks.filter(t => t.status === 'failed').length;
-  const allOk  = failed === 0;
-  const findingsFailed = findings.filter(f => f.verdict === 'fail' || f.verdict === 'changes').length;
+  const allOk = failed === 0;
+  const findingsFailed = findings.filter(
+    f => f.verdict === 'fail' || f.verdict === 'changes',
+  ).length;
   const overallOk = allOk && findingsFailed === 0;
 
   return (
@@ -105,15 +132,19 @@ function RunSummary({ tasks, findings, spend, elapsedMs }: {
       <span className="run-summary-icon">{overallOk ? '✓' : '⚠'}</span>
       <span>
         {total} task{total !== 1 ? 's' : ''} ·{' '}
-        {failed > 0
-          ? <span style={{ color: 'var(--red)' }}>{failed} failed</span>
-          : 'all passed'}
+        {failed > 0 ? <span style={{ color: 'var(--red)' }}>{failed} failed</span> : 'all passed'}
       </span>
       {elapsedMs != null && (
-        <><span className="run-summary-sep">·</span><span>{formatElapsed(elapsedMs)}</span></>
+        <>
+          <span className="run-summary-sep">·</span>
+          <span>{formatElapsed(elapsedMs)}</span>
+        </>
       )}
       {spend > 0 && (
-        <><span className="run-summary-sep">·</span><span>${spend.toFixed(4)}</span></>
+        <>
+          <span className="run-summary-sep">·</span>
+          <span>${spend.toFixed(4)}</span>
+        </>
       )}
     </div>
   );
@@ -128,17 +159,22 @@ type ActionState = 'idle' | 'pending' | 'ok' | 'err';
 //   • feature branch → recommend PR, offer push-only fallback
 //   • main branch    → single push button
 
-function ShipModal({ branchName, onClose, onShipped, onPrCreated }: {
-  branchName?:  string;
-  onClose:      () => void;
-  onShipped:    () => void;
+function ShipModal({
+  branchName,
+  onClose,
+  onShipped,
+  onPrCreated,
+}: {
+  branchName?: string;
+  onClose: () => void;
+  onShipped: () => void;
   onPrCreated?: (url: string) => void;
 }) {
   const [pushState, setPushState] = useState<ActionState>('idle');
-  const [pushErr,   setPushErr]   = useState<string | null>(null);
-  const [prState,   setPrState]   = useState<ActionState>('idle');
-  const [prErr,     setPrErr]     = useState<string | null>(null);
-  const [prUrl,     setPrUrl]     = useState<string | null>(null);
+  const [pushErr, setPushErr] = useState<string | null>(null);
+  const [prState, setPrState] = useState<ActionState>('idle');
+  const [prErr, setPrErr] = useState<string | null>(null);
+  const [prUrl, setPrUrl] = useState<string | null>(null);
   const [ghMissing, setGhMissing] = useState(false);
 
   const [existingPr, setExistingPr] = useState<{ url: string; state: string } | null>(null);
@@ -150,35 +186,57 @@ function ShipModal({ branchName, onClose, onShipped, onPrCreated }: {
   useEffect(() => {
     fetch('/run/branch-pushed')
       .then(r => r.json())
-      .then((d: { pushed: boolean; alreadyInMain: boolean; pr: { url: string; state: string } | null }) => {
-        if (d.pushed || d.alreadyInMain) setPushState('ok');
-        if (d.pr) setExistingPr(d.pr);
-      })
+      .then(
+        (d: {
+          pushed: boolean;
+          alreadyInMain: boolean;
+          pr: { url: string; state: string } | null;
+        }) => {
+          if (d.pushed || d.alreadyInMain) setPushState('ok');
+          if (d.pr) setExistingPr(d.pr);
+        },
+      )
       .catch(() => {}); // best-effort
   }, []);
 
   const push = useCallback(() => {
-    setPushState('pending'); setPushErr(null);
+    setPushState('pending');
+    setPushErr(null);
     fetch('/run/push', { method: 'POST' })
       .then(r => r.json())
       .then((d: { ok: boolean; error?: string }) => {
-        if (d.ok) { setPushState('ok'); onShipped(); }
-        else      { setPushState('err'); setPushErr(d.error ?? 'Push failed'); }
+        if (d.ok) {
+          setPushState('ok');
+          onShipped();
+        } else {
+          setPushState('err');
+          setPushErr(d.error ?? 'Push failed');
+        }
       })
-      .catch((e: Error) => { setPushState('err'); setPushErr(e.message); });
+      .catch((e: Error) => {
+        setPushState('err');
+        setPushErr(e.message);
+      });
   }, [onShipped]);
 
   const createPr = useCallback(() => {
-    setPrState('pending'); setPrErr(null); setGhMissing(false);
+    setPrState('pending');
+    setPrErr(null);
+    setGhMissing(false);
     fetch('/run/pr', { method: 'POST' })
       .then(r => r.json())
       .then((d: { ok: boolean; url?: string; error?: string; ghNotInstalled?: boolean }) => {
         if (d.ok) {
           const url = d.url ?? null;
-          setPrState('ok'); setPrUrl(url);
+          setPrState('ok');
+          setPrUrl(url);
           onShipped();
-          if (url) setTimeout(() => { onPrCreated?.(url); onClose(); }, 1200);
-          else     setTimeout(onClose, 800);
+          if (url)
+            setTimeout(() => {
+              onPrCreated?.(url);
+              onClose();
+            }, 1200);
+          else setTimeout(onClose, 800);
         } else {
           setPrState('err');
           if (d.ghNotInstalled) {
@@ -189,18 +247,26 @@ function ShipModal({ branchName, onClose, onShipped, onPrCreated }: {
           }
         }
       })
-      .catch((e: Error) => { setPrState('err'); setPrErr(e.message); });
+      .catch((e: Error) => {
+        setPrState('err');
+        setPrErr(e.message);
+      });
   }, [onShipped, onPrCreated, onClose]);
 
   // Close on Escape
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
   const errStyle: React.CSSProperties = {
-    fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--red)', marginTop: 4,
+    fontSize: 11,
+    fontFamily: 'var(--mono)',
+    color: 'var(--red)',
+    marginTop: 4,
   };
 
   return (
@@ -208,7 +274,9 @@ function ShipModal({ branchName, onClose, onShipped, onPrCreated }: {
       <div className="ship-modal" onClick={e => e.stopPropagation()}>
         <div className="ship-modal-head">
           <span>Ship changes</span>
-          <button className="ship-modal-close" onClick={onClose} title="Close">×</button>
+          <button className="ship-modal-close" onClick={onClose} title="Close">
+            ×
+          </button>
         </div>
 
         {branchName ? (
@@ -231,9 +299,13 @@ function ShipModal({ branchName, onClose, onShipped, onPrCreated }: {
                   </div>
                 </div>
                 {(prState === 'ok' && prUrl) || existingPr ? (
-                  <a href={(prState === 'ok' ? prUrl : existingPr?.url) ?? '#'}
-                     target="_blank" rel="noopener noreferrer"
-                     className="btn sm primary" style={{ textDecoration: 'none', flexShrink: 0 }}>
+                  <a
+                    href={(prState === 'ok' ? prUrl : existingPr?.url) ?? '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn sm primary"
+                    style={{ textDecoration: 'none', flexShrink: 0 }}
+                  >
                     View PR ↗
                   </a>
                 ) : (
@@ -243,7 +315,11 @@ function ShipModal({ branchName, onClose, onShipped, onPrCreated }: {
                     disabled={prState === 'pending' || prState === 'ok' || pushState === 'ok'}
                     style={{ flexShrink: 0 }}
                   >
-                    {prState === 'pending' ? 'Creating PR…' : prState === 'ok' ? '✓ PR created' : 'Create PR →'}
+                    {prState === 'pending'
+                      ? 'Creating PR…'
+                      : prState === 'ok'
+                        ? '✓ PR created'
+                        : 'Create PR →'}
                   </button>
                 )}
               </div>
@@ -252,8 +328,7 @@ function ShipModal({ branchName, onClose, onShipped, onPrCreated }: {
                 <div style={{ ...errStyle, lineHeight: 1.6 }}>
                   <strong>GitHub CLI not installed.</strong> To enable PR creation:
                   <br />
-                  <code style={{ fontSize: 10 }}>brew install gh</code>
-                  {' '}then{' '}
+                  <code style={{ fontSize: 10 }}>brew install gh</code> then{' '}
                   <code style={{ fontSize: 10 }}>gh auth login</code>
                 </div>
               )}
@@ -268,8 +343,8 @@ function ShipModal({ branchName, onClose, onShipped, onPrCreated }: {
                 <div>
                   <div className="ship-option-title">Push branch only</div>
                   <div className="ship-option-desc">
-                    Pushes <code>{branchName}</code> to origin without opening a PR.
-                    You can create one later from GitHub.
+                    Pushes <code>{branchName}</code> to origin without opening a PR. You can create
+                    one later from GitHub.
                   </div>
                 </div>
                 <button
@@ -278,7 +353,11 @@ function ShipModal({ branchName, onClose, onShipped, onPrCreated }: {
                   disabled={pushState === 'pending' || pushState === 'ok' || prState === 'ok'}
                   style={{ flexShrink: 0 }}
                 >
-                  {pushState === 'pending' ? 'Pushing…' : pushState === 'ok' ? '✓ Pushed' : 'Push branch'}
+                  {pushState === 'pending'
+                    ? 'Pushing…'
+                    : pushState === 'ok'
+                      ? '✓ Pushed'
+                      : 'Push branch'}
                 </button>
               </div>
               {pushState === 'err' && pushErr && <div style={errStyle}>⚠ {pushErr}</div>}
@@ -304,7 +383,11 @@ function ShipModal({ branchName, onClose, onShipped, onPrCreated }: {
                   disabled={pushState === 'pending' || pushState === 'ok'}
                   style={{ flexShrink: 0 }}
                 >
-                  {pushState === 'pending' ? 'Pushing…' : pushState === 'ok' ? '✓ Pushed' : 'Push to origin'}
+                  {pushState === 'pending'
+                    ? 'Pushing…'
+                    : pushState === 'ok'
+                      ? '✓ Pushed'
+                      : 'Push to origin'}
                 </button>
               </div>
               {pushState === 'err' && pushErr && <div style={errStyle}>⚠ {pushErr}</div>}
@@ -316,18 +399,24 @@ function ShipModal({ branchName, onClose, onShipped, onPrCreated }: {
   );
 }
 
-function PostRunActions({ onToggleChanges, showChanges, onPrCreated, alreadyPushed, branchName }: {
+function PostRunActions({
+  onToggleChanges,
+  showChanges,
+  onPrCreated,
+  alreadyPushed,
+  branchName,
+}: {
   onToggleChanges: () => void;
-  showChanges:     boolean;
-  onPrCreated?:    (url: string) => void;
-  alreadyPushed?:  boolean;
-  branchName?:     string;
+  showChanges: boolean;
+  onPrCreated?: (url: string) => void;
+  alreadyPushed?: boolean;
+  branchName?: string;
 }) {
-  const [shipped,   setShipped]   = useState(alreadyPushed ?? false);
-  const [showShip,  setShowShip]  = useState(false);
+  const [shipped, setShipped] = useState(alreadyPushed ?? false);
+  const [showShip, setShowShip] = useState(false);
 
   const handleShipped = useCallback(() => setShipped(true), []);
-  const handleClose   = useCallback(() => setShowShip(false), []);
+  const handleClose = useCallback(() => setShowShip(false), []);
 
   return (
     <>
@@ -368,16 +457,26 @@ function PostRunActions({ onToggleChanges, showChanges, onPrCreated, alreadyPush
 
 // ─── Run controls ─────────────────────────────────────────────────────────────
 
-function RunControls({ status, tasks, onPause, onAbort, onToggleChanges, showChanges, onPrCreated, alreadyPushed, branchName }: {
-  status:           RunStatus;
-  tasks?:           RunViewProps['tasks'];
-  onPause?:         () => void;
-  onAbort?:         () => void;
+function RunControls({
+  status,
+  tasks,
+  onPause,
+  onAbort,
+  onToggleChanges,
+  showChanges,
+  onPrCreated,
+  alreadyPushed,
+  branchName,
+}: {
+  status: RunStatus;
+  tasks?: RunViewProps['tasks'];
+  onPause?: () => void;
+  onAbort?: () => void;
   onToggleChanges?: () => void;
-  showChanges?:     boolean;
-  onPrCreated?:     (url: string) => void;
-  alreadyPushed?:   boolean;
-  branchName?:      string;
+  showChanges?: boolean;
+  onPrCreated?: (url: string) => void;
+  alreadyPushed?: boolean;
+  branchName?: string;
 }) {
   const [confirmAbort, setConfirmAbort] = useState(false);
   const [pending, setPending] = useState<'aborting' | 'pausing' | null>(null);
@@ -385,7 +484,7 @@ function RunControls({ status, tasks, onPause, onAbort, onToggleChanges, showCha
   // Clear pending state once the server confirms via SSE
   useEffect(() => {
     if (status === 'aborted' || status === 'done') setPending(null);
-    if (status === 'paused')                       setPending(null);
+    if (status === 'paused') setPending(null);
   }, [status]);
 
   const done = status === 'done' || status === 'aborted';
@@ -393,11 +492,25 @@ function RunControls({ status, tasks, onPause, onAbort, onToggleChanges, showCha
   // ── Pending feedback ────────────────────────────────────────────────────────
   if (pending === 'aborting') {
     return (
-      <span style={{
-        fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--amber)',
-        display: 'flex', alignItems: 'center', gap: 6,
-      }}>
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--amber)', animation: 'softpulse 1.4s infinite' }} />
+      <span
+        style={{
+          fontSize: 11,
+          fontFamily: 'var(--mono)',
+          color: 'var(--amber)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: '50%',
+            background: 'var(--amber)',
+            animation: 'softpulse 1.4s infinite',
+          }}
+        />
         Aborting — current task will finish first
       </span>
     );
@@ -405,11 +518,25 @@ function RunControls({ status, tasks, onPause, onAbort, onToggleChanges, showCha
 
   if (pending === 'pausing') {
     return (
-      <span style={{
-        fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--tx-2)',
-        display: 'flex', alignItems: 'center', gap: 6,
-      }}>
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--tx-3)', animation: 'softpulse 1.4s infinite' }} />
+      <span
+        style={{
+          fontSize: 11,
+          fontFamily: 'var(--mono)',
+          color: 'var(--tx-2)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: '50%',
+            background: 'var(--tx-3)',
+            animation: 'softpulse 1.4s infinite',
+          }}
+        />
         Pausing — current task will finish first
       </span>
     );
@@ -419,18 +546,25 @@ function RunControls({ status, tasks, onPause, onAbort, onToggleChanges, showCha
   if (confirmAbort) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{
-          fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--tx-2)',
-          maxWidth: 280, lineHeight: 1.4,
-        }}>
-          The current agent will finish its task, then stop.
-          Changes already written to disk remain.
+        <span
+          style={{
+            fontSize: 11,
+            fontFamily: 'var(--mono)',
+            color: 'var(--tx-2)',
+            maxWidth: 280,
+            lineHeight: 1.4,
+          }}
+        >
+          The current agent will finish its task, then stop. Changes already written to disk remain.
         </span>
-        <button className="btn sm danger" onClick={() => {
-          onAbort?.();
-          setPending('aborting');
-          setConfirmAbort(false);
-        }}>
+        <button
+          className="btn sm danger"
+          onClick={() => {
+            onAbort?.();
+            setPending('aborting');
+            setConfirmAbort(false);
+          }}
+        >
           Confirm abort
         </button>
         <button className="btn sm" onClick={() => setConfirmAbort(false)}>
@@ -441,20 +575,22 @@ function RunControls({ status, tasks, onPause, onAbort, onToggleChanges, showCha
   }
 
   // ── Done: replace Pause/Abort with post-run actions ────────────────────────
-  if (done) return (
-    <PostRunActions
-      onToggleChanges={onToggleChanges ?? (() => {})}
-      showChanges={showChanges ?? false}
-      onPrCreated={onPrCreated}
-      alreadyPushed={alreadyPushed}
-      branchName={branchName}
-    />
-  );
+  if (done)
+    return (
+      <PostRunActions
+        onToggleChanges={onToggleChanges ?? (() => {})}
+        showChanges={showChanges ?? false}
+        onPrCreated={onPrCreated}
+        alreadyPushed={alreadyPushed}
+        branchName={branchName}
+      />
+    );
 
   // ── Normal controls ─────────────────────────────────────────────────────────
-  const pauseTitle = status === 'paused'
-    ? 'Resume the run — agents will continue from where they left off.'
-    : 'Pause after the current agent task completes. Does not interrupt a running agent — it will finish first.';
+  const pauseTitle =
+    status === 'paused'
+      ? 'Resume the run — agents will continue from where they left off.'
+      : 'Pause after the current agent task completes. Does not interrupt a running agent — it will finish first.';
 
   const coderDone = tasks?.some(t => t.assignee === 'coder' && t.status === 'done') ?? false;
 
@@ -499,16 +635,21 @@ function RunControls({ status, tasks, onPause, onAbort, onToggleChanges, showCha
   );
 }
 
-function PmChat({ pmMsgs, status, open, onToggle }: {
-  pmMsgs:   RunViewProps['pmMsgs'];
-  status:   RunStatus;
-  open:     boolean;
+function PmChat({
+  pmMsgs,
+  status,
+  open,
+  onToggle,
+}: {
+  pmMsgs: RunViewProps['pmMsgs'];
+  status: RunStatus;
+  open: boolean;
   onToggle: () => void;
 }) {
   const chatRef = useRef<HTMLDivElement>(null);
-  const taRef   = useRef<HTMLTextAreaElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState('');
-  const [busy,  setBusy]  = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (open && chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
@@ -540,17 +681,36 @@ function PmChat({ pmMsgs, status, open, onToggle }: {
     return (
       <div className="run-chat run-chat-collapsed" onClick={onToggle} title="Expand PM Chat">
         <span style={{ fontSize: 16, color: 'var(--tx-3)', lineHeight: 1 }}>‹</span>
-        <span style={{
-          writingMode: 'vertical-rl', transform: 'rotate(180deg)',
-          fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--tx-3)',
-          letterSpacing: '0.12em', textTransform: 'uppercase', userSelect: 'none',
-          marginTop: 8,
-        }}>PM Chat</span>
+        <span
+          style={{
+            writingMode: 'vertical-rl',
+            transform: 'rotate(180deg)',
+            fontSize: 10,
+            fontFamily: 'var(--mono)',
+            color: 'var(--tx-3)',
+            letterSpacing: '0.12em',
+            textTransform: 'uppercase',
+            userSelect: 'none',
+            marginTop: 8,
+          }}
+        >
+          PM Chat
+        </span>
         {pmMsgs.length > 0 && (
-          <span style={{
-            marginTop: 10, fontSize: 9, fontFamily: 'var(--mono)', color: 'var(--blue)',
-            background: 'rgba(77,141,244,0.14)', borderRadius: 8, padding: '2px 5px', lineHeight: 1.3,
-          }}>{pmMsgs.length}</span>
+          <span
+            style={{
+              marginTop: 10,
+              fontSize: 9,
+              fontFamily: 'var(--mono)',
+              color: 'var(--blue)',
+              background: 'rgba(77,141,244,0.14)',
+              borderRadius: 8,
+              padding: '2px 5px',
+              lineHeight: 1.3,
+            }}
+          >
+            {pmMsgs.length}
+          </span>
         )}
       </div>
     );
@@ -563,17 +723,37 @@ function PmChat({ pmMsgs, status, open, onToggle }: {
         <button
           onClick={onToggle}
           title="Collapse PM Chat"
-          style={{ marginLeft: 'auto', fontSize: 16, color: 'var(--tx-3)', lineHeight: 1, padding: '0 2px', background: 'none', border: 'none', cursor: 'pointer' }}
-        >›</button>
+          style={{
+            marginLeft: 'auto',
+            fontSize: 16,
+            color: 'var(--tx-3)',
+            lineHeight: 1,
+            padding: '0 2px',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+          }}
+        >
+          ›
+        </button>
       </div>
       <div className="chat" style={{ minHeight: 0 }}>
         <div className="chat-scroll" ref={chatRef}>
           {pmMsgs.length === 0 && (
-            <span style={{ color: 'var(--tx-3)', fontFamily: 'var(--mono)', fontSize: 11, padding: '2px 0' }}>
+            <span
+              style={{
+                color: 'var(--tx-3)',
+                fontFamily: 'var(--mono)',
+                fontSize: 11,
+                padding: '2px 0',
+              }}
+            >
               PM messages will appear here…
             </span>
           )}
-          {pmMsgs.map((m, i) => <Message key={i} m={m} />)}
+          {pmMsgs.map((m, i) => (
+            <Message key={i} m={m} />
+          ))}
         </div>
         <div className="composer">
           <div className="composer-row">
@@ -582,9 +762,14 @@ function PmChat({ pmMsgs, status, open, onToggle }: {
               value={draft}
               onChange={e => setDraft(e.target.value)}
               onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  send();
+                }
               }}
-              placeholder={disabled ? 'Run complete.' : 'Message the PM — pause the run to intervene…'}
+              placeholder={
+                disabled ? 'Run complete.' : 'Message the PM — pause the run to intervene…'
+              }
               disabled={disabled || busy}
             />
             <button
@@ -596,9 +781,7 @@ function PmChat({ pmMsgs, status, open, onToggle }: {
               <IconSend />
             </button>
           </div>
-          {!disabled && (
-            <div className="hint">Enter to send · Shift+Enter for newline</div>
-          )}
+          {!disabled && <div className="hint">Enter to send · Shift+Enter for newline</div>}
         </div>
       </div>
     </div>
@@ -606,10 +789,23 @@ function PmChat({ pmMsgs, status, open, onToggle }: {
 }
 
 function RunView({
-  project, tier, tasks, agents, findings, pmMsgs,
-  spend, spendCap, status, connected = true,
-  alreadyPushed, branchName, elapsedMs,
-  onPause, onAbort, onPrCreated, onRequestChanges,
+  project,
+  tier,
+  tasks,
+  agents,
+  findings,
+  pmMsgs,
+  spend,
+  spendCap,
+  status,
+  connected = true,
+  alreadyPushed,
+  branchName,
+  elapsedMs,
+  onPause,
+  onAbort,
+  onPrCreated,
+  onRequestChanges,
 }: RunViewProps) {
   const [showChanges, setShowChanges] = useState(false);
 
@@ -617,30 +813,40 @@ function RunView({
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
 
   // ── Resizable panes ────────────────────────────────────────────────────────
-  const [leftPx,    onDragLeft] = useDragResize(340, 180, 520, 'swarm-left-px',   1);
-  const [chatPx,    onDragChat] = useDragResize(300, 160, 480, 'swarm-chat-px',  -1);
+  const [leftPx, onDragLeft] = useDragResize(340, 180, 520, 'swarm-left-px', 1);
+  const [chatPx, onDragChat] = useDragResize(300, 160, 480, 'swarm-chat-px', -1);
   const [chatOpen, setChatOpen] = useState<boolean>(() => {
-    try { return localStorage.getItem('swarm-chat-open') !== 'false'; } catch { return true; }
+    try {
+      return localStorage.getItem('swarm-chat-open') !== 'false';
+    } catch {
+      return true;
+    }
   });
-  const toggleChat = useCallback(() => setChatOpen(v => {
-    const next = !v;
-    try { localStorage.setItem('swarm-chat-open', String(next)); } catch {}
-    return next;
-  }), []);
+  const toggleChat = useCallback(
+    () =>
+      setChatOpen(v => {
+        const next = !v;
+        try {
+          localStorage.setItem('swarm-chat-open', String(next));
+        } catch {}
+        return next;
+      }),
+    [],
+  );
 
   const gridCols = `${leftPx}px 4px 1fr ${chatOpen ? `4px ${chatPx}px` : '1px 36px'}`;
 
   const tierColour = tier === 'tweak' ? 'blue' : tier === 'greenfield' ? 'green' : 'amber';
   const statusMeta: Record<RunStatus, { cls: string; label: string }> = {
     running: { cls: 'running', label: 'running' },
-    paused:  { cls: 'paused',  label: 'paused'  },
-    done:    { cls: 'done',    label: 'done'     },
-    aborted: { cls: 'aborted', label: 'aborted'  },
+    paused: { cls: 'paused', label: 'paused' },
+    done: { cls: 'done', label: 'done' },
+    aborted: { cls: 'aborted', label: 'aborted' },
   };
   const { cls, label } = statusMeta[status] ?? statusMeta.running;
 
   const agentSteps = Object.fromEntries(
-    Object.entries(agents).map(([k, v]) => [k, v.active ? v.step : ''])
+    Object.entries(agents).map(([k, v]) => [k, v.active ? v.step : '']),
   );
 
   return (
@@ -654,19 +860,20 @@ function RunView({
           </span>
         )}
         <span className={`run-status ${cls}`}>
-          <span className="rdot" />{label}
+          <span className="rdot" />
+          {label}
         </span>
         <div className="spacer" />
         <RunControls
-          status           = {status}
-          tasks            = {tasks}
-          onPause          = {onPause}
-          onAbort          = {onAbort}
-          onToggleChanges  = {() => setShowChanges(v => !v)}
-          showChanges      = {showChanges}
-          onPrCreated      = {onPrCreated}
-          alreadyPushed    = {alreadyPushed}
-          branchName       = {branchName}
+          status={status}
+          tasks={tasks}
+          onPause={onPause}
+          onAbort={onAbort}
+          onToggleChanges={() => setShowChanges(v => !v)}
+          showChanges={showChanges}
+          onPrCreated={onPrCreated}
+          alreadyPushed={alreadyPushed}
+          branchName={branchName}
         />
         <div className="spend">
           <div className="spend-top">
@@ -682,15 +889,20 @@ function RunView({
       {/* Disconnected banner — shown when the SSE feed is down and data may be stale.
           Disappears within ~1 s of the server coming back (first back-off interval). */}
       {!connected && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          padding: '6px 18px',
-          background: 'var(--amber-d)',
-          borderBottom: '1px solid var(--amber)',
-          fontFamily: 'var(--mono)', fontSize: 11,
-          color: 'var(--amber)',
-          animation: 'softpulse 1.8s infinite',
-        }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '6px 18px',
+            background: 'var(--amber-d)',
+            borderBottom: '1px solid var(--amber)',
+            fontFamily: 'var(--mono)',
+            fontSize: 11,
+            color: 'var(--amber)',
+            animation: 'softpulse 1.8s infinite',
+          }}
+        >
           <span>⟳</span>
           <span>Server offline — reconnecting… displayed data may be stale</span>
         </div>
@@ -705,11 +917,21 @@ function RunView({
       ) : (
         <>
           <div className="run-right">
-            <AgentsPanel agents={agents} status={status} tasks={tasks} hoveredTaskId={hoveredTaskId} />
+            <AgentsPanel
+              agents={agents}
+              status={status}
+              tasks={tasks}
+              hoveredTaskId={hoveredTaskId}
+            />
             <FindingsFeed findings={findings} tasks={tasks} hoveredTaskId={hoveredTaskId} />
           </div>
           <DragHandle gridColumn={2} onMouseDown={onDragLeft} />
-          <TaskGraph tasks={tasks} agentSteps={agentSteps} hoveredTaskId={hoveredTaskId} onHoverTask={setHoveredTaskId} />
+          <TaskGraph
+            tasks={tasks}
+            agentSteps={agentSteps}
+            hoveredTaskId={hoveredTaskId}
+            onHoverTask={setHoveredTaskId}
+          />
           {chatOpen && <DragHandle gridColumn={4} onMouseDown={onDragChat} />}
         </>
       )}
@@ -723,21 +945,39 @@ function RunView({
 
 function ServerDown() {
   return (
-    <div style={{
-      height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      flexDirection: 'column', gap: 28, padding: 40,
-    }}>
+    <div
+      style={{
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexDirection: 'column',
+        gap: 28,
+        padding: 40,
+      }}
+    >
       <div style={{ textAlign: 'center' }}>
-        <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tx-3)', marginBottom: 10 }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            color: 'var(--tx-3)',
+            marginBottom: 10,
+          }}
+        >
           Swarm server not running
         </div>
         <div style={{ color: 'var(--tx-2)', fontSize: 13, maxWidth: 420, lineHeight: 1.6 }}>
-          Start the server in one terminal, then run a task in another.
-          This panel will connect automatically.
+          Start the server in one terminal, then run a task in another. This panel will connect
+          automatically.
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', maxWidth: 560 }}>
+      <div
+        style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%', maxWidth: 560 }}
+      >
         <Step n={1} label="Start the server">
           <Code>cd /path/to/swarm/core</Code>
           <Code>npm run dev</Code>
@@ -748,17 +988,39 @@ function ServerDown() {
           <Code>swarm new "describe what you want to build"</Code>
         </Step>
         <Step n={3} label="Watch it here">
-          <div style={{ color: 'var(--tx-2)', fontSize: 12, fontFamily: 'var(--mono)', padding: '8px 12px' }}>
+          <div
+            style={{
+              color: 'var(--tx-2)',
+              fontSize: 12,
+              fontFamily: 'var(--mono)',
+              padding: '8px 12px',
+            }}
+          >
             This panel updates live as agents run.
           </div>
         </Step>
       </div>
 
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        color: 'var(--tx-3)', fontSize: 11, fontFamily: 'var(--mono)',
-      }}>
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--tx-3)', animation: 'softpulse 1.4s infinite', display: 'inline-block' }} />
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          color: 'var(--tx-3)',
+          fontSize: 11,
+          fontFamily: 'var(--mono)',
+        }}
+      >
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: '50%',
+            background: 'var(--tx-3)',
+            animation: 'softpulse 1.4s infinite',
+            display: 'inline-block',
+          }}
+        />
         retrying every 3 seconds…
       </div>
     </div>
@@ -767,32 +1029,53 @@ function ServerDown() {
 
 function Step({ n, label, children }: { n: number; label: string; children: React.ReactNode }) {
   return (
-    <div style={{
-      background: 'var(--bg-1)', border: '1px solid var(--border)',
-      borderRadius: 'var(--r-lg)', padding: '14px 16px',
-    }}>
+    <div
+      style={{
+        background: 'var(--bg-1)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--r-lg)',
+        padding: '14px 16px',
+      }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-        <span style={{
-          width: 22, height: 22, borderRadius: '50%', background: 'var(--bg-3)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 11, fontWeight: 700, color: 'var(--tx-2)', fontFamily: 'var(--mono)', flexShrink: 0,
-        }}>{n}</span>
+        <span
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: '50%',
+            background: 'var(--bg-3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 11,
+            fontWeight: 700,
+            color: 'var(--tx-2)',
+            fontFamily: 'var(--mono)',
+            flexShrink: 0,
+          }}
+        >
+          {n}
+        </span>
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--tx-1)' }}>{label}</span>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {children}
-      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{children}</div>
     </div>
   );
 }
 
 function Code({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{
-      fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--tx)',
-      background: 'var(--bg)', border: '1px solid var(--border-soft)',
-      borderRadius: 5, padding: '6px 10px',
-    }}>
+    <div
+      style={{
+        fontFamily: 'var(--mono)',
+        fontSize: 12,
+        color: 'var(--tx)',
+        background: 'var(--bg)',
+        border: '1px solid var(--border-soft)',
+        borderRadius: 5,
+        padding: '6px 10px',
+      }}
+    >
       <span style={{ color: 'var(--tx-3)', userSelect: 'none' }}>$ </span>
       {children}
     </div>
@@ -807,39 +1090,60 @@ function computeHistoricalLanes(tasks: SessionSnapshot['tasks']): Map<string, nu
   const assign = (id: string, lane: number) => {
     if (lanes.has(id)) return;
     lanes.set(id, lane);
-    tasks.filter(t => t.depends_on.includes(id)).forEach((child, i) => {
-      assign(child.id, lane + i);
-    });
+    tasks
+      .filter(t => t.depends_on.includes(id))
+      .forEach((child, i) => {
+        assign(child.id, lane + i);
+      });
   };
-  tasks.filter(t => t.depends_on.length === 0).forEach(t => { assign(t.id, nextLane++); });
-  tasks.forEach(t => { if (!lanes.has(t.id)) lanes.set(t.id, 0); });
+  tasks
+    .filter(t => t.depends_on.length === 0)
+    .forEach(t => {
+      assign(t.id, nextLane++);
+    });
+  tasks.forEach(t => {
+    if (!lanes.has(t.id)) lanes.set(t.id, 0);
+  });
   return lanes;
 }
 
 function sessionToRunViewData(session: SessionSnapshot): {
-  tasks:    Task[];
-  agents:   Record<string, AgentState>;
+  tasks: Task[];
+  agents: Record<string, AgentState>;
   findings: Finding[];
-  pmMsgs:   ChatMessage[];
+  pmMsgs: ChatMessage[];
 } {
   const verdictMap: Record<string, Finding['verdict']> = {
-    COMPLETE: 'complete', PASS: 'pass', APPROVED: 'pass',
-    FAILED: 'fail', FAIL: 'fail', CHANGES_REQUESTED: 'changes',
+    COMPLETE: 'complete',
+    PASS: 'pass',
+    APPROVED: 'pass',
+    FAILED: 'fail',
+    FAIL: 'fail',
+    CHANGES_REQUESTED: 'changes',
   };
 
   const lanes = computeHistoricalLanes(session.tasks);
   const tasks: Task[] = session.tasks.map(t => ({
-    id:       t.id,
-    title:    t.title,
+    id: t.id,
+    title: t.title,
     assignee: t.assignee,
-    deps:     t.depends_on,
-    lane:     lanes.get(t.id) ?? 0,
-    status:   t.status as Task['status'],
-    late:     false,
+    deps: t.depends_on,
+    lane: lanes.get(t.id) ?? 0,
+    status: t.status as Task['status'],
+    late: false,
   }));
 
   const agents: Record<string, AgentState> = {};
-  const blank: AgentState = { active: false, step: '', activeAt: null, verdict: null, inputTokens: null, outputTokens: null, costUsd: null, contextPct: null };
+  const blank: AgentState = {
+    active: false,
+    step: '',
+    activeAt: null,
+    verdict: null,
+    inputTokens: null,
+    outputTokens: null,
+    costUsd: null,
+    contextPct: null,
+  };
   for (const t of session.tasks) {
     if (!agents[t.assignee]) agents[t.assignee] = { ...blank };
     if (t.finding_verdict) {
@@ -851,13 +1155,13 @@ function sessionToRunViewData(session: SessionSnapshot): {
   const findings: Finding[] = session.tasks
     .filter(t => t.result_ref)
     .map(t => ({
-      key:     `${t.id}-finding`,
-      agent:   t.assignee,
-      task:    t.id,
+      key: `${t.id}-finding`,
+      agent: t.assignee,
+      task: t.id,
       verdict: verdictMap[(t.finding_verdict ?? '').toUpperCase()] ?? 'complete',
       summary: t.finding_summary ?? t.result_ref ?? '',
       // Path is relative to .swarm/ — the /findings endpoint resolves it
-      path:    `sessions/${session.id}/findings/${t.id}.md`,
+      path: `sessions/${session.id}/findings/${t.id}.md`,
     }))
     .reverse();
 
@@ -865,7 +1169,7 @@ function sessionToRunViewData(session: SessionSnapshot): {
     ...(session.goal ? [{ from: 'pm' as const, text: `Goal: ${session.goal}` }] : []),
     ...session.log
       .filter(e => e.actor === 'pm' || e.actor === 'user')
-      .map(e => ({ from: e.actor === 'pm' ? 'pm' as const : 'you' as const, text: e.event })),
+      .map(e => ({ from: e.actor === 'pm' ? ('pm' as const) : ('you' as const), text: e.event })),
   ];
 
   return { tasks, agents, findings, pmMsgs };
@@ -875,26 +1179,40 @@ function HistoricalRunView({ session }: { session: SessionSnapshot }) {
   const { tasks, agents, findings, pmMsgs } = sessionToRunViewData(session);
   return (
     <RunView
-      project       = {session.project}
-      tier          = {session.tier}
-      tasks         = {tasks}
-      agents        = {agents}
-      findings      = {findings}
-      pmMsgs        = {pmMsgs}
-      spend         = {0}
-      spendCap      = {0}
-      status        = {'done' as RunStatus}
-      connected     = {false}
-      alreadyPushed = {true}
-      branchName    = {session.branchName}
-      elapsedMs     = {session.elapsedMs ?? null}
+      project={session.project}
+      tier={session.tier}
+      tasks={tasks}
+      agents={agents}
+      findings={findings}
+      pmMsgs={pmMsgs}
+      spend={0}
+      spendCap={0}
+      status={'done' as RunStatus}
+      connected={false}
+      alreadyPushed={true}
+      branchName={session.branchName}
+      elapsedMs={session.elapsedMs ?? null}
     />
   );
 }
 
 // ─── Running: real backend or server-down screen ──────────────────────────────
 
-export function Running({ onPrCreated, onRunDone, onRequestChanges, isInitiating, noActiveRun, historicalSession }: { onPrCreated?: (url: string) => void; onRunDone?: () => void; onRequestChanges?: (message: string) => void; isInitiating?: boolean; noActiveRun?: boolean; historicalSession?: SessionSnapshot }) {
+export function Running({
+  onPrCreated,
+  onRunDone,
+  onRequestChanges,
+  isInitiating,
+  noActiveRun,
+  historicalSession,
+}: {
+  onPrCreated?: (url: string) => void;
+  onRunDone?: () => void;
+  onRequestChanges?: (message: string) => void;
+  isInitiating?: boolean;
+  noActiveRun?: boolean;
+  historicalSession?: SessionSnapshot;
+}) {
   const { serverStatus, state, resolvePermission } = useRealRun();
 
   // Notify parent once when the run transitions to done.
@@ -915,7 +1233,9 @@ export function Running({ onPrCreated, onRunDone, onRequestChanges, isInitiating
 
   if (serverStatus === 'probing') {
     return (
-      <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div
+        style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      >
         <span style={{ color: 'var(--tx-3)', fontFamily: 'var(--mono)', fontSize: 13 }}>
           connecting…
         </span>
@@ -931,15 +1251,30 @@ export function Running({ onPrCreated, onRunDone, onRequestChanges, isInitiating
   // isInitiating stays true until run.classified / task.created fires from the server.
   if (isInitiating) {
     return (
-      <div style={{
-        height: '100%', display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center', gap: 16, padding: 40,
-      }}>
+      <div
+        style={{
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 16,
+          padding: 40,
+        }}
+      >
         <span className="ps-spinner" style={{ width: 22, height: 22, borderWidth: 2.5 }} />
         <div style={{ color: 'var(--tx-2)', fontSize: 13, fontFamily: 'var(--mono)' }}>
           Initialising run…
         </div>
-        <div style={{ color: 'var(--tx-3)', fontSize: 12, maxWidth: 300, textAlign: 'center', lineHeight: 1.6 }}>
+        <div
+          style={{
+            color: 'var(--tx-3)',
+            fontSize: 12,
+            maxWidth: 300,
+            textAlign: 'center',
+            lineHeight: 1.6,
+          }}
+        >
           Classifying goal and building task graph
         </div>
       </div>
@@ -949,52 +1284,72 @@ export function Running({ onPrCreated, onRunDone, onRequestChanges, isInitiating
   // Show "no active run" when the planning session was reset or no run has started yet.
   if (noActiveRun || (state.tasks.length === 0 && state.status === 'running')) {
     return (
-      <div style={{
-        height: '100%', display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center', gap: 12, padding: 40,
-      }}>
-        <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tx-3)' }}>
+      <div
+        style={{
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 12,
+          padding: 40,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            color: 'var(--tx-3)',
+          }}
+        >
           No active run
         </div>
-        <div style={{ color: 'var(--tx-2)', fontSize: 13, maxWidth: 340, textAlign: 'center', lineHeight: 1.7 }}>
+        <div
+          style={{
+            color: 'var(--tx-2)',
+            fontSize: 13,
+            maxWidth: 340,
+            textAlign: 'center',
+            lineHeight: 1.7,
+          }}
+        >
           Go to <strong style={{ color: 'var(--tx-1)' }}>Planning</strong> and click{' '}
-          <strong style={{ color: 'var(--tx-1)' }}>Execute</strong> to start a run.
-          This panel will update live as agents work.
+          <strong style={{ color: 'var(--tx-1)' }}>Execute</strong> to start a run. This panel will
+          update live as agents work.
         </div>
       </div>
     );
   }
 
-  const pause = () => fetch('/run/pause',  { method: 'POST' }).catch(() => {});
-  const abort = () => fetch('/run/abort',  { method: 'POST' }).catch(() => {});
+  const pause = () => fetch('/run/pause', { method: 'POST' }).catch(() => {});
+  const abort = () => fetch('/run/abort', { method: 'POST' }).catch(() => {});
   const resume = () => fetch('/run/resume', { method: 'POST' }).catch(() => {});
 
   return (
     <>
       <RunView
-        project        = {state.project}
-        tier           = {state.tier}
-        tasks          = {state.tasks}
-        agents         = {state.agents}
-        findings       = {state.findings}
-        pmMsgs         = {state.pmMsgs}
-        spend          = {state.spend}
-        spendCap       = {state.spendCap}
-        status         = {state.status}
-        connected      = {state.connected}
-        alreadyPushed  = {state.pushed}
-        branchName     = {state.branchName}
-        elapsedMs      = {state.elapsedMs}
-        onPause        = {state.status === 'paused' ? resume : pause}
-        onAbort        = {abort}
-        onPrCreated    = {onPrCreated}
-        onRequestChanges = {onRequestChanges}
+        project={state.project}
+        tier={state.tier}
+        tasks={state.tasks}
+        agents={state.agents}
+        findings={state.findings}
+        pmMsgs={state.pmMsgs}
+        spend={state.spend}
+        spendCap={state.spendCap}
+        status={state.status}
+        connected={state.connected}
+        alreadyPushed={state.pushed}
+        branchName={state.branchName}
+        elapsedMs={state.elapsedMs}
+        onPause={state.status === 'paused' ? resume : pause}
+        onAbort={abort}
+        onPrCreated={onPrCreated}
+        onRequestChanges={onRequestChanges}
       />
       {state.pendingPermission && (
-        <PermissionGate
-          request   = {state.pendingPermission}
-          onResolve = {resolvePermission}
-        />
+        <PermissionGate request={state.pendingPermission} onResolve={resolvePermission} />
       )}
     </>
   );

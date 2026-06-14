@@ -4,9 +4,23 @@ import type { ChatMessage } from '../../types';
 import { PERSONAS } from '../../data/personas';
 
 function Avatar({ from }: { from: string }) {
-  if (from === 'you')      return <div className="ava" style={{ background: 'var(--bg-3)', color: 'var(--tx-1)' }}>YOU</div>;
-  if (from === 'security') return <div className="ava" style={{ background: 'var(--amber-d)', color: 'var(--amber)' }}>SE</div>;
-  return <div className="ava" style={{ background: 'var(--purple-d)', color: 'var(--purple)' }}>PM</div>;
+  if (from === 'you')
+    return (
+      <div className="ava" style={{ background: 'var(--bg-3)', color: 'var(--tx-1)' }}>
+        YOU
+      </div>
+    );
+  if (from === 'security')
+    return (
+      <div className="ava" style={{ background: 'var(--amber-d)', color: 'var(--amber)' }}>
+        SE
+      </div>
+    );
+  return (
+    <div className="ava" style={{ background: 'var(--purple-d)', color: 'var(--purple)' }}>
+      PM
+    </div>
+  );
 }
 
 // ─── PM message sub-renderers ─────────────────────────────────────────────────
@@ -22,14 +36,23 @@ function PmMessageRow({ text, time }: { text: string; time?: string }) {
   // ── Error pill ──────────────────────────────────────────────────────────────
   if (text.startsWith('✗')) {
     return (
-      <div className="anim-in" style={{ display: 'flex', justifyContent: 'center', padding: '5px 12px' }}>
-        <span style={{
-          fontFamily: 'var(--mono)', fontSize: 11, lineHeight: 1.5,
-          borderRadius: 6, padding: '4px 12px',
-          color: 'var(--red)', background: 'var(--red-d)',
-          border: '1px solid rgba(240,90,82,0.25)',
-          whiteSpace: 'pre-wrap',
-        }}>
+      <div
+        className="anim-in"
+        style={{ display: 'flex', justifyContent: 'center', padding: '5px 12px' }}
+      >
+        <span
+          style={{
+            fontFamily: 'var(--mono)',
+            fontSize: 11,
+            lineHeight: 1.5,
+            borderRadius: 6,
+            padding: '4px 12px',
+            color: 'var(--red)',
+            background: 'var(--red-d)',
+            border: '1px solid rgba(240,90,82,0.25)',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
           {text}
         </span>
       </div>
@@ -39,13 +62,22 @@ function PmMessageRow({ text, time }: { text: string; time?: string }) {
   // ── Success / action pill ───────────────────────────────────────────────────
   if (text.startsWith('⬆') || text.startsWith('✓')) {
     return (
-      <div className="anim-in" style={{ display: 'flex', justifyContent: 'center', padding: '5px 12px' }}>
-        <span style={{
-          fontFamily: 'var(--mono)', fontSize: 11, lineHeight: 1.5,
-          borderRadius: 6, padding: '4px 12px',
-          color: 'var(--green)', background: 'var(--green-d)',
-          border: '1px solid rgba(52,207,138,0.2)',
-        }}>
+      <div
+        className="anim-in"
+        style={{ display: 'flex', justifyContent: 'center', padding: '5px 12px' }}
+      >
+        <span
+          style={{
+            fontFamily: 'var(--mono)',
+            fontSize: 11,
+            lineHeight: 1.5,
+            borderRadius: 6,
+            padding: '4px 12px',
+            color: 'var(--green)',
+            background: 'var(--green-d)',
+            border: '1px solid rgba(52,207,138,0.2)',
+          }}
+        >
           {text}
         </span>
       </div>
@@ -59,37 +91,62 @@ function PmMessageRow({ text, time }: { text: string; time?: string }) {
   const dm = text.match(DISPATCH_RE);
   if (dm) {
     const [, agentId, taskId, rawDesc] = dm;
-    const p     = PERSONAS[agentId];
+    const p = PERSONAS[agentId];
     const color = p?.color ?? 'var(--tx-3)';
-    const desc  = rawDesc.trim().replace(/^"([\s\S]*)"$/, '$1');
+    const desc = rawDesc.trim().replace(/^"([\s\S]*)"$/, '$1');
     return (
-      <div className="anim-in" style={{
-        display: 'flex', alignItems: 'center', gap: 7,
-        padding: '3px 16px 3px 12px',
-        borderLeft: `2px solid ${color}33`,
-      }}>
-        <span style={{
-          width: 6, height: 6, borderRadius: '50%',
-          background: color, flexShrink: 0,
-        }} />
-        <span style={{
-          fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 600,
-          color, flexShrink: 0,
-        }}>
+      <div
+        className="anim-in"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 7,
+          padding: '3px 16px 3px 12px',
+          borderLeft: `2px solid ${color}33`,
+        }}
+      >
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: '50%',
+            background: color,
+            flexShrink: 0,
+          }}
+        />
+        <span
+          style={{
+            fontFamily: 'var(--mono)',
+            fontSize: 11,
+            fontWeight: 600,
+            color,
+            flexShrink: 0,
+          }}
+        >
           {p?.name ?? agentId}
         </span>
-        <span style={{
-          fontFamily: 'var(--mono)', fontSize: 10,
-          color: 'var(--tx-3)', flexShrink: 0,
-        }}>
+        <span
+          style={{
+            fontFamily: 'var(--mono)',
+            fontSize: 10,
+            color: 'var(--tx-3)',
+            flexShrink: 0,
+          }}
+        >
           [{taskId}]
         </span>
-        <span style={{
-          fontFamily: 'var(--mono)', fontSize: 11,
-          color: 'var(--tx-3)',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          flex: 1, minWidth: 0,
-        }}>
+        <span
+          style={{
+            fontFamily: 'var(--mono)',
+            fontSize: 11,
+            color: 'var(--tx-3)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            flex: 1,
+            minWidth: 0,
+          }}
+        >
           {desc}
         </span>
       </div>
@@ -118,24 +175,36 @@ export function Message({ m }: { m: ChatMessage }) {
   if (m.from === 'system') {
     const isError = m.text.startsWith('✗');
     return (
-      <div className="anim-in" style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: '6px 0',
-      }}>
-        <span style={{
-          fontFamily: 'var(--mono)', fontSize: 11.5, lineHeight: 1.5,
-          borderRadius: 6, padding: '5px 12px',
-          ...(isError ? {
-            color:      'var(--red)',
-            background: 'var(--red-d)',
-            border:     '1px solid rgba(240,90,82,0.25)',
-            whiteSpace: 'pre-wrap' as const,
-          } : {
-            color:      'var(--tx-3)',
-            background: 'var(--bg-2)',
-            border:     '1px solid var(--border)',
-          }),
-        }}>
+      <div
+        className="anim-in"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '6px 0',
+        }}
+      >
+        <span
+          style={{
+            fontFamily: 'var(--mono)',
+            fontSize: 11.5,
+            lineHeight: 1.5,
+            borderRadius: 6,
+            padding: '5px 12px',
+            ...(isError
+              ? {
+                  color: 'var(--red)',
+                  background: 'var(--red-d)',
+                  border: '1px solid rgba(240,90,82,0.25)',
+                  whiteSpace: 'pre-wrap' as const,
+                }
+              : {
+                  color: 'var(--tx-3)',
+                  background: 'var(--bg-2)',
+                  border: '1px solid var(--border)',
+                }),
+          }}
+        >
           {m.text}
         </span>
       </div>
@@ -170,7 +239,11 @@ export function TypingIndicator({ from }: { from: string }) {
       <Avatar from={from} />
       <div className="msg-body">
         <div className="bubble" style={{ padding: 0 }}>
-          <div className="typing"><i /><i /><i /></div>
+          <div className="typing">
+            <i />
+            <i />
+            <i />
+          </div>
         </div>
       </div>
     </div>
@@ -181,11 +254,11 @@ const THINKING_MESSAGES = [
   "I'm looking into your request...",
   "I'm still doing research...",
   "This is taking a while, but I'm working on it...",
-  "Thinking through the best approach here...",
-  "Checking the project context to make sure I have this right...",
-  "Still at it — complex requests take a bit more care...",
-  "Getting some good information here, almost ready...",
-  "Pulling it all together now...",
+  'Thinking through the best approach here...',
+  'Checking the project context to make sure I have this right...',
+  'Still at it — complex requests take a bit more care...',
+  'Getting some good information here, almost ready...',
+  'Pulling it all together now...',
 ];
 
 export function ProgressiveTypingIndicator() {
@@ -245,7 +318,13 @@ export function ResearchIndicator({ question, agent }: { question: string; agent
         </div>
         <div
           className="bubble"
-          style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 13, color: 'var(--tx-2)' }}
+          style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: 8,
+            fontSize: 13,
+            color: 'var(--tx-2)',
+          }}
         >
           <span style={{ flexShrink: 0 }}>🔍</span>
           <span>

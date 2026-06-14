@@ -6,38 +6,67 @@ import { ContextFiles } from './ContextFiles';
 function renderText(t: string) {
   const parts = t.split(/(`[^`]+`)/g);
   return parts.map((p, i) =>
-    p.startsWith('`') && p.endsWith('`')
-      ? <code key={i} style={{ fontFamily: 'var(--mono)', fontSize: '0.85em', background: 'var(--bg-3)', padding: '1px 5px', borderRadius: 4, color: 'var(--tx-1)' }}>{p.slice(1, -1)}</code>
-      : <span key={i}>{p}</span>
+    p.startsWith('`') && p.endsWith('`') ? (
+      <code
+        key={i}
+        style={{
+          fontFamily: 'var(--mono)',
+          fontSize: '0.85em',
+          background: 'var(--bg-3)',
+          padding: '1px 5px',
+          borderRadius: 4,
+          color: 'var(--tx-1)',
+        }}
+      >
+        {p.slice(1, -1)}
+      </code>
+    ) : (
+      <span key={i}>{p}</span>
+    ),
   );
 }
 
 interface CharterProps {
-  charter:            CharterData;
-  team:               string[];
-  phase:              string;        // planning phase — controls empty-state copy
-  branchMode?:        'branch' | 'main';
-  branchName?:        string;        // user-set slug (no swarm/ prefix)
+  charter: CharterData;
+  team: string[];
+  phase: string; // planning phase — controls empty-state copy
+  branchMode?: 'branch' | 'main';
+  branchName?: string; // user-set slug (no swarm/ prefix)
   onBranchNameChange?: (slug: string) => void;
-  projectName?:       string;
-  projectMd:          ContextFile | null;
-  contextFiles:       ContextFile[];
+  projectName?: string;
+  projectMd: ContextFile | null;
+  contextFiles: ContextFile[];
 }
 
 function slugify(text: string): string {
-  return text.toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-')
-    .slice(0, 50).replace(/^-+|-+$/g, '');
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 50)
+    .replace(/^-+|-+$/g, '');
 }
 
-export function Charter({ charter, team, phase, branchMode, branchName, onBranchNameChange, projectName, projectMd, contextFiles }: CharterProps) {
+export function Charter({
+  charter,
+  team,
+  phase,
+  branchMode,
+  branchName,
+  onBranchNameChange,
+  projectName,
+  projectMd,
+  contextFiles,
+}: CharterProps) {
   const title = charter.goal
-    ? charter.goal.replace(/[.,].*$/, '').trim().slice(0, 48)
+    ? charter.goal
+        .replace(/[.,].*$/, '')
+        .trim()
+        .slice(0, 48)
     : 'New project';
 
-  const subtitle = projectName
-    ? `${projectName} · charter draft`
-    : 'charter draft';
+  const subtitle = projectName ? `${projectName} · charter draft` : 'charter draft';
 
   // Once the PM has started engaging (past 'goal' phase), empty optional
   // fields show "not specified" rather than "listening" so users know they're
@@ -60,33 +89,61 @@ export function Charter({ charter, team, phase, branchMode, branchName, onBranch
             <span className="num">01</span> Goal
             <span className="field-req">required</span>
           </div>
-          {charter.goal
-            ? <div className="goal-text anim-in">{renderText(charter.goal)}</div>
-            : <div className="empty">Waiting on PM…</div>}
+          {charter.goal ? (
+            <div className="goal-text anim-in">{renderText(charter.goal)}</div>
+          ) : (
+            <div className="empty">Waiting on PM…</div>
+          )}
         </div>
 
-        <Section num="02" label="Constraints"    items={charter.constraints} kind="con" mk="▸" optional active={active} />
-        <Section num="03" label="Non-goals"      items={charter.nongoals}    kind="non" mk="✕" optional active={active} />
-        <Section num="04" label="Open questions" items={charter.questions}   kind="q"   mk="?" optional active={active} />
+        <Section
+          num="02"
+          label="Constraints"
+          items={charter.constraints}
+          kind="con"
+          mk="▸"
+          optional
+          active={active}
+        />
+        <Section
+          num="03"
+          label="Non-goals"
+          items={charter.nongoals}
+          kind="non"
+          mk="✕"
+          optional
+          active={active}
+        />
+        <Section
+          num="04"
+          label="Open questions"
+          items={charter.questions}
+          kind="q"
+          mk="?"
+          optional
+          active={active}
+        />
 
         <div className="csec">
           <div className="csec-label">
             <span className="num">05</span> Recommended team
             <span className="field-req">required</span>
           </div>
-          {team.length
-            ? <div className="team-chips">
-                {team.map(id => {
-                  const p = resolveAgentPersona(id);
-                  return (
-                    <span key={id} className="agent-chip anim-in">
-                      <span className="pdot" style={{ background: p.color }} />
-                      {p.name}
-                    </span>
-                  );
-                })}
-              </div>
-            : <div className="empty">Waiting on PM…</div>}
+          {team.length ? (
+            <div className="team-chips">
+              {team.map(id => {
+                const p = resolveAgentPersona(id);
+                return (
+                  <span key={id} className="agent-chip anim-in">
+                    <span className="pdot" style={{ background: p.color }} />
+                    {p.name}
+                  </span>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="empty">Waiting on PM…</div>
+          )}
         </div>
 
         <div className="csec">
@@ -94,44 +151,71 @@ export function Charter({ charter, team, phase, branchMode, branchName, onBranch
             <span className="num">06</span> Branch mode
             <span className="field-opt">optional</span>
           </div>
-          {branchMode
-            ? <div className="branch-mode-row anim-in">
-                {branchMode === 'branch' ? (
-                  <>
-                    <div className="branch-name-field">
-                      <span className="branch-prefix">swarm /</span>
-                      <input
-                        className="branch-slug-input"
-                        value={branchName ?? ''}
-                        onChange={e => onBranchNameChange?.(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-'))}
-                        placeholder={slugify(charter.goal) || 'feature-name'}
-                        spellCheck={false}
-                      />
-                    </div>
-                    <span className="branch-hint">Feature branch — created when you Execute, deleted if no changes are made.</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="branch-mode-chip" data-mode="main">⎇  Committing to main</span>
-                    <span className="branch-hint">Changes go directly to the default branch — ensure CI is in place.</span>
-                  </>
-                )}
-              </div>
-            : <div className="empty">{active ? 'Not specified — ask the PM to set a branch mode' : 'Waiting on PM…'}</div>}
+          {branchMode ? (
+            <div className="branch-mode-row anim-in">
+              {branchMode === 'branch' ? (
+                <>
+                  <div className="branch-name-field">
+                    <span className="branch-prefix">swarm /</span>
+                    <input
+                      className="branch-slug-input"
+                      value={branchName ?? ''}
+                      onChange={e =>
+                        onBranchNameChange?.(
+                          e.target.value
+                            .toLowerCase()
+                            .replace(/[^a-z0-9-]/g, '-')
+                            .replace(/-+/g, '-'),
+                        )
+                      }
+                      placeholder={slugify(charter.goal) || 'feature-name'}
+                      spellCheck={false}
+                    />
+                  </div>
+                  <span className="branch-hint">
+                    Feature branch — created when you Execute, deleted if no changes are made.
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="branch-mode-chip" data-mode="main">
+                    ⎇ Committing to main
+                  </span>
+                  <span className="branch-hint">
+                    Changes go directly to the default branch — ensure CI is in place.
+                  </span>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="empty">
+              {active ? 'Not specified — ask the PM to set a branch mode' : 'Waiting on PM…'}
+            </div>
+          )}
         </div>
 
-        <ContextFiles
-          projectMd={projectMd}
-          contextFiles={contextFiles}
-        />
+        <ContextFiles projectMd={projectMd} contextFiles={contextFiles} />
       </div>
     </div>
   );
 }
 
-function Section({ num, label, items, kind, mk, optional, active }: {
-  num: string; label: string; items: CharterData['constraints'];
-  kind: string; mk: string; optional?: boolean; active?: boolean;
+function Section({
+  num,
+  label,
+  items,
+  kind,
+  mk,
+  optional,
+  active,
+}: {
+  num: string;
+  label: string;
+  items: CharterData['constraints'];
+  kind: string;
+  mk: string;
+  optional?: boolean;
+  active?: boolean;
 }) {
   return (
     <div className="csec">
@@ -139,16 +223,18 @@ function Section({ num, label, items, kind, mk, optional, active }: {
         <span className="num">{num}</span> {label}
         {optional && <span className="field-opt">optional</span>}
       </div>
-      {items.length === 0
-        ? <div className="empty">{active && optional ? 'Not specified' : 'Waiting on PM…'}</div>
-        : <ul>
-            {items.map((it, i) => (
-              <li key={i} className={`${kind} anim-in ${it.resolved ? 'resolved' : ''}`}>
-                <span className="mk">{it.resolved ? '✓' : mk}</span>
-                <span>{it.text}</span>
-              </li>
-            ))}
-          </ul>}
+      {items.length === 0 ? (
+        <div className="empty">{active && optional ? 'Not specified' : 'Waiting on PM…'}</div>
+      ) : (
+        <ul>
+          {items.map((it, i) => (
+            <li key={i} className={`${kind} anim-in ${it.resolved ? 'resolved' : ''}`}>
+              <span className="mk">{it.resolved ? '✓' : mk}</span>
+              <span>{it.text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

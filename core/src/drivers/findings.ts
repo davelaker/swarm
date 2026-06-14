@@ -7,22 +7,25 @@ import type { SecurityFinding, ReviewerFinding } from './types.js';
 // Human-readable verdict labels for headings
 const VERDICT_LABELS: Record<string, string> = {
   CHANGES_REQUESTED: 'Changes Requested',
-  APPROVED:          'Approved',
-  COMPLETE:          'Complete',
-  PASS:              'Pass',
-  PASS_WITH_ADVISORY:'Pass with Advisory',
-  FAILED:            'Failed',
-  FAIL:              'Failed',
+  APPROVED: 'Approved',
+  COMPLETE: 'Complete',
+  PASS: 'Pass',
+  PASS_WITH_ADVISORY: 'Pass with Advisory',
+  FAILED: 'Failed',
+  FAIL: 'Failed',
 };
 
 // Builds the `## Verdict: Summary` heading line, avoiding degenerate
 // "Changes Requested: CHANGES_REQUESTED" when summary is the same as verdict.
 function verdictHeading(verdict: string, summary: string): string {
-  const label     = VERDICT_LABELS[verdict.toUpperCase()] ?? verdict;
-  const normSum   = summary.trim().toUpperCase().replace(/[\s_]+/g, '_');
-  const normVerd  = verdict.toUpperCase().replace(/[\s_]+/g, '_');
+  const label = VERDICT_LABELS[verdict.toUpperCase()] ?? verdict;
+  const normSum = summary
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_]+/g, '_');
+  const normVerd = verdict.toUpperCase().replace(/[\s_]+/g, '_');
   // Treat "COMPLETED" as a repeat of "COMPLETE", "APPROVED" of "APPROVED", etc.
-  const isRepeat  = !summary.trim() || normSum === normVerd || normSum.startsWith(normVerd);
+  const isRepeat = !summary.trim() || normSum === normVerd || normSum.startsWith(normVerd);
   return isRepeat ? `## ${label}\n\n` : `## ${label}: ${summary}\n\n`;
 }
 
@@ -46,7 +49,12 @@ export function coderFinding(task: Task, summary: string, detail: string, files:
   ].join('\n');
 }
 
-export function testerFinding(task: Task, verdict: string, summary: string, detail?: string): string {
+export function testerFinding(
+  task: Task,
+  verdict: string,
+  summary: string,
+  detail?: string,
+): string {
   const bodyDetail = detail
     ? detail
     : verdict === 'PASS'
@@ -68,11 +76,20 @@ export function testerFinding(task: Task, verdict: string, summary: string, deta
   ].join('\n');
 }
 
-export function reviewerFinding(task: Task, verdict: string, summary: string, detail: string, items: ReviewerFinding[]): string {
+export function reviewerFinding(
+  task: Task,
+  verdict: string,
+  summary: string,
+  detail: string,
+  items: ReviewerFinding[],
+): string {
   const findingsList = items.length
-    ? items.map(f =>
-        `  - id: ${f.id}\n    severity: ${f.severity}\n    category: ${f.category}\n    location: ${f.location}`
-      ).join('\n')
+    ? items
+        .map(
+          f =>
+            `  - id: ${f.id}\n    severity: ${f.severity}\n    category: ${f.category}\n    location: ${f.location}`,
+        )
+        .join('\n')
     : '';
 
   const header = [
@@ -88,13 +105,19 @@ export function reviewerFinding(task: Task, verdict: string, summary: string, de
   ].join('\n');
 
   const body = items.length
-    ? items.map(f => [
-        `### ${f.id} — ${f.severity}: ${f.category}`,
-        `**Location:** \`${f.location}\``,
-        f.issue ? `**Issue:** ${f.issue}` : '',
-        `**Fix:** ${f.fix}`,
-        '',
-      ].filter(l => l !== '').join('\n')).join('\n')
+    ? items
+        .map(f =>
+          [
+            `### ${f.id} — ${f.severity}: ${f.category}`,
+            `**Location:** \`${f.location}\``,
+            f.issue ? `**Issue:** ${f.issue}` : '',
+            `**Fix:** ${f.fix}`,
+            '',
+          ]
+            .filter(l => l !== '')
+            .join('\n'),
+        )
+        .join('\n')
     : verdict === 'APPROVED'
       ? 'No significant issues found in the changed code.\n'
       : 'The reviewer flagged changes but did not produce a structured findings list.\n';
@@ -104,13 +127,13 @@ export function reviewerFinding(task: Task, verdict: string, summary: string, de
 }
 
 export function marketplaceFinding(
-  task:      Task,
-  agentId:   string,
+  task: Task,
+  agentId: string,
   agentName: string,
-  verdict:   string,
-  summary:   string,
-  detail:    string,
-  findings:  Array<Record<string, unknown>>,
+  verdict: string,
+  summary: string,
+  detail: string,
+  findings: Array<Record<string, unknown>>,
 ): string {
   const findingsList = findings.length
     ? findings.map(f => `  - id: ${String(f.id ?? '?')}`).join('\n')
@@ -129,14 +152,16 @@ export function marketplaceFinding(
   ].join('\n');
 
   const body = findings.length
-    ? findings.map(f => {
-        const id   = String(f.id ?? '?');
-        const rest = Object.entries(f)
-          .filter(([k]) => k !== 'id')
-          .map(([k, v]) => `**${k}:** ${String(v)}`)
-          .join('\n');
-        return `### ${id}\n${rest}\n`;
-      }).join('\n')
+    ? findings
+        .map(f => {
+          const id = String(f.id ?? '?');
+          const rest = Object.entries(f)
+            .filter(([k]) => k !== 'id')
+            .map(([k, v]) => `**${k}:** ${String(v)}`)
+            .join('\n');
+          return `### ${id}\n${rest}\n`;
+        })
+        .join('\n')
     : ['APPROVED', 'ADVISORY', 'COMPLETE'].includes(verdict.toUpperCase())
       ? 'No issues found.\n'
       : 'Issues were identified — see summary above.\n';
@@ -145,11 +170,20 @@ export function marketplaceFinding(
   return header + verdictHeading(verdict, summary) + detailBlock + body;
 }
 
-export function securityFinding(task: Task, verdict: string, summary: string, detail: string, items: SecurityFinding[]): string {
+export function securityFinding(
+  task: Task,
+  verdict: string,
+  summary: string,
+  detail: string,
+  items: SecurityFinding[],
+): string {
   const findingsList = items.length
-    ? items.map(f =>
-        `  - id: ${f.id}\n    severity: ${f.severity}\n    type: ${f.type}\n    location: ${f.location}`
-      ).join('\n')
+    ? items
+        .map(
+          f =>
+            `  - id: ${f.id}\n    severity: ${f.severity}\n    type: ${f.type}\n    location: ${f.location}`,
+        )
+        .join('\n')
     : '';
 
   const header = [
@@ -165,13 +199,19 @@ export function securityFinding(task: Task, verdict: string, summary: string, de
   ].join('\n');
 
   const body = items.length
-    ? items.map(f => [
-        `### ${f.id} — ${f.severity}: ${f.type}`,
-        `**Location:** \`${f.location}\``,
-        f.attack_path ? `**Attack path:** ${f.attack_path}` : '',
-        `**Fix:** ${f.fix}`,
-        '',
-      ].filter(l => l !== '').join('\n')).join('\n')
+    ? items
+        .map(f =>
+          [
+            `### ${f.id} — ${f.severity}: ${f.type}`,
+            `**Location:** \`${f.location}\``,
+            f.attack_path ? `**Attack path:** ${f.attack_path}` : '',
+            `**Fix:** ${f.fix}`,
+            '',
+          ]
+            .filter(l => l !== '')
+            .join('\n'),
+        )
+        .join('\n')
     : verdict === 'APPROVED'
       ? 'No security issues found.\n'
       : 'The security reviewer flagged issues but did not produce a structured findings list.\n';

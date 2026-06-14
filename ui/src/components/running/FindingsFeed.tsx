@@ -10,13 +10,13 @@ import { IconReport } from '../common/icons';
 const SEVERITY_RE = /\b(CRITICAL|HIGH|MEDIUM|LOW)\b/i;
 
 const VERDICT_LABELS: Record<string, string> = {
-  CHANGES_REQUESTED:  'Changes Requested',
-  APPROVED:           'Approved',
-  COMPLETE:           'Complete',
-  PASS:               'Pass',
+  CHANGES_REQUESTED: 'Changes Requested',
+  APPROVED: 'Approved',
+  COMPLETE: 'Complete',
+  PASS: 'Pass',
   PASS_WITH_ADVISORY: 'Pass with Advisory',
-  FAILED:             'Failed',
-  FAIL:               'Failed',
+  FAILED: 'Failed',
+  FAIL: 'Failed',
 };
 
 // Normalise a heading that may contain raw verdict codes or label-form repeats:
@@ -31,7 +31,10 @@ function normH2(text: string): string {
     const [, code, rest] = m;
     const label = VERDICT_LABELS[code.toUpperCase()];
     if (label) {
-      const restNorm = (rest ?? '').trim().toUpperCase().replace(/[\s_]+/g, '_');
+      const restNorm = (rest ?? '')
+        .trim()
+        .toUpperCase()
+        .replace(/[\s_]+/g, '_');
       const codeNorm = code.toUpperCase().replace(/[\s_]+/g, '_');
       if (!rest || restNorm === codeNorm || restNorm.startsWith(codeNorm)) return label;
       return `${label}: ${rest.trim()}`;
@@ -54,22 +57,27 @@ function normH2(text: string): string {
 
 const mdComponents: Components = {
   h2({ children }) {
-    const text   = String(children ?? '');
+    const text = String(children ?? '');
     const normal = normH2(text);
     const isPass = /^(Complete|Pass|Approved)/i.test(normal);
-    const isBad  = /^(Failed|Changes Requested)/i.test(normal);
-    const color  = isPass ? 'var(--green)' : isBad ? 'var(--amber)' : 'var(--tx)';
+    const isBad = /^(Failed|Changes Requested)/i.test(normal);
+    const color = isPass ? 'var(--green)' : isBad ? 'var(--amber)' : 'var(--tx)';
     return <h2 style={{ color }}>{normal}</h2>;
   },
   h3({ children }) {
-    const text  = String(children ?? '');
+    const text = String(children ?? '');
     const match = text.match(SEVERITY_RE);
-    const sev   = match ? match[1].toUpperCase() : null;
-    const color = sev === 'CRITICAL' ? 'var(--red)'
-                : sev === 'HIGH'     ? 'var(--amber)'
-                : sev === 'MEDIUM'   ? 'var(--orange)'
-                : sev === 'LOW'      ? 'var(--tx-2)'
-                : 'var(--tx-1)';
+    const sev = match ? match[1].toUpperCase() : null;
+    const color =
+      sev === 'CRITICAL'
+        ? 'var(--red)'
+        : sev === 'HIGH'
+          ? 'var(--amber)'
+          : sev === 'MEDIUM'
+            ? 'var(--orange)'
+            : sev === 'LOW'
+              ? 'var(--tx-2)'
+              : 'var(--tx-1)';
     return <h3 style={{ color }}>{children}</h3>;
   },
   code({ children }) {
@@ -91,16 +99,15 @@ function deriveChip(f: Finding, tasks: Task[]): ChipState {
     return { label: 'CHANGES REQ', cls: 'changes' };
   }
   const fixing = tasks.find(
-    t => t.id === `t_fix_${f.task}` &&
-         (t.status === 'pending' || t.status === 'in_progress'),
+    t => t.id === `t_fix_${f.task}` && (t.status === 'pending' || t.status === 'in_progress'),
   );
   if (fixing) return { label: 'FIXING…', cls: 'changes' };
   const MAP: Record<string, ChipState> = {
-    complete:          { label: 'COMPLETE',  cls: 'complete' },
-    pass:              { label: 'PASS',      cls: 'pass'     },
-    pass_with_advisory:{ label: 'PASS+ADV',  cls: 'pass'     },
-    changes:           { label: 'CHANGES',   cls: 'changes'  },
-    fail:              { label: 'FAIL',      cls: 'fail'     },
+    complete: { label: 'COMPLETE', cls: 'complete' },
+    pass: { label: 'PASS', cls: 'pass' },
+    pass_with_advisory: { label: 'PASS+ADV', cls: 'pass' },
+    changes: { label: 'CHANGES', cls: 'changes' },
+    fail: { label: 'FAIL', cls: 'fail' },
   };
   return MAP[f.verdict] ?? { label: f.verdict.toUpperCase(), cls: f.verdict };
 }
@@ -117,11 +124,15 @@ function fmtTime(ts: number): string {
 function FindingModal({ f, onClose }: { f: Finding; onClose: () => void }) {
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const p    = resolveAgentPersona(f.agent);
-  const chip = deriveChip(f, []);   // tasks not needed inside modal (chip already chosen)
+  const p = resolveAgentPersona(f.agent);
+  const chip = deriveChip(f, []); // tasks not needed inside modal (chip already chosen)
 
   useEffect(() => {
-    if (!f.path) { setContent('*(no finding file)*'); setLoading(false); return; }
+    if (!f.path) {
+      setContent('*(no finding file)*');
+      setLoading(false);
+      return;
+    }
     fetch(`/findings?path=${encodeURIComponent(f.path)}`)
       .then(r => r.text())
       .then(text => {
@@ -134,7 +145,9 @@ function FindingModal({ f, onClose }: { f: Finding; onClose: () => void }) {
 
   // Close on Escape
   useEffect(() => {
-    const fn = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const fn = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
     document.addEventListener('keydown', fn);
     return () => document.removeEventListener('keydown', fn);
   }, [onClose]);
@@ -142,50 +155,86 @@ function FindingModal({ f, onClose }: { f: Finding; onClose: () => void }) {
   return (
     <div
       style={{
-        position: 'fixed', inset: 0, zIndex: 1000,
-        background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(3px)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1000,
+        background: 'rgba(0,0,0,0.65)',
+        backdropFilter: 'blur(3px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
         animation: 'fade 0.12s ease',
       }}
       onClick={onClose}
     >
       <div
         style={{
-          background: 'var(--bg-1)', border: '1px solid var(--border)',
-          borderRadius: 10, width: 'min(820px, 92vw)', maxHeight: '82vh',
-          display: 'flex', flexDirection: 'column',
+          background: 'var(--bg-1)',
+          border: '1px solid var(--border)',
+          borderRadius: 10,
+          width: 'min(820px, 92vw)',
+          maxHeight: '82vh',
+          display: 'flex',
+          flexDirection: 'column',
           boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
           animation: 'slideTop 0.15s ease',
         }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          padding: '14px 18px', borderBottom: '1px solid var(--border)',
-          flexShrink: 0,
-        }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: p?.color, flexShrink: 0 }} />
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '14px 18px',
+            borderBottom: '1px solid var(--border)',
+            flexShrink: 0,
+          }}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: p?.color,
+              flexShrink: 0,
+            }}
+          />
           <span style={{ fontWeight: 600, fontSize: 14, color: 'var(--tx-1)' }}>{p?.name}</span>
-          <span style={{ fontSize: 12, color: 'var(--tx-3)', fontFamily: 'var(--mono)' }}>{f.task}</span>
+          <span style={{ fontSize: 12, color: 'var(--tx-3)', fontFamily: 'var(--mono)' }}>
+            {f.task}
+          </span>
           <span style={{ flex: 1 }} />
           {f.ts && (
             <span style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--tx-3)' }}>
               {fmtTime(f.ts)}
             </span>
           )}
-          <span className={`vchip ${chip.cls}`} style={{ marginLeft: 4 }}>{chip.label}</span>
+          <span className={`vchip ${chip.cls}`} style={{ marginLeft: 4 }}>
+            {chip.label}
+          </span>
           <button
             onClick={onClose}
-            style={{ marginLeft: 8, fontSize: 18, lineHeight: 1, color: 'var(--tx-3)', flexShrink: 0 }}
+            style={{
+              marginLeft: 8,
+              fontSize: 18,
+              lineHeight: 1,
+              color: 'var(--tx-3)',
+              flexShrink: 0,
+            }}
             title="Close (Esc)"
-          >×</button>
+          >
+            ×
+          </button>
         </div>
 
         {/* Body */}
         <div style={{ overflowY: 'auto', padding: '20px 24px', flex: 1 }}>
           {loading ? (
-            <span style={{ color: 'var(--tx-3)', fontFamily: 'var(--mono)', fontSize: 12 }}>Loading…</span>
+            <span style={{ color: 'var(--tx-3)', fontFamily: 'var(--mono)', fontSize: 12 }}>
+              Loading…
+            </span>
           ) : (
             <div className="finding-md">
               <ReactMarkdown components={mdComponents}>{content ?? ''}</ReactMarkdown>
@@ -199,24 +248,40 @@ function FindingModal({ f, onClose }: { f: Finding; onClose: () => void }) {
 
 // ─── Card ─────────────────────────────────────────────────────────────────────
 
-function FindingCard({ f, tasks, dimmed, highlighted }: { f: Finding; tasks: Task[]; dimmed?: boolean; highlighted?: boolean }) {
+function FindingCard({
+  f,
+  tasks,
+  dimmed,
+  highlighted,
+}: {
+  f: Finding;
+  tasks: Task[];
+  dimmed?: boolean;
+  highlighted?: boolean;
+}) {
   const [showModal, setShowModal] = useState(false);
-  const p    = resolveAgentPersona(f.agent);
+  const p = resolveAgentPersona(f.agent);
   const chip = deriveChip(f, tasks);
 
   // Trim summary to one line, don't show if it's just a path
-  const summaryText = f.summary && !f.summary.includes('/')
-    ? f.summary.length > 120 ? f.summary.slice(0, 117) + '…' : f.summary
-    : null;
+  const summaryText =
+    f.summary && !f.summary.includes('/')
+      ? f.summary.length > 120
+        ? f.summary.slice(0, 117) + '…'
+        : f.summary
+      : null;
 
   return (
     <>
-      <div className="finding" style={{
-        opacity: dimmed ? 0.15 : 1,
-        transition: 'opacity 0.15s, box-shadow 0.15s',
-        boxShadow: highlighted ? 'inset 2px 0 0 rgba(77,141,244,0.6)' : 'none',
-        background: highlighted ? 'rgba(77,141,244,0.04)' : 'transparent',
-      }}>
+      <div
+        className="finding"
+        style={{
+          opacity: dimmed ? 0.15 : 1,
+          transition: 'opacity 0.15s, box-shadow 0.15s',
+          boxShadow: highlighted ? 'inset 2px 0 0 rgba(77,141,244,0.6)' : 'none',
+          background: highlighted ? 'rgba(77,141,244,0.04)' : 'transparent',
+        }}
+      >
         <div className="finding-head" style={{ cursor: 'default' }}>
           <span className="finding-agent">
             <span className="pdot" style={{ background: p?.color }} />
@@ -225,10 +290,15 @@ function FindingCard({ f, tasks, dimmed, highlighted }: { f: Finding; tasks: Tas
           <span className="finding-tid">{f.task}</span>
           <span style={{ flex: 1 }} />
           {f.ts && (
-            <span style={{
-              fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--tx-3)',
-              marginRight: 8, flexShrink: 0,
-            }}>
+            <span
+              style={{
+                fontFamily: 'var(--mono)',
+                fontSize: 10,
+                color: 'var(--tx-3)',
+                marginRight: 8,
+                flexShrink: 0,
+              }}
+            >
               {fmtTime(f.ts)}
             </span>
           )}
@@ -247,28 +317,39 @@ function FindingCard({ f, tasks, dimmed, highlighted }: { f: Finding; tasks: Tas
               onClick={() => setShowModal(true)}
               title="View full report"
               style={{
-                display: 'inline-flex', alignItems: 'center', gap: 4,
-                fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--blue)',
-                whiteSpace: 'nowrap', flexShrink: 0,
-                background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                fontSize: 11,
+                fontFamily: 'var(--mono)',
+                color: 'var(--blue)',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
               }}
             >
-              <IconReport size={11} />report
+              <IconReport size={11} />
+              report
             </button>
           )}
         </div>
       </div>
 
-      {showModal && (
-        <FindingModal f={f} onClose={() => setShowModal(false)} />
-      )}
+      {showModal && <FindingModal f={f} onClose={() => setShowModal(false)} />}
     </>
   );
 }
 
 // ─── Feed ─────────────────────────────────────────────────────────────────────
 
-export function FindingsFeed({ findings, tasks, hoveredTaskId }: {
+export function FindingsFeed({
+  findings,
+  tasks,
+  hoveredTaskId,
+}: {
   findings: Finding[];
   tasks: Task[];
   hoveredTaskId?: string | null;
@@ -278,7 +359,10 @@ export function FindingsFeed({ findings, tasks, hoveredTaskId }: {
       <div className="panel-head">
         <span>Findings</span>
         <span className="spacer" />
-        <span className="mono" style={{ fontSize: 11, color: 'var(--tx-3)', textTransform: 'none', letterSpacing: 0 }}>
+        <span
+          className="mono"
+          style={{ fontSize: 11, color: 'var(--tx-3)', textTransform: 'none', letterSpacing: 0 }}
+        >
           {findings.length} logged
         </span>
       </div>
@@ -286,7 +370,9 @@ export function FindingsFeed({ findings, tasks, hoveredTaskId }: {
         {findings.length === 0 && <div className="feed-empty">waiting for the first finding…</div>}
         {findings.map(f => (
           <FindingCard
-            key={f.key} f={f} tasks={tasks}
+            key={f.key}
+            f={f}
+            tasks={tasks}
             highlighted={hoveredTaskId != null && f.task === hoveredTaskId}
             dimmed={hoveredTaskId != null && f.task !== hoveredTaskId}
           />

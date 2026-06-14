@@ -2,30 +2,37 @@ export type Surface = 'planning' | 'running' | 'branches' | 'marketplace' | 'his
 
 export interface BranchPr {
   number: number;
-  url:    string;
-  title:  string;
-  state:  'open' | 'merged' | 'closed';
+  url: string;
+  title: string;
+  state: 'open' | 'merged' | 'closed';
 }
 
 export interface BranchCommit {
-  hash:      string;
+  hash: string;
   shortHash: string;
-  message:   string;
-  date:      string;
+  message: string;
+  date: string;
 }
 
 export interface SwarmBranch {
-  name:       string;
-  shortName:  string;
-  isCurrent:  boolean;
-  merged:     boolean;
-  pushed:     boolean;
-  ahead:      number;
+  name: string;
+  shortName: string;
+  isCurrent: boolean;
+  merged: boolean;
+  pushed: boolean;
+  ahead: number;
   lastCommit: { hash: string; message: string; date: string };
-  pr:         BranchPr | null;
+  pr: BranchPr | null;
 }
 
-export type TaskStatus = 'pending' | 'in_progress' | 'done' | 'changes_requested' | 'failed' | 'blocked' | 'skipped';
+export type TaskStatus =
+  | 'pending'
+  | 'in_progress'
+  | 'done'
+  | 'changes_requested'
+  | 'failed'
+  | 'blocked'
+  | 'skipped';
 export type Verdict = 'complete' | 'pass' | 'changes' | 'fail';
 export type RunStatus = 'running' | 'paused' | 'done' | 'aborted';
 export type Sensitivity = 'read' | 'write' | 'shell' | 'network';
@@ -50,24 +57,24 @@ export interface Task {
 }
 
 export interface AgentState {
-  active:       boolean;
-  step:         string;
-  activeAt:     number | null;   // Date.now() when agent became active — drives elapsed timer
-  verdict:      Verdict | null;
-  inputTokens:  number | null;
+  active: boolean;
+  step: string;
+  activeAt: number | null; // Date.now() when agent became active — drives elapsed timer
+  verdict: Verdict | null;
+  inputTokens: number | null;
   outputTokens: number | null;
-  costUsd:      number | null;
-  contextPct:   number | null;   // % of context window used — api-key only
+  costUsd: number | null;
+  contextPct: number | null; // % of context window used — api-key only
 }
 
 export interface Finding {
-  key:     string;
-  agent:   string;
-  task:    string;
+  key: string;
+  agent: string;
+  task: string;
   verdict: Verdict;
   summary: string;
-  path?:   string;   // relative path under .swarm/ — used to fetch full content
-  ts?:     number;   // Date.now() when SSE event arrived; absent for snapshot findings
+  path?: string; // relative path under .swarm/ — used to fetch full content
+  ts?: number; // Date.now() when SSE event arrived; absent for snapshot findings
 }
 
 export interface ChatMessage {
@@ -78,9 +85,9 @@ export interface ChatMessage {
 
 export interface PermissionRequest {
   requestId: string;
-  agentId:   string;
-  tool:      string;
-  input:     Record<string, unknown>;
+  agentId: string;
+  tool: string;
+  input: Record<string, unknown>;
 }
 
 export type SqlCategory = 'read' | 'write' | 'delete' | 'destructive';
@@ -117,22 +124,22 @@ export interface GrantedTool {
 }
 
 export interface ConnectorGrant {
-  server: string;  // connector id, e.g. 'supabase'
-  tool:   string;  // tool name, e.g. 'list_tables'
-  mode?:  'allow' | 'ask';
+  server: string; // connector id, e.g. 'supabase'
+  tool: string; // tool name, e.g. 'list_tables'
+  mode?: 'allow' | 'ask';
 }
 
 export interface HiredAgent {
-  id:                string;
-  version:           string;
-  enabled:           boolean;
-  grantedTools:      GrantedTool[];
+  id: string;
+  version: string;
+  enabled: boolean;
+  grantedTools: GrantedTool[];
   grantedConnectors: ConnectorGrant[];
-  model:             string;  // claude model id, e.g. 'claude-sonnet-4-6'
-  instructions:      string;
-  upgradeAvailable:  boolean;
-  name?:             string;  // display label — persisted to roster.json so the PM/loader can name the agent
-  prompt?:           string;  // full system prompt — stored in roster.json for server-side execution
+  model: string; // claude model id, e.g. 'claude-sonnet-4-6'
+  instructions: string;
+  upgradeAvailable: boolean;
+  name?: string; // display label — persisted to roster.json so the PM/loader can name the agent
+  prompt?: string; // full system prompt — stored in roster.json for server-side execution
 }
 
 export interface CharterData {
@@ -143,43 +150,43 @@ export interface CharterData {
 }
 
 export interface SessionMeta {
-  id:         string;
-  savedAt:    string;
-  project:    string;
-  goal:       string;
-  tier:       string;
+  id: string;
+  savedAt: string;
+  project: string;
+  goal: string;
+  tier: string;
   branchName?: string;
-  taskCount:  number;
-  passCount:  number;
-  failCount:  number;
+  taskCount: number;
+  passCount: number;
+  failCount: number;
   elapsedMs?: number;
 }
 
 export interface SessionSnapshot {
-  id:         string;
-  savedAt:    string;
-  project:    string;
-  goal:       string;
-  tier:       string;
+  id: string;
+  savedAt: string;
+  project: string;
+  goal: string;
+  tier: string;
   branchName?: string;
   charter?: {
-    constraints:      string[];
-    nongoals:         string[];
-    questions:        string[];
-    branchMode?:      string;
+    constraints: string[];
+    nongoals: string[];
+    questions: string[];
+    branchMode?: string;
     planningHistory?: Array<{ from: 'pm' | 'you'; text: string }>;
   };
   tasks: Array<{
-    id:              string;
-    title:           string;
-    assignee:        string;
-    status:          string;
-    depends_on:      string[];
-    result_ref:      string | null;
+    id: string;
+    title: string;
+    assignee: string;
+    status: string;
+    depends_on: string[];
+    result_ref: string | null;
     finding_verdict?: string;
     finding_summary?: string;
   }>;
-  log:        Array<{ ts: string; actor: string; event: string }>;
+  log: Array<{ ts: string; actor: string; event: string }>;
   elapsedMs?: number;
 }
 

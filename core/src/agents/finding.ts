@@ -4,28 +4,28 @@
 // DESIGN.md §6.2a + CONTROLS.md C2.
 
 export interface ValidatedFinding {
-  task:           string;
-  agent:          string;
-  schema:         string;
-  verdict:        string;
+  task: string;
+  agent: string;
+  schema: string;
+  verdict: string;
   // System-derived — never taken from what the agent wrote (C2 + threat S1).
-  blocksDone:     boolean;
-  negotiable:     boolean;
-  summary?:       string;
+  blocksDone: boolean;
+  negotiable: boolean;
+  summary?: string;
 }
 
 // Schema → gate behaviour.
 // negotiable:false = Negotiator can never trade this away.
 // blocksOnVerdicts = verdicts that prevent the task from reaching done.
 const SCHEMA_RULES: Record<string, { negotiable: boolean; blocksOnVerdicts: string[] }> = {
-  'security-finding':   { negotiable: false, blocksOnVerdicts: ['CHANGES_REQUESTED', 'FAIL'] },
-  'tester-finding':     { negotiable: false, blocksOnVerdicts: ['FAIL'] },
-  'reviewer-finding':   { negotiable: true,  blocksOnVerdicts: ['CHANGES_REQUESTED'] },
-  'coder-finding':        { negotiable: false, blocksOnVerdicts: [] }, // completion report
-  'ux-finding':           { negotiable: true,  blocksOnVerdicts: ['CHANGES_REQUESTED'] },
-  'perf-finding':         { negotiable: true,  blocksOnVerdicts: ['CHANGES_REQUESTED'] },
-  'negotiation-ruling':   { negotiable: false, blocksOnVerdicts: [] },
-  'marketplace-finding':  { negotiable: true,  blocksOnVerdicts: ['CHANGES_REQUESTED'] },
+  'security-finding': { negotiable: false, blocksOnVerdicts: ['CHANGES_REQUESTED', 'FAIL'] },
+  'tester-finding': { negotiable: false, blocksOnVerdicts: ['FAIL'] },
+  'reviewer-finding': { negotiable: true, blocksOnVerdicts: ['CHANGES_REQUESTED'] },
+  'coder-finding': { negotiable: false, blocksOnVerdicts: [] }, // completion report
+  'ux-finding': { negotiable: true, blocksOnVerdicts: ['CHANGES_REQUESTED'] },
+  'perf-finding': { negotiable: true, blocksOnVerdicts: ['CHANGES_REQUESTED'] },
+  'negotiation-ruling': { negotiable: false, blocksOnVerdicts: [] },
+  'marketplace-finding': { negotiable: true, blocksOnVerdicts: ['CHANGES_REQUESTED'] },
 };
 
 // ─── Frontmatter parser ───────────────────────────────────────────────────────
@@ -41,7 +41,10 @@ function parseFrontmatter(content: string): Record<string, string> {
     const colon = line.indexOf(':');
     if (colon < 1) continue;
     const key = line.slice(0, colon).trim();
-    const val = line.slice(colon + 1).trim().replace(/^["'>]|["']$/g, '');
+    const val = line
+      .slice(colon + 1)
+      .trim()
+      .replace(/^["'>]|["']$/g, '');
     if (key) result[key] = val;
   }
   return result;
@@ -71,7 +74,7 @@ export function validateFinding(content: string, expectedTaskId?: string): Valid
   }
 
   // System-derives blocksDone and negotiable — never trust the agent's values (S1).
-  const rules      = SCHEMA_RULES[schema] ?? { negotiable: true, blocksOnVerdicts: [] };
+  const rules = SCHEMA_RULES[schema] ?? { negotiable: true, blocksOnVerdicts: [] };
   const blocksDone = rules.blocksOnVerdicts.includes(verdict.toUpperCase());
   const negotiable = rules.negotiable;
 

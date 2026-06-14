@@ -6,7 +6,7 @@ export interface ContextFile {
 }
 
 export interface ContextData {
-  projectMd:    ContextFile | null;
+  projectMd: ContextFile | null;
   contextFiles: ContextFile[];
 }
 
@@ -16,8 +16,10 @@ export function useContextFiles(): ContextData {
   useEffect(() => {
     const load = () => {
       fetch('/context')
-        .then(r => r.ok ? r.json() as Promise<ContextData> : null)
-        .then(d => { if (d) setData(d); })
+        .then(r => (r.ok ? (r.json() as Promise<ContextData>) : null))
+        .then(d => {
+          if (d) setData(d);
+        })
         .catch(() => {});
     };
     load();

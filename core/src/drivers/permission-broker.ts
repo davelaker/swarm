@@ -9,13 +9,13 @@
 //   4. The promise resolves and the caller proceeds or rejects the operation
 
 import { randomUUID } from 'node:crypto';
-import { bus }        from '../state/events.js';
+import { bus } from '../state/events.js';
 
 interface PendingRequest {
-  agentId:   string;
-  tool:      string;
-  input:     Record<string, unknown>;
-  resolve:   (decision: 'allow' | 'deny') => void;
+  agentId: string;
+  tool: string;
+  input: Record<string, unknown>;
+  resolve: (decision: 'allow' | 'deny') => void;
   timeoutId: ReturnType<typeof setTimeout>;
 }
 
@@ -26,8 +26,8 @@ const TIMEOUT_MS = 10 * 60 * 1_000;
 
 export function requestPermission(
   agentId: string,
-  tool:    string,
-  input:   Record<string, unknown>,
+  tool: string,
+  input: Record<string, unknown>,
 ): Promise<'allow' | 'deny'> {
   return new Promise(resolve => {
     const requestId = randomUUID();
@@ -35,16 +35,20 @@ export function requestPermission(
     const timeoutId = setTimeout(() => {
       if (!pending.has(requestId)) return;
       pending.delete(requestId);
-      bus.emit('swarm', { type: 'agent.permission_resolved', request_id: requestId, decision: 'deny' });
+      bus.emit('swarm', {
+        type: 'agent.permission_resolved',
+        request_id: requestId,
+        decision: 'deny',
+      });
       resolve('deny');
     }, TIMEOUT_MS);
 
     pending.set(requestId, { agentId, tool, input, resolve, timeoutId });
 
     bus.emit('swarm', {
-      type:       'agent.permission_request',
+      type: 'agent.permission_request',
       request_id: requestId,
-      agent_id:   agentId,
+      agent_id: agentId,
       tool,
       input,
     });

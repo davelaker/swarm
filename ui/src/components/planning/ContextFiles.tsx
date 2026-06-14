@@ -2,37 +2,42 @@ import { useState } from 'react';
 import type { ContextFile } from '../../hooks/useContextFiles';
 
 interface ContextFilesProps {
-  projectMd:    ContextFile | null;
+  projectMd: ContextFile | null;
   contextFiles: ContextFile[];
 }
 
 export function ContextFiles({ projectMd, contextFiles }: ContextFilesProps) {
-  const all: ContextFile[] = [
-    ...(projectMd    ? [projectMd]    : []),
-    ...contextFiles,
-  ];
+  const all: ContextFile[] = [...(projectMd ? [projectMd] : []), ...contextFiles];
 
   return (
     <div className="csec">
       <div className="csec-label">
         <span className="num">07</span> PM context sources
       </div>
-      {all.length === 0
-        ? <div className="empty">None discovered — add CLAUDE.md or CONTEXT.md files in subdirectories to give the PM richer context</div>
-        : <>
-            <div className="ctx-sources-hint">Pre-loaded before planning · click a file to expand</div>
-            <div className="ctx-files">
-              {all.map(f => <ContextRow key={f.relPath} file={f} />)}
-            </div>
-          </>
-      }
+      {all.length === 0 ? (
+        <div className="empty">
+          None discovered — add CLAUDE.md or CONTEXT.md files in subdirectories to give the PM
+          richer context
+        </div>
+      ) : (
+        <>
+          <div className="ctx-sources-hint">
+            Pre-loaded before planning · click a file to expand
+          </div>
+          <div className="ctx-files">
+            {all.map(f => (
+              <ContextRow key={f.relPath} file={f} />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
 function ContextRow({ file }: { file: ContextFile }) {
-  const [open,    setOpen]    = useState(false);
-  const [copied,  setCopied]  = useState(false);
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();

@@ -1,9 +1,25 @@
 import type { MarketAgent } from '../types';
 
-const ACOLORS = ['#4d8df4','#34cf8a','#e8a93a','#a585f5','#ef8043','#5bb8c4','#d97aa8','#7c9af2','#62c98a','#e0a14a'];
+const ACOLORS = [
+  '#4d8df4',
+  '#34cf8a',
+  '#e8a93a',
+  '#a585f5',
+  '#ef8043',
+  '#5bb8c4',
+  '#d97aa8',
+  '#7c9af2',
+  '#62c98a',
+  '#e0a14a',
+];
 
 const RAW_AGENTS = [
-  { id: 'product-researcher', name: 'Product Researcher', role: 'Research', rating: 4.8, version: '2.1.0',
+  {
+    id: 'product-researcher',
+    name: 'Product Researcher',
+    role: 'Research',
+    rating: 4.8,
+    version: '2.1.0',
     desc: 'Interrogates the charter and surfaces unstated requirements and edge cases.',
     changelog: '2.1.0 — sharper edge-case probing, charter cross-referencing.',
     prompt: `You are the Product Researcher, a pre-implementation agent in a multi-agent coding system.
@@ -54,16 +70,25 @@ Your job: surface the requirements the charter does NOT explicitly state before 
   ]
 }`,
     tools: [
-      { name: 'read_files',  sens: 'read' as const,    desc: 'Read source files and the charter' },
-      { name: 'web_search',  sens: 'network' as const, desc: 'Look up domain references and prior art' },
+      { name: 'read_files', sens: 'read' as const, desc: 'Read source files and the charter' },
+      {
+        name: 'web_search',
+        sens: 'network' as const,
+        desc: 'Look up domain references and prior art',
+      },
     ],
     connectors: [
       { id: 'github', tools: ['list_issues', 'get_issue', 'search_code'] },
       { id: 'linear', tools: ['list_issues', 'search_issues', 'get_issue'] },
     ],
-    },
+  },
 
-  { id: 'architect', name: 'Architect', role: 'Architecture', rating: 4.9, version: '3.0.1',
+  {
+    id: 'architect',
+    name: 'Architect',
+    role: 'Architecture',
+    rating: 4.9,
+    version: '3.0.1',
     desc: 'Proposes module boundaries and a build order before a line of code is written.',
     changelog: '3.0.1 — dependency-aware build ordering, smaller task slices.',
     prompt: `You are the Architect, a design-phase agent in a multi-agent coding system.
@@ -110,14 +135,17 @@ Findings are constraints and risks layered on top of the plan. severity applies 
 }`,
     tools: [
       { name: 'read_files', sens: 'read' as const, desc: 'Read the full source tree' },
-      { name: 'read_deps',  sens: 'read' as const, desc: 'Inspect the dependency manifest' },
+      { name: 'read_deps', sens: 'read' as const, desc: 'Inspect the dependency manifest' },
     ],
-    connectors: [
-      { id: 'github', tools: ['search_code', 'get_file_contents', 'list_commits'] },
-    ],
-    },
+    connectors: [{ id: 'github', tools: ['search_code', 'get_file_contents', 'list_commits'] }],
+  },
 
-  { id: 'ux', name: 'UX Researcher', role: 'Design', rating: 4.6, version: '1.2.0',
+  {
+    id: 'ux',
+    name: 'UX Researcher',
+    role: 'Design',
+    rating: 4.6,
+    version: '1.2.0',
     desc: 'Audits user-facing flows and proposes interaction improvements with evidence.',
     changelog: '1.2.0 — artifact inspection, heuristic scoring.',
     prompt: `You are the UX Researcher, a design-quality gate in a multi-agent coding system.
@@ -177,16 +205,27 @@ Your job: judge whether the changed UI flows are usable — not whether the code
   ]
 }`,
     tools: [
-      { name: 'read_files',     sens: 'read' as const,  desc: 'Read component and route source' },
-      { name: 'read_artifacts', sens: 'read' as const,  desc: 'Inspect rendered UI artifacts' },
-      { name: 'write_notes',    sens: 'write' as const, desc: 'Append research notes', locked: true, scope: 'notes/**' },
+      { name: 'read_files', sens: 'read' as const, desc: 'Read component and route source' },
+      { name: 'read_artifacts', sens: 'read' as const, desc: 'Inspect rendered UI artifacts' },
+      {
+        name: 'write_notes',
+        sens: 'write' as const,
+        desc: 'Append research notes',
+        locked: true,
+        scope: 'notes/**',
+      },
     ],
     connectors: [
       { id: 'figma', tools: ['get_file', 'get_file_nodes', 'get_image', 'get_comments'] },
     ],
-    },
+  },
 
-  { id: 'a11y', name: 'Accessibility Auditor', role: 'Quality', rating: 4.7, version: '2.4.0',
+  {
+    id: 'a11y',
+    name: 'Accessibility Auditor',
+    role: 'Quality',
+    rating: 4.7,
+    version: '2.4.0',
     desc: 'Checks WCAG conformance and flags keyboard, contrast, and semantics issues.',
     changelog: '2.4.0 — WCAG 2.2 rules, focus-order tracing.',
     prompt: `You are the Accessibility Auditor, a quality gate in a multi-agent coding system.
@@ -235,17 +274,25 @@ If the diff contains no UI markup, components, or styles, return APPROVED with s
   ]
 }`,
     tools: [
-      { name: 'read_files',     sens: 'read'    as const, desc: 'Read markup and styles' },
-      { name: 'read_artifacts', sens: 'read'    as const, desc: 'Inspect the rendered DOM tree' },
-      { name: 'fetch_axe',      sens: 'network' as const, desc: 'Pull the latest axe-core ruleset' },
-      { name: 'run_audit',      sens: 'shell'   as const, desc: 'Run axe-cli or pa11y against the rendered page', scope: 'npx axe-cli *' },
+      { name: 'read_files', sens: 'read' as const, desc: 'Read markup and styles' },
+      { name: 'read_artifacts', sens: 'read' as const, desc: 'Inspect the rendered DOM tree' },
+      { name: 'fetch_axe', sens: 'network' as const, desc: 'Pull the latest axe-core ruleset' },
+      {
+        name: 'run_audit',
+        sens: 'shell' as const,
+        desc: 'Run axe-cli or pa11y against the rendered page',
+        scope: 'npx axe-cli *',
+      },
     ],
-    connectors: [
-      { id: 'figma', tools: ['get_file', 'get_file_nodes', 'get_image'] },
-    ],
-    },
+    connectors: [{ id: 'figma', tools: ['get_file', 'get_file_nodes', 'get_image'] }],
+  },
 
-  { id: 'perf', name: 'Performance Engineer', role: 'Quality', rating: 4.5, version: '1.9.2',
+  {
+    id: 'perf',
+    name: 'Performance Engineer',
+    role: 'Quality',
+    rating: 4.5,
+    version: '1.9.2',
     desc: 'Profiles hot paths and enforces a latency and bundle-size budget.',
     changelog: '1.9.2 — flamegraph diffing, regression thresholds.',
     prompt: `You are the Performance Engineer, a measurement gate in a multi-agent coding system.
@@ -291,19 +338,58 @@ Your job: detect performance regressions introduced by this change and enforce t
   ]
 }`,
     tools: [
-      { name: 'read_files', sens: 'read'  as const, desc: 'Read source and build output' },
-      { name: 'run_bench',  sens: 'shell' as const, desc: 'Execute the benchmark harness', scope: 'npm run *' },
+      { name: 'read_files', sens: 'read' as const, desc: 'Read source and build output' },
+      {
+        name: 'run_bench',
+        sens: 'shell' as const,
+        desc: 'Execute the benchmark harness',
+        scope: 'npm run *',
+      },
     ],
     connectors: [
-      { id: 'vercel',   tools: ['list_deployments', 'get_deployment', 'get_runtime_logs', 'get_deployment_build_logs'] },
-      { id: 'sentry',   tools: ['find_projects', 'search_issues', 'get_issue_details', 'analyze_issue_with_seer', 'search_error_events', 'get_trace_details'] },
-      { id: 'datadog',  tools: ['query_metrics', 'list_dashboards', 'list_monitors', 'get_monitor', 'search_logs', 'get_trace'] },
+      {
+        id: 'vercel',
+        tools: [
+          'list_deployments',
+          'get_deployment',
+          'get_runtime_logs',
+          'get_deployment_build_logs',
+        ],
+      },
+      {
+        id: 'sentry',
+        tools: [
+          'find_projects',
+          'search_issues',
+          'get_issue_details',
+          'analyze_issue_with_seer',
+          'search_error_events',
+          'get_trace_details',
+        ],
+      },
+      {
+        id: 'datadog',
+        tools: [
+          'query_metrics',
+          'list_dashboards',
+          'list_monitors',
+          'get_monitor',
+          'search_logs',
+          'get_trace',
+        ],
+      },
     ],
-    },
+  },
 
-  { id: 'db', name: 'Database Specialist', role: 'Backend', rating: 4.8, version: '2.8.0',
+  {
+    id: 'db',
+    name: 'Database Specialist',
+    role: 'Backend',
+    rating: 4.8,
+    version: '2.8.0',
     desc: 'Reviews schema, indexes, query plans, and data-access patterns for correctness and safety.',
-    changelog: '2.8.0 — lock-safety mechanics, connection pooling, RLS, Supabase advisor integration.',
+    changelog:
+      '2.8.0 — lock-safety mechanics, connection pooling, RLS, Supabase advisor integration.',
     prompt: `You are the Database Specialist, a data-layer gate in a multi-agent coding system.
 
 Your job: ensure schema changes, queries, and data-access patterns are correct, safe to deploy, and efficient.
@@ -365,19 +451,61 @@ When the Supabase connector is available, ground your review in live schema stat
   ]
 }`,
     tools: [
-      { name: 'read_files',       sens: 'read' as const,  desc: 'Read schema and query source' },
-      { name: 'db_read',        sens: 'shell' as const, sqlCategory: 'read'        as const, desc: 'Run SELECT, SHOW, EXPLAIN, DESCRIBE queries' },
-      { name: 'db_write',       sens: 'shell' as const, sqlCategory: 'write'       as const, desc: 'Run INSERT, UPDATE queries' },
-      { name: 'db_delete',      sens: 'shell' as const, sqlCategory: 'delete'      as const, desc: 'Run DELETE queries' },
-      { name: 'db_destructive', sens: 'shell' as const, sqlCategory: 'destructive' as const, desc: 'Run DROP, TRUNCATE, ALTER operations' },
-      { name: 'write_migration',  sens: 'write' as const, desc: 'Author a migration file', locked: true, scope: 'migrations/**' },
+      { name: 'read_files', sens: 'read' as const, desc: 'Read schema and query source' },
+      {
+        name: 'db_read',
+        sens: 'shell' as const,
+        sqlCategory: 'read' as const,
+        desc: 'Run SELECT, SHOW, EXPLAIN, DESCRIBE queries',
+      },
+      {
+        name: 'db_write',
+        sens: 'shell' as const,
+        sqlCategory: 'write' as const,
+        desc: 'Run INSERT, UPDATE queries',
+      },
+      {
+        name: 'db_delete',
+        sens: 'shell' as const,
+        sqlCategory: 'delete' as const,
+        desc: 'Run DELETE queries',
+      },
+      {
+        name: 'db_destructive',
+        sens: 'shell' as const,
+        sqlCategory: 'destructive' as const,
+        desc: 'Run DROP, TRUNCATE, ALTER operations',
+      },
+      {
+        name: 'write_migration',
+        sens: 'write' as const,
+        desc: 'Author a migration file',
+        locked: true,
+        scope: 'migrations/**',
+      },
     ],
     connectors: [
-      { id: 'supabase', tools: ['list_tables', 'get_advisors', 'list_extensions', 'list_migrations', 'list_projects', 'execute_sql', 'apply_migration'] },
+      {
+        id: 'supabase',
+        tools: [
+          'list_tables',
+          'get_advisors',
+          'list_extensions',
+          'list_migrations',
+          'list_projects',
+          'execute_sql',
+          'apply_migration',
+        ],
+      },
     ],
-    },
+  },
 
-  { id: 'api', name: 'API Designer', role: 'Backend', rating: 4.4, version: '1.5.0',
+  {
+    id: 'api',
+    name: 'API Designer',
+    role: 'Backend',
+    rating: 4.4,
+    version: '1.5.0',
     desc: 'Designs endpoint contracts and keeps them backward compatible.',
     changelog: '1.5.0 — breaking-change detector, OpenAPI 3.1.',
     prompt: `You are the API Designer, a contract-quality gate in a multi-agent coding system.
@@ -428,16 +556,27 @@ If the diff contains no route or handler changes, return APPROVED with summary "
   ]
 }`,
     tools: [
-      { name: 'read_files',    sens: 'read' as const,  desc: 'Read existing route and handler source' },
-      { name: 'write_openapi', sens: 'write' as const, desc: 'Write the OpenAPI contract', locked: true, scope: 'openapi/**' },
+      { name: 'read_files', sens: 'read' as const, desc: 'Read existing route and handler source' },
+      {
+        name: 'write_openapi',
+        sens: 'write' as const,
+        desc: 'Write the OpenAPI contract',
+        locked: true,
+        scope: 'openapi/**',
+      },
     ],
     connectors: [
       { id: 'supabase', tools: ['list_tables', 'generate_typescript_types'] },
-      { id: 'github',   tools: ['list_pull_requests', 'get_pull_request', 'search_code'] },
+      { id: 'github', tools: ['list_pull_requests', 'get_pull_request', 'search_code'] },
     ],
-    },
+  },
 
-  { id: 'compliance', name: 'Compliance Reviewer', role: 'Security', rating: 4.9, version: '3.2.0',
+  {
+    id: 'compliance',
+    name: 'Compliance Reviewer',
+    role: 'Security',
+    rating: 4.9,
+    version: '3.2.0',
     desc: 'Maps changes to SOC2 / GDPR controls and flags gaps before they ship.',
     changelog: '3.2.0 — GDPR data-flow mapping, control evidence links.',
     prompt: `You are the Compliance Reviewer, a regulatory gate in a multi-agent coding system.
@@ -489,17 +628,29 @@ Your job: ensure changes that touch personal data, auth, or audit trails satisfy
   ]
 }`,
     tools: [
-      { name: 'read_files',   sens: 'read' as const,    desc: 'Read source and data-model definitions' },
-      { name: 'fetch_policy', sens: 'network' as const, desc: 'Fetch the control catalog from the policy service' },
+      { name: 'read_files', sens: 'read' as const, desc: 'Read source and data-model definitions' },
+      {
+        name: 'fetch_policy',
+        sens: 'network' as const,
+        desc: 'Fetch the control catalog from the policy service',
+      },
     ],
     connectors: [
-      { id: 'sentry',  tools: ['find_projects', 'search_issues', 'get_issue_details', 'find_releases'] },
-      { id: 'github',  tools: ['list_pull_requests', 'get_pull_request'] },
-      { id: 'slack',   tools: ['list_channels', 'get_channel_history', 'search_messages'] },
+      {
+        id: 'sentry',
+        tools: ['find_projects', 'search_issues', 'get_issue_details', 'find_releases'],
+      },
+      { id: 'github', tools: ['list_pull_requests', 'get_pull_request'] },
+      { id: 'slack', tools: ['list_channels', 'get_channel_history', 'search_messages'] },
     ],
-    },
+  },
 
-  { id: 'docs', name: 'Documentation Writer', role: 'Docs', rating: 4.3, version: '1.4.1',
+  {
+    id: 'docs',
+    name: 'Documentation Writer',
+    role: 'Docs',
+    rating: 4.3,
+    version: '1.4.1',
     desc: 'Writes and updates docs from the diff and the charter, in your voice.',
     changelog: '1.4.1 — changelog generation, style-guide adherence.',
     prompt: `You are the Documentation Writer, a post-implementation agent in a multi-agent coding system.
@@ -535,16 +686,27 @@ Your job: keep documentation accurate and current by updating it from the diff a
   "files_changed": ["docs/api.md", "src/auth/session.ts"]
 }`,
     tools: [
-      { name: 'read_files', sens: 'read' as const,  desc: 'Read the diff and existing docs' },
-      { name: 'write_docs', sens: 'write' as const, desc: 'Write and update documentation', locked: true, scope: 'docs/**,README.md,CHANGELOG.md' },
+      { name: 'read_files', sens: 'read' as const, desc: 'Read the diff and existing docs' },
+      {
+        name: 'write_docs',
+        sens: 'write' as const,
+        desc: 'Write and update documentation',
+        locked: true,
+        scope: 'docs/**,README.md,CHANGELOG.md',
+      },
     ],
     connectors: [
       { id: 'github', tools: ['list_pull_requests', 'get_pull_request', 'create_pull_request'] },
-      { id: 'slack',  tools: ['post_message'] },
+      { id: 'slack', tools: ['post_message'] },
     ],
-    },
+  },
 
-  { id: 'refactor', name: 'Refactoring Specialist', role: 'Code', rating: 4.2, version: '0.9.3',
+  {
+    id: 'refactor',
+    name: 'Refactoring Specialist',
+    role: 'Code',
+    rating: 4.2,
+    version: '0.9.3',
     desc: 'Untangles complex modules without changing observable behavior.',
     changelog: '0.9.3 — behavior-preserving codemods, char-test harness.',
     prompt: `You are the Refactoring Specialist, an implementation agent in a multi-agent coding system.
@@ -580,11 +742,16 @@ Your job: improve the internal structure of code without changing any observable
   "files_changed": ["src/auth/session.ts"]
 }`,
     tools: [
-      { name: 'read_files',  sens: 'read' as const,  desc: 'Read modules in scope' },
+      { name: 'read_files', sens: 'read' as const, desc: 'Read modules in scope' },
       { name: 'run_codemod', sens: 'shell' as const, desc: 'Run codemods in a sandbox' },
-      { name: 'write_files', sens: 'write' as const, desc: 'Apply refactors to scoped files', locked: true },
+      {
+        name: 'write_files',
+        sens: 'write' as const,
+        desc: 'Apply refactors to scoped files',
+        locked: true,
+      },
     ],
-    },
+  },
 ];
 
 export const MARKET_AGENTS: MarketAgent[] = RAW_AGENTS.map((a, i) => ({
@@ -594,23 +761,41 @@ export const MARKET_AGENTS: MarketAgent[] = RAW_AGENTS.map((a, i) => ({
 
 export const AGENT_BY_ID = Object.fromEntries(MARKET_AGENTS.map(a => [a.id, a]));
 
-
-
 export const UX_UPGRADE = {
   to: '1.3.0',
-  changelog: '1.3.0 — interaction issues can now block completion; cross-checks with the Accessibility Auditor.',
+  changelog:
+    '1.3.0 — interaction issues can now block completion; cross-checks with the Accessibility Auditor.',
   diff: [
     { t: 'ctx', s: '  Inspect rendered UI artifacts and the flows they expose.' },
     { t: 'del', s: '  Flag interaction issues as suggestions.' },
     { t: 'add', s: '  Flag interaction issues as CHANGES_REQUESTED when they block a core task.' },
     { t: 'add', s: '  Cross-check findings with the Accessibility Auditor before finalizing.' },
   ],
-  newTool: { name: 'fetch_heuristics', sens: 'network' as const, desc: 'Pull the usability heuristic set from the design knowledge base' },
+  newTool: {
+    name: 'fetch_heuristics',
+    sens: 'network' as const,
+    desc: 'Pull the usability heuristic set from the design knowledge base',
+  },
 };
 
 export const BUILTINS = [
-  { id: 'pm',       name: 'Project Manager', role: 'Referee',        tools: [{ sens: 'read' as const }],                                    },
-  { id: 'coder',    name: 'Coder',           role: 'Implementation', tools: [{ sens: 'read' as const }, { sens: 'write' as const }, { sens: 'shell' as const }] },
-  { id: 'tester',   name: 'Tester',          role: 'Verification',   tools: [{ sens: 'read' as const }, { sens: 'shell' as const }],         },
-  { id: 'security', name: 'Security',        role: 'Review',         tools: [{ sens: 'read' as const }, { sens: 'network' as const }],       },
+  { id: 'pm', name: 'Project Manager', role: 'Referee', tools: [{ sens: 'read' as const }] },
+  {
+    id: 'coder',
+    name: 'Coder',
+    role: 'Implementation',
+    tools: [{ sens: 'read' as const }, { sens: 'write' as const }, { sens: 'shell' as const }],
+  },
+  {
+    id: 'tester',
+    name: 'Tester',
+    role: 'Verification',
+    tools: [{ sens: 'read' as const }, { sens: 'shell' as const }],
+  },
+  {
+    id: 'security',
+    name: 'Security',
+    role: 'Review',
+    tools: [{ sens: 'read' as const }, { sens: 'network' as const }],
+  },
 ];

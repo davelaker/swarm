@@ -1,20 +1,23 @@
-import * as fs   from 'node:fs';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getRoot } from './repo.js';
 
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 
 export interface BuiltinModels {
-  pm:       string;
-  coder:    string;
-  tester:   string;
+  pm: string;
+  coder: string;
+  tester: string;
   reviewer: string;
   security: string;
 }
 
 const DEFAULT: BuiltinModels = {
-  pm: DEFAULT_MODEL, coder: DEFAULT_MODEL, tester: DEFAULT_MODEL,
-  reviewer: DEFAULT_MODEL, security: DEFAULT_MODEL,
+  pm: DEFAULT_MODEL,
+  coder: DEFAULT_MODEL,
+  tester: DEFAULT_MODEL,
+  reviewer: DEFAULT_MODEL,
+  security: DEFAULT_MODEL,
 };
 
 function filePath(): string {

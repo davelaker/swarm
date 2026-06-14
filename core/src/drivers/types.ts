@@ -6,33 +6,33 @@
 import type { Task, SwarmState, RosterEntry } from '../state/types.js';
 
 export interface SecurityFinding {
-  id:          string;
-  severity:    'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
-  type:        string;
-  location:    string;
-  attack_path: string;   // entry point → data flow → impact
-  fix:         string;
+  id: string;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  type: string;
+  location: string;
+  attack_path: string; // entry point → data flow → impact
+  fix: string;
 }
 
 export interface ReviewerFinding {
-  id:       string;   // REV-N
+  id: string; // REV-N
   severity: 'HIGH' | 'MEDIUM' | 'LOW';
   category: 'correctness' | 'robustness' | 'design' | 'testability' | 'clarity';
   location: string;
-  issue:    string;   // quoted offending code + explanation
-  fix:      string;
+  issue: string; // quoted offending code + explanation
+  fix: string;
 }
 
 export interface DriverResult {
-  verdict:          string;   // COMPLETE | PASS | FAIL | APPROVED | CHANGES_REQUESTED
-  summary:          string;
-  filesChanged:     string[];
+  verdict: string; // COMPLETE | PASS | FAIL | APPROVED | CHANGES_REQUESTED
+  summary: string;
+  filesChanged: string[];
   securityFindings: SecurityFinding[];
   reviewerFindings: ReviewerFinding[];
-  findingMarkdown:  string;   // ready to write to disk
-  costUsd?:         number;   // undefined = covered by subscription
-  inputTokens?:     number;   // api-key driver only — not available from claude -p
-  outputTokens?:    number;
+  findingMarkdown: string; // ready to write to disk
+  costUsd?: number; // undefined = covered by subscription
+  inputTokens?: number; // api-key driver only — not available from claude -p
+  outputTokens?: number;
 }
 
 // ─── Negotiator — runtime deadlock arbiter ───────────────────────────────────
@@ -40,23 +40,30 @@ export interface DriverResult {
 // on a blocking gate finding. Read-only; returns a structured recovery decision.
 
 export interface NegotiatorDecision {
-  decision:      'SPAWN_FIX' | 'DOWNGRADE' | 'ABORT';
-  targetTaskIds: string[];  // the blocked gate task(s) this applies to
-  reasoning:     string;    // 1-3 sentences, user-facing
+  decision: 'SPAWN_FIX' | 'DOWNGRADE' | 'ABORT';
+  targetTaskIds: string[]; // the blocked gate task(s) this applies to
+  reasoning: string; // 1-3 sentences, user-facing
 }
 
 export interface DeadlockContext {
-  goal:    string;
-  blocked: Array<{ taskId: string; assignee: string; title: string; verdict: string; summary: string; findingPath: string | null }>;
-  tasks:   Task[];
+  goal: string;
+  blocked: Array<{
+    taskId: string;
+    assignee: string;
+    title: string;
+    verdict: string;
+    summary: string;
+    findingPath: string | null;
+  }>;
+  tasks: Task[];
 }
 
 export interface AgentDriver {
-  name:         string;
-  runCoder    (task: Task, state: SwarmState, worktreePath?: string): Promise<DriverResult>;
-  runTester   (task: Task, state: SwarmState): Promise<DriverResult>;
-  runSecurity (task: Task, state: SwarmState): Promise<DriverResult>;
-  runReviewer (task: Task, state: SwarmState): Promise<DriverResult>;
+  name: string;
+  runCoder(task: Task, state: SwarmState, worktreePath?: string): Promise<DriverResult>;
+  runTester(task: Task, state: SwarmState): Promise<DriverResult>;
+  runSecurity(task: Task, state: SwarmState): Promise<DriverResult>;
+  runReviewer(task: Task, state: SwarmState): Promise<DriverResult>;
   runMarketplaceAgent(task: Task, state: SwarmState, agent: RosterEntry): Promise<DriverResult>;
   runNegotiator(ctx: DeadlockContext): Promise<NegotiatorDecision>;
   // Read-only codebase investigator for the PM planning session. Invoked directly
@@ -71,10 +78,10 @@ export interface AgentDriver {
 }
 
 export interface ScoutResult {
-  summary:       string;
-  digest:        string;
+  summary: string;
+  digest: string;
   relevantFiles: string[];
-  costUsd?:      number;
+  costUsd?: number;
 }
 
 // Re-export RosterEntry so callers can import it from this module too.

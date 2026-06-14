@@ -2,10 +2,10 @@
 // Every read/write in the codebase goes through these functions.
 // Swapping state.json for Postgres later touches only this file.
 
-import fs    from 'node:fs';
-import fsp   from 'node:fs/promises';
-import path  from 'node:path';
-import { bus }           from './events.js';
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
+import path from 'node:path';
+import { bus } from './events.js';
 import type { SwarmState, Task, TaskStatus, LogEntry } from './types.js';
 
 // ─── Mutable project root ─────────────────────────────────────────────────────
@@ -14,8 +14,12 @@ import type { SwarmState, Task, TaskStatus, LogEntry } from './types.js';
 
 let _root: string = process.cwd();
 
-export function getRoot(): string { return _root; }
-export function setRoot(r: string): void { _root = r; }
+export function getRoot(): string {
+  return _root;
+}
+export function setRoot(r: string): void {
+  _root = r;
+}
 
 export function swarmDir(): string {
   return path.join(_root, '.swarm');
@@ -50,8 +54,10 @@ export function loadProjectContextBounded(maxChars = 8192): string | null {
   const full = loadProjectContext();
   if (!full) return null;
   if (full.length <= maxChars) return full;
-  return full.slice(0, maxChars) +
-    `\n\n[CLAUDE.md truncated at ${maxChars} chars — edit CLAUDE.md to trim it]`;
+  return (
+    full.slice(0, maxChars) +
+    `\n\n[CLAUDE.md truncated at ${maxChars} chars — edit CLAUDE.md to trim it]`
+  );
 }
 
 // ─── Subdirectory context files ───────────────────────────────────────────────
@@ -61,22 +67,43 @@ export function loadProjectContextBounded(maxChars = 8192): string | null {
 
 const SUBDIR_CTX_NAMES = new Set(['CLAUDE.md', 'CONTEXT.md']);
 const SUBDIR_SKIP_DIRS = new Set([
-  'node_modules', '.git', '.swarm', 'dist', '.next', 'build',
-  'coverage', '__pycache__', '.venv', '.cache', 'tmp', 'vendor',
-  '.turbo', '.yarn', 'out', 'storybook-static',
+  'node_modules',
+  '.git',
+  '.swarm',
+  'dist',
+  '.next',
+  'build',
+  'coverage',
+  '__pycache__',
+  '.venv',
+  '.cache',
+  'tmp',
+  'vendor',
+  '.turbo',
+  '.yarn',
+  'out',
+  'storybook-static',
 ]);
 
-export interface SubdirFile { relPath: string; content: string; truncated: boolean; }
+export interface SubdirFile {
+  relPath: string;
+  content: string;
+  truncated: boolean;
+}
 
 function scanSubdirContextFiles(): Array<{ relPath: string; full: string }> {
-  const root        = _root;
-  const rootClaude  = path.join(root, 'CLAUDE.md');
+  const root = _root;
+  const rootClaude = path.join(root, 'CLAUDE.md');
   const results: Array<{ relPath: string; full: string }> = [];
 
   const scan = (dir: string, depth: number): void => {
     if (depth > 6) return;
     let entries: fs.Dirent[];
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
     for (const e of entries) {
       if (e.isDirectory() && !SUBDIR_SKIP_DIRS.has(e.name) && !e.name.startsWith('.')) {
         scan(path.join(dir, e.name), depth + 1);
@@ -85,7 +112,9 @@ function scanSubdirContextFiles(): Array<{ relPath: string; full: string }> {
         if (abs === rootClaude) continue;
         try {
           results.push({ relPath: path.relative(root, abs), full: fs.readFileSync(abs, 'utf8') });
-        } catch { /* skip unreadable */ }
+        } catch {
+          /* skip unreadable */
+        }
       }
     }
   };
@@ -106,7 +135,7 @@ export function loadSubdirContextBounded(totalBudget = 16_000): SubdirFile[] {
     if (full.length <= perFile) return { relPath, content: full, truncated: false };
     return {
       relPath,
-      content:   full.slice(0, perFile) + `\n\n[truncated — ${full.length} chars total]`,
+      content: full.slice(0, perFile) + `\n\n[truncated — ${full.length} chars total]`,
       truncated: true,
     };
   });
@@ -118,7 +147,7 @@ export function loadSubdirContextBounded(totalBudget = 16_000): SubdirFile[] {
 export function writeDeploymentInfo(info: string): void {
   const file = projectContextFile();
   const SECTION = '## Swarm Context';
-  const LEGACY  = '## Deployment';
+  const LEGACY = '## Deployment';
 
   if (!fs.existsSync(file)) {
     const project = path.basename(_root);
@@ -136,26 +165,32 @@ export function writeDeploymentInfo(info: string): void {
     return;
   }
 
-  const lines    = fs.readFileSync(file, 'utf8').split('\n');
+  const lines = fs.readFileSync(file, 'utf8').split('\n');
   // Accept both the current heading and the legacy one for backward compatibility.
   const sectionIdx = lines.findIndex(l => l.trim() === SECTION || l.trim() === LEGACY);
 
   if (sectionIdx === -1) {
     // No existing Swarm section — append one.
     lines.push(
-      '', SECTION,
+      '',
+      SECTION,
       '<!-- Added by Agent Swarm. Update manually if deployment details change. -->',
-      '', `**Deployment:** ${info}`, '',
+      '',
+      `**Deployment:** ${info}`,
+      '',
     );
   } else {
     // Normalise heading to current name, then replace body until next ## heading.
     lines[sectionIdx] = SECTION;
     const endIdx = lines.findIndex((l, i) => i > sectionIdx && l.startsWith('## '));
-    const end    = endIdx === -1 ? lines.length : endIdx;
+    const end = endIdx === -1 ? lines.length : endIdx;
     lines.splice(
-      sectionIdx + 1, end - sectionIdx - 1,
+      sectionIdx + 1,
+      end - sectionIdx - 1,
       '<!-- Added by Agent Swarm. Update manually if deployment details change. -->',
-      '', `**Deployment:** ${info}`, '',
+      '',
+      `**Deployment:** ${info}`,
+      '',
     );
   }
 
@@ -179,7 +214,7 @@ export function getState(): SwarmState {
 function writeState(state: SwarmState): void {
   state.updated_at = new Date().toISOString();
   const file = stateFile();
-  const tmp  = file + '.tmp';
+  const tmp = file + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(state, null, 2), 'utf8');
   fs.renameSync(tmp, file);
 }
@@ -190,7 +225,7 @@ function writeState(state: SwarmState): void {
 // This enforces DESIGN §5.3: "only the PM writes task status."
 export function updateTask(taskId: string, updates: Partial<Task>): void {
   const state = getState();
-  const idx   = state.tasks.findIndex(t => t.id === taskId);
+  const idx = state.tasks.findIndex(t => t.id === taskId);
   if (idx === -1) throw new Error(`Task ${taskId} not found`);
 
   const before = state.tasks[idx];
@@ -218,7 +253,7 @@ export function addTask(task: Task): void {
 }
 
 export function appendLog(actor: string, event: string): void {
-  const state  = getState();
+  const state = getState();
   const entry: LogEntry = { ts: new Date().toISOString(), actor, event };
   state.log.push(entry);
   writeState(state);
@@ -228,7 +263,7 @@ export function appendLog(actor: string, event: string): void {
 // Workers write findings; PM reads them via result_ref.
 // Finding prose is free-form but frontmatter must conform to DESIGN §6.2a.
 export async function writeFinding(taskId: string, content: string): Promise<string> {
-  const dir  = findingsDir();
+  const dir = findingsDir();
   await fsp.mkdir(dir, { recursive: true });
   const file = path.join(dir, `${taskId}.md`);
 
@@ -239,7 +274,7 @@ export async function writeFinding(taskId: string, content: string): Promise<str
   await fsp.rename(tmp, file);
 
   const state = getState();
-  const idx   = state.tasks.findIndex(t => t.id === taskId);
+  const idx = state.tasks.findIndex(t => t.id === taskId);
   if (idx !== -1) {
     state.tasks[idx].result_ref = path.relative(swarmDir(), file);
     writeState(state);
@@ -256,7 +291,10 @@ export async function writeFinding(taskId: string, content: string): Promise<str
       const colon = line.indexOf(':');
       if (colon < 1) continue;
       const k = line.slice(0, colon).trim();
-      const v = line.slice(colon + 1).trim().replace(/^["']|["']$/g, '');
+      const v = line
+        .slice(colon + 1)
+        .trim()
+        .replace(/^["']|["']$/g, '');
       if (k === 'verdict') verdict = v;
       if (k === 'summary') summary = v;
     }
@@ -278,64 +316,75 @@ export function sessionsDir(): string {
 
 export async function snapshotSession(): Promise<void> {
   let state: ReturnType<typeof getState>;
-  try { state = getState(); } catch { return; }  // no state.json yet — skip
+  try {
+    state = getState();
+  } catch {
+    return;
+  } // no state.json yet — skip
 
-  const now  = new Date();
-  const ts   = now.toISOString().slice(0, 19).replace(/T/, '-').replace(/:/g, '');
-  const slug = state.goal.toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '-').slice(0, 40).replace(/-+$/, '');
-  const id  = `${ts}-${slug}`;
+  const now = new Date();
+  const ts = now.toISOString().slice(0, 19).replace(/T/, '-').replace(/:/g, '');
+  const slug = state.goal
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, '-')
+    .slice(0, 40)
+    .replace(/-+$/, '');
+  const id = `${ts}-${slug}`;
   const dir = path.join(sessionsDir(), id);
 
   await fsp.mkdir(path.join(dir, 'findings'), { recursive: true });
 
   // Copy findings and parse verdict/summary for the task list
-  const tasks = await Promise.all(state.tasks.map(async t => {
-    let verdict: string | undefined;
-    let summary: string | undefined;
-    if (t.result_ref) {
-      try {
-        const src     = path.resolve(swarmDir(), t.result_ref);
-        const content = await fsp.readFile(src, 'utf8');
-        const dst     = path.join(dir, 'findings', `${t.id}.md`);
-        await fsp.writeFile(dst, content, 'utf8');
-        const m = content.match(/^---[\r\n]([\s\S]*?)[\r\n]---/);
-        if (m) {
-          for (const line of m[1].split('\n')) {
-            const colon = line.indexOf(':');
-            if (colon < 1) continue;
-            const k = line.slice(0, colon).trim();
-            const v = line.slice(colon + 1).trim().replace(/^["']|["']$/g, '');
-            if (k === 'verdict') verdict = v;
-            if (k === 'summary') summary = v;
+  const tasks = await Promise.all(
+    state.tasks.map(async t => {
+      let verdict: string | undefined;
+      let summary: string | undefined;
+      if (t.result_ref) {
+        try {
+          const src = path.resolve(swarmDir(), t.result_ref);
+          const content = await fsp.readFile(src, 'utf8');
+          const dst = path.join(dir, 'findings', `${t.id}.md`);
+          await fsp.writeFile(dst, content, 'utf8');
+          const m = content.match(/^---[\r\n]([\s\S]*?)[\r\n]---/);
+          if (m) {
+            for (const line of m[1].split('\n')) {
+              const colon = line.indexOf(':');
+              if (colon < 1) continue;
+              const k = line.slice(0, colon).trim();
+              const v = line
+                .slice(colon + 1)
+                .trim()
+                .replace(/^["']|["']$/g, '');
+              if (k === 'verdict') verdict = v;
+              if (k === 'summary') summary = v;
+            }
           }
+        } catch {
+          /* finding may not exist yet */
         }
-      } catch { /* finding may not exist yet */ }
-    }
-    return { ...t, finding_verdict: verdict, finding_summary: summary };
-  }));
+      }
+      return { ...t, finding_verdict: verdict, finding_summary: summary };
+    }),
+  );
 
-  const logTs     = state.log.map(e => new Date(e.ts).getTime()).filter(n => !isNaN(n));
+  const logTs = state.log.map(e => new Date(e.ts).getTime()).filter(n => !isNaN(n));
   const elapsedMs = logTs.length >= 2 ? logTs[logTs.length - 1] - logTs[0] : undefined;
 
   const snapshot = {
     id,
-    savedAt:    now.toISOString(),
-    project:    state.project,
-    goal:       state.goal,
-    tier:       state.tier,
+    savedAt: now.toISOString(),
+    project: state.project,
+    goal: state.goal,
+    tier: state.tier,
     branchName: state.branchName,
-    charter:    state.charter,
+    charter: state.charter,
     tasks,
-    log:        state.log,
+    log: state.log,
     elapsedMs,
   };
 
-  await fsp.writeFile(
-    path.join(dir, 'index.json'),
-    JSON.stringify(snapshot, null, 2),
-    'utf8',
-  );
+  await fsp.writeFile(path.join(dir, 'index.json'), JSON.stringify(snapshot, null, 2), 'utf8');
   console.log(`  ▸ session saved: .swarm/sessions/${id}/`);
 }
 
@@ -345,7 +394,7 @@ export async function snapshotSession(): Promise<void> {
 // Idempotent: does nothing if the entry already exists.
 function ensureGitignore(): void {
   const gitignorePath = path.join(_root, '.gitignore');
-  const entry         = '.swarm/';
+  const entry = '.swarm/';
 
   if (fs.existsSync(gitignorePath)) {
     const content = fs.readFileSync(gitignorePath, 'utf8');
@@ -359,7 +408,11 @@ function ensureGitignore(): void {
   }
 }
 
-export function initWorkspace(project: string, goal: string, tier: SwarmState['tier'] = 'bugfix'): void {
+export function initWorkspace(
+  project: string,
+  goal: string,
+  tier: SwarmState['tier'] = 'bugfix',
+): void {
   const dir = swarmDir();
   fs.mkdirSync(path.join(dir, 'findings'), { recursive: true });
 
@@ -368,12 +421,12 @@ export function initWorkspace(project: string, goal: string, tier: SwarmState['t
 
   const initial: SwarmState = {
     project,
-    owner:      'me',
+    owner: 'me',
     goal,
     tier,
     updated_at: new Date().toISOString(),
-    tasks:      [],
-    log:        [],
+    tasks: [],
+    log: [],
   };
 
   // Only write if state.json doesn't exist — never clobber existing state.

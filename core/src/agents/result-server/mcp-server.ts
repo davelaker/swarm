@@ -22,7 +22,7 @@
  * Protocol: MCP JSON-RPC 2.0 over stdio (newline-delimited JSON).
  */
 
-import * as fs       from 'node:fs';
+import * as fs from 'node:fs';
 import * as readline from 'node:readline';
 
 const outputPath = process.env.RESULT_OUTPUT_PATH;
@@ -37,7 +37,9 @@ try {
   const raw = process.env.RESULT_SCHEMA;
   if (raw) inputSchema = JSON.parse(raw) as Record<string, unknown>;
 } catch {
-  process.stderr.write('[result-mcp] RESULT_SCHEMA failed to parse — using permissive { type: object }\n');
+  process.stderr.write(
+    '[result-mcp] RESULT_SCHEMA failed to parse — using permissive { type: object }\n',
+  );
   inputSchema = { type: 'object' };
 }
 
@@ -78,7 +80,7 @@ function validate(args: Record<string, unknown>): string[] {
     const value = args[field];
 
     const isString = typeof value === 'string';
-    const isArray  = Array.isArray(value);
+    const isArray = Array.isArray(value);
 
     if (value === undefined || value === null || (!isString && !isArray)) {
       failures.push(`${field} is required and must be provided`);
@@ -104,7 +106,7 @@ function validate(args: Record<string, unknown>): string[] {
     ) {
       failures.push(
         `detail must be a substantive paragraph of at least ${minDetail} characters ` +
-        `describing what you changed and why — not 'Completed'`,
+          `describing what you changed and why — not 'Completed'`,
       );
     }
   }
@@ -140,21 +142,18 @@ rl.on('line', (line: string) => {
         serverInfo: { name: 'result_submitter', version: '1.0.0' },
       },
     });
-
   } else if (msg.method === 'notifications/initialized') {
     // No response for notifications.
-
   } else if (msg.method === 'tools/list') {
     send({
       jsonrpc: '2.0',
       id: msg.id,
       result: { tools: [SUBMIT_TOOL] },
     });
-
   } else if (msg.method === 'tools/call') {
     const params = msg.params as { name: string; arguments: Record<string, unknown> } | undefined;
     if (params?.name === 'submit_result') {
-      const args     = params.arguments ?? {};
+      const args = params.arguments ?? {};
       const failures = validate(args);
 
       // Hard gate: required fields must be present and substantive. Returning
@@ -162,23 +161,29 @@ rl.on('line', (line: string) => {
       // MAX_REJECTS times. After that we accept anyway so the run is never stuck.
       if (failures.length > 0 && rejects < MAX_REJECTS) {
         rejects++;
-        process.stderr.write(`[result-mcp] rejected: ${failures.join('; ')} (reject ${rejects}/${MAX_REJECTS})\n`);
+        process.stderr.write(
+          `[result-mcp] rejected: ${failures.join('; ')} (reject ${rejects}/${MAX_REJECTS})\n`,
+        );
         send({
           jsonrpc: '2.0',
           id: msg.id,
           result: {
-            content: [{
-              type: 'text',
-              text:
-                `REJECTED: ${failures.join('; ')}. Re-call submit_result NOW with those field(s) filled in. ` +
-                `This call was NOT recorded — nothing is saved until the result is valid.`,
-            }],
+            content: [
+              {
+                type: 'text',
+                text:
+                  `REJECTED: ${failures.join('; ')}. Re-call submit_result NOW with those field(s) filled in. ` +
+                  `This call was NOT recorded — nothing is saved until the result is valid.`,
+              },
+            ],
             isError: true,
           },
         });
       } else {
         if (failures.length > 0) {
-          process.stderr.write(`[result-mcp] accepting despite: ${failures.join('; ')} after ${rejects} rejects — downstream defaults will apply\n`);
+          process.stderr.write(
+            `[result-mcp] accepting despite: ${failures.join('; ')} after ${rejects} rejects — downstream defaults will apply\n`,
+          );
         }
         try {
           fs.writeFileSync(outputPath!, JSON.stringify(args));
@@ -199,7 +204,6 @@ rl.on('line', (line: string) => {
         error: { code: -32601, message: `Unknown tool: ${params?.name ?? '(none)'}` },
       });
     }
-
   } else if (typeof msg.id !== 'undefined') {
     // Respond to unrecognised requests (not notifications) with method-not-found.
     send({

@@ -2,21 +2,21 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { IconFolder, IconChevron } from './icons';
 
 interface FsEntry {
-  name:     string;
-  path:     string;
+  name: string;
+  path: string;
   hasSwarm: boolean;
 }
 
 interface FsResponse {
-  path:    string;
-  parent:  string | null;
+  path: string;
+  parent: string | null;
   entries: FsEntry[];
-  error?:  string;
+  error?: string;
 }
 
 interface Props {
   currentRoot: string | null;
-  onClose:     () => void;
+  onClose: () => void;
 }
 
 // Split an absolute path into breadcrumb segments
@@ -26,28 +26,28 @@ function parseCrumbs(p: string): Array<{ label: string; path: string }> {
     { label: '/', path: '/' },
     ...parts.map((part, i) => ({
       label: part,
-      path:  '/' + parts.slice(0, i + 1).join('/'),
+      path: '/' + parts.slice(0, i + 1).join('/'),
     })),
   ];
 }
 
 export function ProjectSwitcher({ currentRoot, onClose }: Props) {
-  const [browsePath,    setBrowsePath]    = useState('');
-  const [parent,        setParent]        = useState<string | null>(null);
-  const [entries,       setEntries]       = useState<FsEntry[]>([]);
-  const [loading,       setLoading]       = useState(false);
-  const [fsError,       setFsError]       = useState<string | null>(null);
+  const [browsePath, setBrowsePath] = useState('');
+  const [parent, setParent] = useState<string | null>(null);
+  const [entries, setEntries] = useState<FsEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [fsError, setFsError] = useState<string | null>(null);
   const [selectedSwarm, setSelectedSwarm] = useState(false);
-  const [filter,        setFilter]        = useState('');
-  const [focusIdx,      setFocusIdx]      = useState(-1);
-  const [pathMode,      setPathMode]      = useState(false); // raw-input mode
-  const [rawPath,       setRawPath]       = useState('');
-  const [switching,     setSwitching]     = useState(false);
-  const [switchErr,     setSwitchErr]     = useState<string | null>(null);
+  const [filter, setFilter] = useState('');
+  const [focusIdx, setFocusIdx] = useState(-1);
+  const [pathMode, setPathMode] = useState(false); // raw-input mode
+  const [rawPath, setRawPath] = useState('');
+  const [switching, setSwitching] = useState(false);
+  const [switchErr, setSwitchErr] = useState<string | null>(null);
 
-  const listRef   = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
-  const rawRef    = useRef<HTMLInputElement>(null);
+  const rawRef = useRef<HTMLInputElement>(null);
 
   const fetchDir = useCallback((p: string, knownHasSwarm?: boolean) => {
     setLoading(true);
@@ -77,13 +77,18 @@ export function ProjectSwitcher({ currentRoot, onClose }: Props) {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => { fetchDir(currentRoot ?? ''); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    fetchDir(currentRoot ?? '');
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Global keyboard handler
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (pathMode) { setPathMode(false); return; }
+        if (pathMode) {
+          setPathMode(false);
+          return;
+        }
         onClose();
       }
     };
@@ -98,7 +103,9 @@ export function ProjectSwitcher({ currentRoot, onClose }: Props) {
   }, [entries, filter]);
 
   // Keep focusIdx in bounds when filter changes
-  useEffect(() => { setFocusIdx(v => (v >= visible.length ? visible.length - 1 : v)); }, [visible]);
+  useEffect(() => {
+    setFocusIdx(v => (v >= visible.length ? visible.length - 1 : v));
+  }, [visible]);
 
   // Scroll focused item into view
   useEffect(() => {
@@ -108,8 +115,14 @@ export function ProjectSwitcher({ currentRoot, onClose }: Props) {
   }, [focusIdx]);
 
   const handleListKey = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); setFocusIdx(i => Math.min(i + 1, visible.length - 1)); }
-    if (e.key === 'ArrowUp')   { e.preventDefault(); setFocusIdx(i => Math.max(i - 1, 0)); }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setFocusIdx(i => Math.min(i + 1, visible.length - 1));
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setFocusIdx(i => Math.max(i - 1, 0));
+    }
     if (e.key === 'Enter' && focusIdx >= 0 && visible[focusIdx]) {
       e.preventDefault();
       const entry = visible[focusIdx];
@@ -135,9 +148,9 @@ export function ProjectSwitcher({ currentRoot, onClose }: Props) {
     // Jump to the home directory: derive from currentRoot (/Users/name/...)
     // or fall back to the parent of the current browse path.
     const base = currentRoot ?? browsePath;
-    const segs  = base.split('/').filter(Boolean);
+    const segs = base.split('/').filter(Boolean);
     // /Users/<name> is depth 2; anything shallower just goes to /
-    const home  = segs.length >= 2 ? '/' + segs.slice(0, 2).join('/') : '/';
+    const home = segs.length >= 2 ? '/' + segs.slice(0, 2).join('/') : '/';
     fetchDir(home);
   };
 
@@ -146,9 +159,9 @@ export function ProjectSwitcher({ currentRoot, onClose }: Props) {
     setSwitching(true);
     setSwitchErr(null);
     fetch('/project/switch', {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ path: browsePath }),
+      body: JSON.stringify({ path: browsePath }),
     })
       .then(r => r.json() as Promise<{ ok: boolean; error?: string }>)
       .then(d => {
@@ -159,44 +172,60 @@ export function ProjectSwitcher({ currentRoot, onClose }: Props) {
             localStorage.setItem('swarm-active-root', browsePath);
             // One-shot flag so the PM greeting acknowledges the switch.
             localStorage.setItem('swarm-just-switched', browsePath);
-          } catch { /* ok */ }
+          } catch {
+            /* ok */
+          }
           window.location.reload();
+        } else {
+          setSwitchErr(d.error ?? 'Switch failed');
+          setSwitching(false);
         }
-        else      { setSwitchErr(d.error ?? 'Switch failed'); setSwitching(false); }
       })
-      .catch(() => { setSwitchErr('Network error'); setSwitching(false); });
+      .catch(() => {
+        setSwitchErr('Network error');
+        setSwitching(false);
+      });
   };
 
-  const crumbs    = parseCrumbs(browsePath);
+  const crumbs = parseCrumbs(browsePath);
   const isCurrent = browsePath === currentRoot;
 
   return (
     <div className="ps-backdrop" onClick={onClose}>
       <div className="ps-modal" onClick={e => e.stopPropagation()}>
-
         {/* ── Header ── */}
         <div className="ps-head">
           <IconFolder size={14} />
           <span>Switch project folder</span>
-          <button className="ps-close" onClick={onClose}>×</button>
+          <button className="ps-close" onClick={onClose}>
+            ×
+          </button>
         </div>
 
         {/* ── Breadcrumb bar ── */}
         <div className="ps-crumbbar">
-          <div className="ps-crumbs" onDoubleClick={() => { setPathMode(true); setTimeout(() => { rawRef.current?.select(); }, 30); }}>
+          <div
+            className="ps-crumbs"
+            onDoubleClick={() => {
+              setPathMode(true);
+              setTimeout(() => {
+                rawRef.current?.select();
+              }, 30);
+            }}
+          >
             {/* Home shortcut */}
-            <button className="ps-home" onClick={handleHomeClick} title="Jump to home">⌂</button>
+            <button className="ps-home" onClick={handleHomeClick} title="Jump to home">
+              ⌂
+            </button>
             <span className="ps-crumb-sep">/</span>
 
             {crumbs.slice(1).map((c, i) => (
               <span key={c.path} className="ps-crumb-group">
                 {i > 0 && <span className="ps-crumb-sep">/</span>}
                 {i < crumbs.length - 2 ? (
-                  <button
-                    className="ps-crumb"
-                    onClick={() => fetchDir(c.path)}
-                    title={c.path}
-                  >{c.label}</button>
+                  <button className="ps-crumb" onClick={() => fetchDir(c.path)} title={c.path}>
+                    {c.label}
+                  </button>
                 ) : (
                   <span className="ps-crumb ps-crumb-current">{c.label}</span>
                 )}
@@ -207,8 +236,15 @@ export function ProjectSwitcher({ currentRoot, onClose }: Props) {
             <button
               className="ps-crumb-edit"
               title="Type a path directly"
-              onClick={() => { setPathMode(true); setTimeout(() => { rawRef.current?.select(); }, 30); }}
-            >✎</button>
+              onClick={() => {
+                setPathMode(true);
+                setTimeout(() => {
+                  rawRef.current?.select();
+                }, 30);
+              }}
+            >
+              ✎
+            </button>
           </div>
 
           {/* Raw path input — shown on demand */}
@@ -221,9 +257,13 @@ export function ProjectSwitcher({ currentRoot, onClose }: Props) {
                 onChange={e => setRawPath(e.target.value)}
                 spellCheck={false}
                 autoFocus
-                onBlur={() => { if (!rawPath.trim()) setPathMode(false); }}
+                onBlur={() => {
+                  if (!rawPath.trim()) setPathMode(false);
+                }}
               />
-              <button type="submit" className="ps-go" disabled={!rawPath.trim()}>Go</button>
+              <button type="submit" className="ps-go" disabled={!rawPath.trim()}>
+                Go
+              </button>
             </form>
           )}
         </div>
@@ -241,7 +281,16 @@ export function ProjectSwitcher({ currentRoot, onClose }: Props) {
             spellCheck={false}
           />
           {filter && (
-            <button className="ps-filter-clear" onClick={() => { setFilter(''); setFocusIdx(-1); filterRef.current?.focus(); }}>×</button>
+            <button
+              className="ps-filter-clear"
+              onClick={() => {
+                setFilter('');
+                setFocusIdx(-1);
+                filterRef.current?.focus();
+              }}
+            >
+              ×
+            </button>
           )}
         </div>
 
@@ -255,47 +304,57 @@ export function ProjectSwitcher({ currentRoot, onClose }: Props) {
           )}
           {!loading && fsError && <div className="ps-empty ps-empty-err">{fsError}</div>}
           {!loading && !fsError && visible.length === 0 && filter && (
-            <div className="ps-empty">No folders matching <code>{filter}</code></div>
+            <div className="ps-empty">
+              No folders matching <code>{filter}</code>
+            </div>
           )}
           {!loading && !fsError && visible.length === 0 && !filter && (
             <div className="ps-empty">No subdirectories</div>
           )}
-          {!loading && !fsError && visible.map((e, i) => (
-            <button
-              key={e.path}
-              data-idx={i}
-              className={`ps-entry${i === focusIdx ? ' focused' : ''}${e.path === currentRoot ? ' ps-entry-current' : ''}`}
-              onClick={() => fetchDir(e.path, e.hasSwarm)}
-              onMouseEnter={() => setFocusIdx(i)}
-            >
-              <span className="ps-entry-icon">
-                <IconFolder size={13} />
-              </span>
-              <span className="ps-entry-name">{
-                // Bold the matching substring
-                filter ? <Highlight text={e.name} query={filter} /> : e.name
-              }</span>
-              <span className="ps-entry-badges">
-                {e.hasSwarm  && <span className="ps-badge-swarm">✓ swarm</span>}
-                {e.path === currentRoot && <span className="ps-badge-here">here</span>}
-              </span>
-              <span className="ps-entry-chevron"><IconChevron /></span>
-            </button>
-          ))}
+          {!loading &&
+            !fsError &&
+            visible.map((e, i) => (
+              <button
+                key={e.path}
+                data-idx={i}
+                className={`ps-entry${i === focusIdx ? ' focused' : ''}${e.path === currentRoot ? ' ps-entry-current' : ''}`}
+                onClick={() => fetchDir(e.path, e.hasSwarm)}
+                onMouseEnter={() => setFocusIdx(i)}
+              >
+                <span className="ps-entry-icon">
+                  <IconFolder size={13} />
+                </span>
+                <span className="ps-entry-name">
+                  {
+                    // Bold the matching substring
+                    filter ? <Highlight text={e.name} query={filter} /> : e.name
+                  }
+                </span>
+                <span className="ps-entry-badges">
+                  {e.hasSwarm && <span className="ps-badge-swarm">✓ swarm</span>}
+                  {e.path === currentRoot && <span className="ps-badge-here">here</span>}
+                </span>
+                <span className="ps-entry-chevron">
+                  <IconChevron />
+                </span>
+              </button>
+            ))}
         </div>
 
         {/* ── Footer ── */}
         <div className="ps-footer">
           <div className="ps-selection">
-            <div className="ps-sel-path" title={browsePath}>{browsePath || (loading ? 'Loading…' : '—')}</div>
+            <div className="ps-sel-path" title={browsePath}>
+              {browsePath || (loading ? 'Loading…' : '—')}
+            </div>
             <div className="ps-sel-meta">
-              {!browsePath ? null
-                : isCurrent
-                  ? <span className="ps-meta-current">● current project</span>
-                  : selectedSwarm
-                    ? <span className="ps-meta-ok">✓ swarm initialized</span>
-                    : <span className="ps-meta-new">no swarm state — created on first run</span>
-              }
+              {!browsePath ? null : isCurrent ? (
+                <span className="ps-meta-current">● current project</span>
+              ) : selectedSwarm ? (
+                <span className="ps-meta-ok">✓ swarm initialized</span>
+              ) : (
+                <span className="ps-meta-new">no swarm state — created on first run</span>
+              )}
             </div>
           </div>
           <div className="ps-footer-right">
@@ -309,7 +368,6 @@ export function ProjectSwitcher({ currentRoot, onClose }: Props) {
             </button>
           </div>
         </div>
-
       </div>
     </div>
   );

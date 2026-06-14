@@ -1,43 +1,86 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Task, AgentState, Finding, ChatMessage, RunStatus } from '../types';
-import { INIT_TASKS, LATE_TASKS, RUN_SCRIPT, RUN_TOTAL, SPEND_CAP, SPEND_END } from '../data/runScript';
+import {
+  INIT_TASKS,
+  LATE_TASKS,
+  RUN_SCRIPT,
+  RUN_TOTAL,
+  SPEND_CAP,
+  SPEND_END,
+} from '../data/runScript';
 
-const BLANK: AgentState = { active: false, step: '', verdict: null, activeAt: null, inputTokens: null, outputTokens: null, costUsd: null, contextPct: null };
+const BLANK: AgentState = {
+  active: false,
+  step: '',
+  verdict: null,
+  activeAt: null,
+  inputTokens: null,
+  outputTokens: null,
+  costUsd: null,
+  contextPct: null,
+};
 
 function makeInitAgents(): Record<string, AgentState> {
   return {
-    pm:         { ...BLANK },
-    coder:      { ...BLANK },
-    tester:     { ...BLANK },
-    security:   { ...BLANK },
-    reviewer:   { ...BLANK },
+    pm: { ...BLANK },
+    coder: { ...BLANK },
+    tester: { ...BLANK },
+    security: { ...BLANK },
+    reviewer: { ...BLANK },
     negotiator: { ...BLANK },
   };
 }
 
 export function useRunSimulation() {
-  const [tasks, setTasks]       = useState<Task[]>(() => INIT_TASKS.map(t => ({ ...t, status: 'pending' as const })));
-  const [agents, setAgents]     = useState<Record<string, AgentState>>(makeInitAgents);
+  const [tasks, setTasks] = useState<Task[]>(() =>
+    INIT_TASKS.map(t => ({ ...t, status: 'pending' as const })),
+  );
+  const [agents, setAgents] = useState<Record<string, AgentState>>(makeInitAgents);
   const [findings, setFindings] = useState<Finding[]>([]);
-  const [pmMsgs, setPmMsgs]     = useState<ChatMessage[]>([{ from: 'pm', text: 'Charter accepted. Building the task graph and dispatching the team.' }]);
-  const [spend, setSpend]       = useState(0);
-  const [status, setStatus]     = useState<RunStatus>('running');
+  const [pmMsgs, setPmMsgs] = useState<ChatMessage[]>([
+    { from: 'pm', text: 'Charter accepted. Building the task graph and dispatching the team.' },
+  ]);
+  const [spend, setSpend] = useState(0);
+  const [status, setStatus] = useState<RunStatus>('running');
 
   const st = useRef({ idx: 0, elapsed: 0, last: Date.now(), status: 'running' as RunStatus });
 
-  const apply = useCallback((ev: typeof RUN_SCRIPT[number]) => {
+  const apply = useCallback((ev: (typeof RUN_SCRIPT)[number]) => {
     switch (ev.fn) {
       case 'task':
-        setTasks(ts => ts.map(t => t.id === ev.id ? { ...t, status: ev.status as Task['status'] } : t));
+        setTasks(ts =>
+          ts.map(t => (t.id === ev.id ? { ...t, status: ev.status as Task['status'] } : t)),
+        );
         break;
       case 'agent':
-        setAgents(a => ({ ...a, [ev.who]: { ...BLANK, active: true, step: ev.step, activeAt: Date.now(), verdict: null } }));
+        setAgents(a => ({
+          ...a,
+          [ev.who]: { ...BLANK, active: true, step: ev.step, activeAt: Date.now(), verdict: null },
+        }));
         break;
       case 'idle':
-        setAgents(a => ({ ...a, [ev.who]: { ...BLANK, active: false, step: '', activeAt: null, verdict: ev.verdict as Finding['verdict'] } }));
+        setAgents(a => ({
+          ...a,
+          [ev.who]: {
+            ...BLANK,
+            active: false,
+            step: '',
+            activeAt: null,
+            verdict: ev.verdict as Finding['verdict'],
+          },
+        }));
         break;
       case 'finding':
-        setFindings(f => [{ key: ev.key, agent: ev.agent, task: ev.task, verdict: ev.verdict as Finding['verdict'], summary: ev.summary }, ...f]);
+        setFindings(f => [
+          {
+            key: ev.key,
+            agent: ev.agent,
+            task: ev.task,
+            verdict: ev.verdict as Finding['verdict'],
+            summary: ev.summary,
+          },
+          ...f,
+        ]);
         break;
       case 'addtasks':
         setTasks(ts => [...ts, ...LATE_TASKS.map(t => ({ ...t, status: 'pending' as const }))]);
@@ -58,11 +101,13 @@ export function useRunSimulation() {
     const iv = setInterval(() => {
       const s = st.current;
       const now = Date.now();
-      const dt = now - s.last; s.last = now;
+      const dt = now - s.last;
+      s.last = now;
       if (s.status === 'running') {
         s.elapsed += dt;
         while (s.idx < RUN_SCRIPT.length && RUN_SCRIPT[s.idx].at <= s.elapsed) {
-          apply(RUN_SCRIPT[s.idx]); s.idx++;
+          apply(RUN_SCRIPT[s.idx]);
+          s.idx++;
         }
         setSpend(Math.min(SPEND_END, (s.elapsed / RUN_TOTAL) * SPEND_END));
       }
@@ -86,5 +131,16 @@ export function useRunSimulation() {
     setAgents(makeInitAgents);
   }, []);
 
-  return { tasks, agents, findings, pmMsgs, spend, status, spendCap: SPEND_CAP, togglePause, abort, setPmMsgs };
+  return {
+    tasks,
+    agents,
+    findings,
+    pmMsgs,
+    spend,
+    status,
+    spendCap: SPEND_CAP,
+    togglePause,
+    abort,
+    setPmMsgs,
+  };
 }

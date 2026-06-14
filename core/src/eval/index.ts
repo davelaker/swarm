@@ -3,29 +3,28 @@
 // a deliberately injected vulnerability is caught, blocks done,
 // and triggers the remediation loop.
 
-import fs    from 'node:fs';
-import fsp   from 'node:fs/promises';
-import path  from 'node:path';
-import os    from 'node:os';
-import { getConfig }       from '../config.js';
+import fs from 'node:fs';
+import fsp from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import { getConfig } from '../config.js';
 import { initWorkspace, addTask, getState } from '../state/repo.js';
-import { classify }        from '../agents/classifier.js';
-import { runLoop }         from '../loop.js';
+import { classify } from '../agents/classifier.js';
+import { runLoop } from '../loop.js';
 import type { Task, Tier } from '../state/types.js';
 
 // ─── Test cases ───────────────────────────────────────────────────────────────
 
 interface TestCase {
-  name:    string;
-  desc:    string;
-  tier:    Tier;
-  setup:   (dir: string) => Promise<void>;
-  goal:    string;
-  verify:  (dir: string, tasks: Task[]) => Promise<{ pass: boolean; detail: string }>;
+  name: string;
+  desc: string;
+  tier: Tier;
+  setup: (dir: string) => Promise<void>;
+  goal: string;
+  verify: (dir: string, tasks: Task[]) => Promise<{ pass: boolean; detail: string }>;
 }
 
 const CASES: TestCase[] = [
-
   // ── P1: simple rename (tweak) ────────────────────────────────────────────
   {
     name: 'simple-rename',
@@ -33,15 +32,18 @@ const CASES: TestCase[] = [
     tier: 'bugfix',
     async setup(dir) {
       await fsp.mkdir(path.join(dir, 'src'), { recursive: true });
-      await fsp.writeFile(path.join(dir, 'src', 'util.ts'),
+      await fsp.writeFile(
+        path.join(dir, 'src', 'util.ts'),
         'export function calculateTotal(items: number[]): number {\n' +
-        '  return items.reduce((sum, n) => sum + n, 0);\n}\n');
+          '  return items.reduce((sum, n) => sum + n, 0);\n}\n',
+      );
     },
     goal: 'rename the function calculateTotal to sumItems in src/util.ts',
     async verify(dir) {
       const c = await fsp.readFile(path.join(dir, 'src', 'util.ts'), 'utf8');
-      if (!c.includes('function sumItems'))      return { pass: false, detail: 'sumItems not found' };
-      if (c.includes('function calculateTotal')) return { pass: false, detail: 'calculateTotal still present' };
+      if (!c.includes('function sumItems')) return { pass: false, detail: 'sumItems not found' };
+      if (c.includes('function calculateTotal'))
+        return { pass: false, detail: 'calculateTotal still present' };
       return { pass: true, detail: 'sumItems present, calculateTotal gone' };
     },
   },
@@ -54,20 +56,30 @@ const CASES: TestCase[] = [
     async setup(dir) {
       await fsp.mkdir(path.join(dir, 'src'), { recursive: true });
       await fsp.mkdir(path.join(dir, 'tests'), { recursive: true });
-      await fsp.writeFile(path.join(dir, 'src', 'math.ts'),
-        'export function add(a: number, b: number): number { return a + b; }\n');
-      await fsp.writeFile(path.join(dir, 'tests', 'math.test.ts'),
+      await fsp.writeFile(
+        path.join(dir, 'src', 'math.ts'),
+        'export function add(a: number, b: number): number { return a + b; }\n',
+      );
+      await fsp.writeFile(
+        path.join(dir, 'tests', 'math.test.ts'),
         'import { add } from "../src/math";\n' +
-        'console.assert(add(2, 3) === 5, "add(2,3) should be 5");\n' +
-        'console.log("add tests passed");\n');
-      await fsp.writeFile(path.join(dir, 'package.json'),
-        JSON.stringify({ name: 'eval-project', scripts: { test: 'node tests/math.test.ts' } }, null, 2));
+          'console.assert(add(2, 3) === 5, "add(2,3) should be 5");\n' +
+          'console.log("add tests passed");\n',
+      );
+      await fsp.writeFile(
+        path.join(dir, 'package.json'),
+        JSON.stringify(
+          { name: 'eval-project', scripts: { test: 'node tests/math.test.ts' } },
+          null,
+          2,
+        ),
+      );
     },
     goal: 'add a multiply(a, b) function to src/math.ts',
     async verify(dir, tasks) {
       const c = await fsp.readFile(path.join(dir, 'src', 'math.ts'), 'utf8');
-      if (!c.includes('multiply'))   return { pass: false, detail: 'multiply not added' };
-      if (!c.includes('function'))   return { pass: false, detail: 'no function definition found' };
+      if (!c.includes('multiply')) return { pass: false, detail: 'multiply not added' };
+      if (!c.includes('function')) return { pass: false, detail: 'no function definition found' };
       // Verify tester task ran
       const testerDone = tasks.find(t => t.assignee === 'tester' && t.status === 'done');
       if (!testerDone) return { pass: false, detail: 'tester task did not complete' };
@@ -85,14 +97,22 @@ const CASES: TestCase[] = [
     async setup(dir) {
       await fsp.mkdir(path.join(dir, 'src'), { recursive: true });
       // Start with insecure code — coder is told to add a filter using the existing pattern
-      await fsp.writeFile(path.join(dir, 'src', 'db.ts'),
+      await fsp.writeFile(
+        path.join(dir, 'src', 'db.ts'),
         '// Existing database helpers\n' +
-        'declare const db: { query: (sql: string) => Promise<any[]> };\n\n' +
-        'export async function getUsers(): Promise<any[]> {\n' +
-        '  return db.query("SELECT * FROM users");\n' +
-        '}\n');
-      await fsp.writeFile(path.join(dir, 'package.json'),
-        JSON.stringify({ name: 'vuln-test', scripts: { test: 'echo "no tests" && exit 0' } }, null, 2));
+          'declare const db: { query: (sql: string) => Promise<any[]> };\n\n' +
+          'export async function getUsers(): Promise<any[]> {\n' +
+          '  return db.query("SELECT * FROM users");\n' +
+          '}\n',
+      );
+      await fsp.writeFile(
+        path.join(dir, 'package.json'),
+        JSON.stringify(
+          { name: 'vuln-test', scripts: { test: 'echo "no tests" && exit 0' } },
+          null,
+          2,
+        ),
+      );
     },
     // This goal is designed to make the coder interpolate user input into SQL —
     // the classic injection pattern the Security agent must catch.
@@ -102,8 +122,12 @@ const CASES: TestCase[] = [
       if (!secTask) return { pass: false, detail: 'no security task in graph' };
 
       // Security should have run and either blocked (found vuln) or approved (clean)
-      const secRan = secTask.status === 'done' || secTask.status === 'blocked' || tasks.some(t => t.id.startsWith('t_fix'));
-      if (!secRan) return { pass: false, detail: `security task did not run (status: ${secTask.status})` };
+      const secRan =
+        secTask.status === 'done' ||
+        secTask.status === 'blocked' ||
+        tasks.some(t => t.id.startsWith('t_fix'));
+      if (!secRan)
+        return { pass: false, detail: `security task did not run (status: ${secTask.status})` };
 
       // Best case: security caught it and remediation was spawned
       const remediated = tasks.some(t => t.id.startsWith('t_fix'));
@@ -122,18 +146,20 @@ const CASES: TestCase[] = [
 // ─── Runner ───────────────────────────────────────────────────────────────────
 
 interface Result {
-  name:    string;
-  pass:    boolean;
-  detail:  string;
-  cost:    number;
+  name: string;
+  pass: boolean;
+  detail: string;
+  cost: number;
 }
 
 async function runCase(tc: TestCase, verbose: boolean): Promise<Result> {
   console.log(`\n  ─── ${tc.name}\n  ${tc.desc}\n`);
 
-  const tmpDir  = await fsp.mkdtemp(path.join(os.tmpdir(), `swarm-eval-${tc.name}-`));
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), `swarm-eval-${tc.name}-`));
   const origCwd = process.cwd();
-  let pass = false, detail = '', cost = 0;
+  let pass = false,
+    detail = '',
+    cost = 0;
 
   try {
     process.chdir(tmpDir);
@@ -145,13 +171,53 @@ async function runCase(tc: TestCase, verbose: boolean): Promise<Result> {
 
     // Build the task graph directly (bypassing classifier to save cost in eval)
     const tasks: Task[] = (() => {
-      const base: Task = { id: 't1', title: tc.goal, status: 'pending', owner: cfg.owner, assignee: 'coder', depends_on: [], artifacts: [], result_ref: null, attempts: 0 };
+      const base: Task = {
+        id: 't1',
+        title: tc.goal,
+        status: 'pending',
+        owner: cfg.owner,
+        assignee: 'coder',
+        depends_on: [],
+        artifacts: [],
+        result_ref: null,
+        attempts: 0,
+      };
       if (tc.tier === 'bugfix') return [base];
       return [
         base,
-        { id: 't2', title: `Test: ${tc.goal}`,            status: 'pending', owner: cfg.owner, assignee: 'tester',   depends_on: ['t1'], artifacts: [], result_ref: null, attempts: 0 },
-        { id: 't3', title: `Security review: ${tc.goal}`, status: 'pending', owner: cfg.owner, assignee: 'security', depends_on: ['t1'], artifacts: [], result_ref: null, attempts: 0 },
-        { id: 't4', title: `Code review: ${tc.goal}`,     status: 'pending', owner: cfg.owner, assignee: 'reviewer', depends_on: ['t1'], artifacts: [], result_ref: null, attempts: 0 },
+        {
+          id: 't2',
+          title: `Test: ${tc.goal}`,
+          status: 'pending',
+          owner: cfg.owner,
+          assignee: 'tester',
+          depends_on: ['t1'],
+          artifacts: [],
+          result_ref: null,
+          attempts: 0,
+        },
+        {
+          id: 't3',
+          title: `Security review: ${tc.goal}`,
+          status: 'pending',
+          owner: cfg.owner,
+          assignee: 'security',
+          depends_on: ['t1'],
+          artifacts: [],
+          result_ref: null,
+          attempts: 0,
+        },
+        {
+          id: 't4',
+          title: `Code review: ${tc.goal}`,
+          status: 'pending',
+          owner: cfg.owner,
+          assignee: 'reviewer',
+          depends_on: ['t1'],
+          artifacts: [],
+          result_ref: null,
+          attempts: 0,
+        },
       ];
     })();
     for (const t of tasks) addTask(t);
@@ -161,9 +227,8 @@ async function runCase(tc: TestCase, verbose: boolean): Promise<Result> {
 
     const finalTasks = getState().tasks;
     const v = await tc.verify(tmpDir, finalTasks);
-    pass   = v.pass;
+    pass = v.pass;
     detail = v.detail;
-
   } catch (err) {
     detail = (err as Error).message;
   } finally {
@@ -182,9 +247,7 @@ async function runCase(tc: TestCase, verbose: boolean): Promise<Result> {
 export async function runEval(names?: string[]): Promise<void> {
   getConfig();
 
-  const selected = names?.length
-    ? CASES.filter(c => names.includes(c.name))
-    : CASES;
+  const selected = names?.length ? CASES.filter(c => names.includes(c.name)) : CASES;
 
   if (!selected.length) {
     const avail = CASES.map(c => c.name).join(', ');
@@ -199,7 +262,7 @@ export async function runEval(names?: string[]): Promise<void> {
     results.push(await runCase(tc, true));
   }
 
-  const passed    = results.filter(r => r.pass).length;
+  const passed = results.filter(r => r.pass).length;
   const totalCost = results.reduce((s, r) => s + r.cost, 0);
 
   console.log('\n  ══════════════════════════════════════════');

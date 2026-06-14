@@ -1,18 +1,33 @@
 // Phase 0 exit-criteria test.
 // Verifies all four seams without making any real Claude API calls.
 
-import fs   from 'node:fs';
+import fs from 'node:fs';
 import path from 'node:path';
-import os   from 'node:os';
-import { swarmDir, stateFile, getState, updateTask, appendLog, writeFinding, addTask } from '../state/repo.js';
-import { dispatch }          from '../dispatch/index.js';
-import { bus }               from '../state/events.js';
+import os from 'node:os';
+import {
+  swarmDir,
+  stateFile,
+  getState,
+  updateTask,
+  appendLog,
+  writeFinding,
+  addTask,
+} from '../state/repo.js';
+import { dispatch } from '../dispatch/index.js';
+import { bus } from '../state/events.js';
 import { getConfigOptional } from '../config.js';
-import type { Task }         from '../state/types.js';
+import type { Task } from '../state/types.js';
 
-function ok(msg: string)   { console.log(`  ✓ ${msg}`); }
-function fail(msg: string) { console.error(`  ✗ ${msg}`); process.exitCode = 1; }
-function hdr(msg: string)  { console.log(`\n  ${msg}`); }
+function ok(msg: string) {
+  console.log(`  ✓ ${msg}`);
+}
+function fail(msg: string) {
+  console.error(`  ✗ ${msg}`);
+  process.exitCode = 1;
+}
+function hdr(msg: string) {
+  console.log(`\n  ${msg}`);
+}
 
 export async function runCheck(): Promise<void> {
   console.log('\n  Phase 0 — exit criteria check\n');
@@ -48,9 +63,15 @@ export async function runCheck(): Promise<void> {
 
     // add a task
     const task: Task = {
-      id: 't0', title: 'stub task', status: 'pending',
-      owner: 'me', assignee: 'coder', depends_on: [],
-      artifacts: [], result_ref: null, attempts: 0,
+      id: 't0',
+      title: 'stub task',
+      status: 'pending',
+      owner: 'me',
+      assignee: 'coder',
+      depends_on: [],
+      artifacts: [],
+      result_ref: null,
+      attempts: 0,
     };
     addTask(task);
     const s2 = getState();
@@ -70,7 +91,10 @@ export async function runCheck(): Promise<void> {
     ok('appendLog() persists log entry');
 
     // write finding
-    const findingPath = await writeFinding('t0', '---\ntask: t0\nagent: coder\nverdict: COMPLETE\n---\nStub finding.\n');
+    const findingPath = await writeFinding(
+      't0',
+      '---\ntask: t0\nagent: coder\nverdict: COMPLETE\n---\nStub finding.\n',
+    );
     if (!fs.existsSync(findingPath)) throw new Error('finding not written');
     ok('writeFinding() writes findings/t0.md');
 
@@ -78,7 +102,6 @@ export async function runCheck(): Promise<void> {
     const tmpFile = stateFile() + '.tmp';
     if (fs.existsSync(tmpFile)) fail('stale .tmp file found — atomic write broken');
     else ok('atomic write — no stale .tmp files');
-
   } catch (e) {
     fail(`state repository: ${(e as Error).message}`);
   } finally {
@@ -93,13 +116,24 @@ export async function runCheck(): Promise<void> {
   hdr('3. Dispatch boundary (Principle 2)');
   try {
     const stubTask: Task = {
-      id: 't-stub', title: 'echo test', status: 'pending',
-      owner: 'me', assignee: 'tester', // tester is a known stub in Phase 1
-      depends_on: [], artifacts: [], result_ref: null, attempts: 0,
+      id: 't-stub',
+      title: 'echo test',
+      status: 'pending',
+      owner: 'me',
+      assignee: 'tester', // tester is a known stub in Phase 1
+      depends_on: [],
+      artifacts: [],
+      result_ref: null,
+      attempts: 0,
     };
     const stubState = {
-      project: 'test', owner: 'me', goal: '', tier: 'bugfix' as const,
-      updated_at: new Date().toISOString(), tasks: [stubTask], log: [],
+      project: 'test',
+      owner: 'me',
+      goal: '',
+      tier: 'bugfix' as const,
+      updated_at: new Date().toISOString(),
+      tasks: [stubTask],
+      log: [],
     };
     const result = await dispatch(stubTask, stubState);
     // Phase 1: tester returns 'failed' (not yet implemented) — that's correct.
@@ -107,8 +141,12 @@ export async function runCheck(): Promise<void> {
     if (typeof result.status !== 'string' || typeof result.summary !== 'string') {
       throw new Error(`dispatch returned unexpected shape: ${JSON.stringify(result)}`);
     }
-    ok(`dispatch(tester) → { status: "${result.status}", summary: "${result.summary.slice(0,60)}" }`);
-    ok('dispatch boundary: interface correct (live coder run requires ANTHROPIC_API_KEY + swarm eval)');
+    ok(
+      `dispatch(tester) → { status: "${result.status}", summary: "${result.summary.slice(0, 60)}" }`,
+    );
+    ok(
+      'dispatch boundary: interface correct (live coder run requires ANTHROPIC_API_KEY + swarm eval)',
+    );
   } catch (e) {
     fail(`dispatch: ${(e as Error).message}`);
   }
@@ -117,7 +155,9 @@ export async function runCheck(): Promise<void> {
   hdr('4. Event bus (pub/sub for SSE)');
   try {
     let received = false;
-    bus.once('swarm', (ev) => { if (ev.type === 'run.completed') received = true; });
+    bus.once('swarm', ev => {
+      if (ev.type === 'run.completed') received = true;
+    });
     bus.emit('swarm', { type: 'run.completed' });
     if (!received) throw new Error('event not delivered');
     ok('bus.emit() → bus.on() round-trip working');
