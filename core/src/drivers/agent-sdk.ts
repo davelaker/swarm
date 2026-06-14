@@ -29,6 +29,7 @@ import {
   REVIEWER_SYSTEM,
   NEGOTIATOR_SYSTEM,
   SCOUT_SYSTEM,
+  SCRIBE_SYSTEM,
 } from '../agents/prompts.js';
 import {
   coderFinding,
@@ -49,6 +50,8 @@ import type {
   NegotiatorDecision,
   DeadlockContext,
   ScoutResult,
+  ScribeContext,
+  ScribeResult,
 } from './types.js';
 import type { Task, SwarmState, RosterEntry } from '../state/types.js';
 import { CONNECTOR_BY_ID, mcpToolId } from '../state/connectors.js';
@@ -209,6 +212,18 @@ const SCOUT_SCHEMA = JSON.stringify({
     },
   },
   required: ['summary', 'digest'],
+});
+
+const SCRIBE_SCHEMA = JSON.stringify({
+  type: 'object',
+  properties: {
+    learnings: {
+      type: 'string',
+      description:
+        'The FULL merged project memory as concise markdown bullets (durable facts only). Empty string if there is nothing durable worth recording.',
+    },
+  },
+  required: ['learnings'],
 });
 
 // ─── claude -p wrapper ────────────────────────────────────────────────────────
@@ -591,6 +606,29 @@ function scoutPrompt(question: string): string {
     `Research question: ${question}`,
     '',
     'Explore the relevant files, confirm how the code actually works today, and submit your digest. Name the specific files and functions that matter — the PM cannot see the code and relies on your paths.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function scribePrompt(ctx: ScribeContext): string {
+  const findings = ctx.findings.length
+    ? ctx.findings.map(f => `- [${f.agent} · ${f.verdict}] ${f.summary}`).join('\n')
+    : '(no findings recorded)';
+  return [
+    `A run just completed. Goal: ${ctx.goal}`,
+    ctx.constraints.length ? `Constraints: ${ctx.constraints.join(' | ')}` : '',
+    ctx.nongoals.length ? `Non-goals: ${ctx.nongoals.join(' | ')}` : '',
+    '',
+    'Agent findings from the run:',
+    findings,
+    '',
+    ctx.filesChanged.length ? `Files changed: ${ctx.filesChanged.join(', ')}` : 'No files changed.',
+    '',
+    '── Existing project memory (merge into this; return the full merged result) ──',
+    ctx.existingMemory.trim() || '(none yet)',
+    '',
+    'Read the changed files as needed to verify facts, then submit the merged memory.',
   ]
     .filter(Boolean)
     .join('\n');
@@ -1068,6 +1106,25 @@ export const agentSdkDriver: AgentDriver = {
     if (costUsd) console.log(`  [scout] cost: $${costUsd.toFixed(4)}`);
 
     return { summary, digest, relevantFiles, costUsd };
+  },
+
+  // Read-only scribe — distils durable learnings into project memory after a run.
+  async runScribe(ctx: ScribeContext): Promise<ScribeResult> {
+    const cfg = getConfig();
+    const { data, costUsd } = await runClaude({
+      systemPrompt: SCRIBE_SYSTEM,
+      userPrompt: scribePrompt(ctx),
+      schema: SCRIBE_SCHEMA,
+      allowedTools: ['Read', 'LS', 'Glob', 'Grep'],
+      model: cfg.scoutModel,
+      requireFields: ['learnings'],
+      verbose: true,
+    });
+    const learnings = String(data.learnings ?? '');
+    if (costUsd) {
+      console.log(`  [scribe] cost: $${costUsd.toFixed(4)}`);
+    }
+    return { learnings, costUsd };
   },
 
   // Read-only research by a HIRED specialist during PM planning. Like runScout,

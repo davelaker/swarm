@@ -14,6 +14,8 @@ import {
   writeFinding,
   swarmDir,
   writeDeploymentInfo,
+  readProjectMemory,
+  writeProjectMemory,
   getRoot,
 } from './state/repo.js';
 import { dispatch } from './dispatch/index.js';
@@ -247,6 +249,37 @@ async function readFindingMeta(
   }
 }
 
+// ─── Self-building project memory ────────────────────────────────────────────
+// After a successful run, the read-only scribe distils durable, non-obvious facts
+// the team learned into the project's CLAUDE.md so the next run starts smarter.
+// Best-effort: never block or fail a finished run on this.
+async function distillMemory(state: SwarmState): Promise<void> {
+  const findings = await Promise.all(
+    state.tasks
+      .filter(t => t.result_ref)
+      .map(async t => {
+        const meta = await readFindingMeta(t.result_ref);
+        return { task: t.id, agent: t.assignee, verdict: meta.verdict, summary: meta.summary };
+      }),
+  );
+  const filesChanged = [
+    ...new Set(state.tasks.filter(t => t.assignee === 'coder').flatMap(t => t.artifacts ?? [])),
+  ];
+  const before = readProjectMemory();
+  const { learnings } = await getDriver().runScribe({
+    goal: state.goal ?? '',
+    constraints: state.charter?.constraints ?? [],
+    nongoals: state.charter?.nongoals ?? [],
+    findings,
+    filesChanged,
+    existingMemory: before,
+  });
+  writeProjectMemory(learnings);
+  if (learnings.trim() && learnings.trim() !== before.trim()) {
+    appendLog('pm', '✓ Updated project memory (CLAUDE.md) with what we learned this run.');
+  }
+}
+
 // ─── Context window sizes (tokens) ───────────────────────────────────────────
 
 const CONTEXT_WINDOWS: Record<string, number> = {
@@ -436,6 +469,10 @@ export async function runLoop(): Promise<LoopResult> {
         );
       }
       bus.emit('swarm', { type: 'agent.finished', agent_id: 'pm' });
+      // Self-building memory — distil durable learnings into CLAUDE.md (best-effort).
+      await distillMemory(state).catch(err =>
+        console.warn(`  [scribe] memory distillation skipped: ${(err as Error).message}`),
+      );
       console.log('\n  ✓ all tasks done\n');
       return {
         status: 'done',

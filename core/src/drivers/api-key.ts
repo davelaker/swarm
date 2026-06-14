@@ -14,6 +14,8 @@ import type {
   NegotiatorDecision,
   DeadlockContext,
   ScoutResult,
+  ScribeContext,
+  ScribeResult,
 } from './types.js';
 import type { Task, SwarmState, RosterEntry } from '../state/types.js';
 
@@ -122,5 +124,11 @@ export const apiKeyDriver: AgentDriver = {
       digest: `(specialist research unavailable: it runs only on the agent-sdk/Max driver. Specialist "${agent.name}" was asked: "${question}". Proceed with planning using available context.)`,
       relevantFiles: [],
     };
+  },
+
+  // The scribe is a read-only tool-using agent; the api-key path has none, so leave
+  // project memory unchanged (empty learnings = the loop writes nothing).
+  async runScribe(_ctx: ScribeContext): Promise<ScribeResult> {
+    return { learnings: '' };
   },
 };

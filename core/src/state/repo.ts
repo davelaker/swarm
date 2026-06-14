@@ -199,6 +199,62 @@ export function writeDeploymentInfo(info: string): void {
   fs.renameSync(tmp, file);
 }
 
+const MEMORY_SECTION = '## Swarm Learnings';
+const MEMORY_NOTE =
+  '<!-- Maintained by Agent Swarm after each run. Durable, non-obvious project facts — edit freely. -->';
+
+// Returns the current body of the managed Swarm Learnings section (between the
+// heading and the next ## heading), or '' if there isn't one yet.
+export function readProjectMemory(): string {
+  const file = projectContextFile();
+  if (!fs.existsSync(file)) {
+    return '';
+  }
+  const lines = fs.readFileSync(file, 'utf8').split('\n');
+  const start = lines.findIndex(l => l.trim() === MEMORY_SECTION);
+  if (start === -1) {
+    return '';
+  }
+  const endIdx = lines.findIndex((l, i) => i > start && l.startsWith('## '));
+  const end = endIdx === -1 ? lines.length : endIdx;
+  return lines
+    .slice(start + 1, end)
+    .filter(l => l.trim() !== MEMORY_NOTE)
+    .join('\n')
+    .trim();
+}
+
+// Replace the managed Swarm Learnings section with the scribe's merged memory.
+// No-op on empty input so we never write an empty section.
+export function writeProjectMemory(learnings: string): void {
+  const body = learnings.trim();
+  if (!body) {
+    return;
+  }
+  const file = projectContextFile();
+  const block = [MEMORY_SECTION, MEMORY_NOTE, '', body, ''];
+
+  if (!fs.existsSync(file)) {
+    const project = path.basename(_root);
+    fs.writeFileSync(file, [`# Project: ${project}`, '', ...block].join('\n'), 'utf8');
+    return;
+  }
+
+  const lines = fs.readFileSync(file, 'utf8').split('\n');
+  const start = lines.findIndex(l => l.trim() === MEMORY_SECTION);
+  if (start === -1) {
+    lines.push('', ...block);
+  } else {
+    const endIdx = lines.findIndex((l, i) => i > start && l.startsWith('## '));
+    const end = endIdx === -1 ? lines.length : endIdx;
+    lines.splice(start, end - start, ...block);
+  }
+
+  const tmp = file + '.tmp';
+  fs.writeFileSync(tmp, lines.join('\n'), 'utf8');
+  fs.renameSync(tmp, file);
+}
+
 // ─── Read ─────────────────────────────────────────────────────────────────────
 
 export function getState(): SwarmState {

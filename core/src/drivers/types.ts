@@ -75,12 +75,30 @@ export interface AgentDriver {
   // so a data-access specialist can run live read-only queries the generic Scout
   // cannot. Invoked directly from the PM flow — NOT dispatched, NOT in a worktree.
   runSpecialistResearch(agent: RosterEntry, question: string): Promise<ScoutResult>;
+  // Read-only "scribe": after a run, distil durable, non-obvious facts the team
+  // learned (conventions, gotchas, constraints) into the project's memory. Invoked
+  // directly from the loop on completion — NOT dispatched, NOT in a worktree.
+  runScribe(ctx: ScribeContext): Promise<ScribeResult>;
 }
 
 export interface ScoutResult {
   summary: string;
   digest: string;
   relevantFiles: string[];
+  costUsd?: number;
+}
+
+export interface ScribeContext {
+  goal: string;
+  constraints: string[];
+  nongoals: string[];
+  findings: Array<{ task: string; agent: string; verdict: string; summary: string }>;
+  filesChanged: string[];
+  existingMemory: string; // current managed memory body, so the scribe merges + dedupes
+}
+
+export interface ScribeResult {
+  learnings: string; // full merged memory body as markdown bullets (empty = nothing to record)
   costUsd?: number;
 }
 
