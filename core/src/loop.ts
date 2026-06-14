@@ -292,18 +292,26 @@ function createWorktree(taskId: string): string {
   return worktreePath;
 }
 
-// Serialise merges: git merge cannot run concurrently against the same repo.
-// Each merge queues behind the previous one (chained even on failure).
-let mergeMutex: Promise<void> = Promise.resolve();
-function serialMerge(fn: () => Promise<void>): Promise<void> {
-  mergeMutex = mergeMutex.then(fn, fn);
-  return mergeMutex;
+// Serialises everything that mutates the MAIN working tree so two such operations
+// never overlap and see each other's half-written state:
+//   • worktree merges (brief — a single `git merge`), and
+//   • in-place remediation coder runs (long — a whole edit+commit cycle).
+// Each operation queues behind the previous one (chained even on failure); the
+// next waiter chains on completion only, never inheriting this run's value/error.
+let mainTreeMutex: Promise<unknown> = Promise.resolve();
+function withMainTreeLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = mainTreeMutex.then(fn, fn);
+  mainTreeMutex = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run as Promise<T>;
 }
 
 // Merge the worktree's branch back into the working branch. Serialised.
 // Throws if the merge conflicts (aborting the merge first so the tree is clean).
 function mergeWorktree(taskId: string): Promise<void> {
-  return serialMerge(async () => {
+  return withMainTreeLock(async () => {
     const branch = `swarm/${taskId}`;
     try {
       git(['merge', '--no-ff', '-m', `merge: ${taskId} into working branch`, branch]);
@@ -585,7 +593,15 @@ export async function runLoop(): Promise<LoopResult> {
 
     try {
       const dispatched = { ...task, attempts: task.attempts + 1 };
-      const result = await dispatch(dispatched, getState(), worktreePath);
+      // An in-place fix coder edits the main working tree for its whole run, so it
+      // must hold the main-tree lock end-to-end — otherwise a parallel coder's
+      // worktree merge could land mid-edit and clobber its uncommitted changes
+      // (the same "local changes would be overwritten" failure, just relocated).
+      // Worktree coders run unlocked here and only take the lock briefly at merge.
+      const result =
+        isCoder && isFixTask
+          ? await withMainTreeLock(() => dispatch(dispatched, getState(), worktreePath))
+          : await dispatch(dispatched, getState(), worktreePath);
       clearInterval(heartbeat);
 
       // Merge the coder's isolated branch back into the working branch
