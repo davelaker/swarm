@@ -32,6 +32,7 @@ import type { SubdirFile } from '../state/repo.js';
 import { loadRoster } from '../state/roster.js';
 import { formatMarketplace, CATALOG_BY_ID } from '../state/marketplace-catalog.js';
 import { getDriverMode, getDriver } from '../drivers/index.js';
+import { parseStreamMessage, createNdjsonBuffer } from '../drivers/stream-parse.js';
 import type { RosterEntry } from '../state/types.js';
 
 // ─── MCP server path ──────────────────────────────────────────────────────────
@@ -548,6 +549,7 @@ async function runPmMessageApi(
   pmSystemPrompt: string,
   conversationPrompt: string,
   onChunk?: (text: string) => void,
+  onThinking?: (text: string) => void,
 ): Promise<PmResponse> {
   const cfg = getConfig();
   const client = new Anthropic({ apiKey: cfg.anthropicApiKey });
@@ -584,6 +586,13 @@ async function runPmMessageApi(
       ) {
         const chunk = extractor.feed(ev.delta.partial_json);
         if (chunk) onChunk(chunk);
+      } else if (
+        attempt === 1 &&
+        onThinking &&
+        ev.type === 'content_block_delta' &&
+        ev.delta.type === 'thinking_delta'
+      ) {
+        onThinking(ev.delta.thinking);
       }
     });
 
@@ -783,6 +792,7 @@ export async function runPmMessage(
     summary?: string;
     agent?: string;
   }) => void,
+  onThinking?: (text: string) => void,
 ): Promise<PmResponse> {
   getConfigOptional();
   const projectCtx = loadProjectContextBounded();
@@ -845,8 +855,8 @@ export async function runPmMessage(
   // parameterised so the research loop can call it repeatedly.
   const runOnce = (prompt: string): Promise<PmResponse> =>
     getDriverMode() === 'api-key'
-      ? runPmMessageApi(pmSystemPrompt, prompt, onChunk)
-      : runPmMessageSubprocess(pmSystemPrompt, prompt, projectRoot, onChunk);
+      ? runPmMessageApi(pmSystemPrompt, prompt, onChunk, onThinking)
+      : runPmMessageSubprocess(pmSystemPrompt, prompt, projectRoot, onChunk, onThinking);
 
   // ── Research loop ──────────────────────────────────────────────────────────
   // Most turns make exactly one call and return — zero extra latency, no scout.
@@ -905,8 +915,9 @@ function runPmMessageSubprocess(
   conversationPrompt: string,
   projectRoot: string,
   onChunk?: (text: string) => void,
+  onThinking?: (text: string) => void,
 ): Promise<PmResponse> {
-  void onChunk; // subprocess path does not stream incremental reply chunks today
+  void onChunk; // subprocess path delivers the reply via the result file, not incrementally
   // ── Temp files ────────────────────────────────────────────────────────────
   const uuid = randomUUID();
   const outputPath = path.join(os.tmpdir(), `pm-output-${uuid}.json`);
@@ -928,7 +939,8 @@ function runPmMessageSubprocess(
   const args = [
     '--print',
     '--output-format',
-    'json',
+    'stream-json', // NDJSON stream so we can surface the PM's thinking live
+    '--verbose', // required by the CLI for stream-json under --print
     '--no-session-persistence',
     '--model',
     'claude-sonnet-4-6',
@@ -944,8 +956,23 @@ function runPmMessageSubprocess(
   ];
 
   return new Promise((resolve, reject) => {
-    let stdout = '';
+    // Bounded tail of raw stdout, for error diagnostics only — the stream is
+    // consumed incrementally below, never re-parsed as one blob.
+    let stdoutTail = '';
     let stderr = '';
+    let resultIsError = false;
+
+    // Surface the PM's thinking live; capture cost/error from the terminal result.
+    const ndjson = createNdjsonBuffer(raw => {
+      for (const ev of parseStreamMessage(raw)) {
+        if (ev.kind === 'result') {
+          resultIsError = ev.isError;
+          if (ev.costUsd) console.log(`[pm] cost: $${ev.costUsd.toFixed(4)}`);
+        } else if (ev.kind === 'thinking' && onThinking) {
+          onThinking(ev.text);
+        }
+      }
+    });
 
     const proc = spawn('claude', args, {
       cwd: projectRoot,
@@ -953,7 +980,9 @@ function runPmMessageSubprocess(
     });
 
     proc.stdout.on('data', (d: Buffer) => {
-      stdout += d.toString();
+      const chunk = d.toString();
+      ndjson.push(chunk);
+      stdoutTail = (stdoutTail + chunk).slice(-2000);
     });
 
     proc.stderr.on('data', (d: Buffer) => {
@@ -991,26 +1020,20 @@ function runPmMessageSubprocess(
 
     proc.on('close', (code: number | null) => {
       clearTimeout(timer);
+      ndjson.flush();
 
-      // Log cost if available (envelope may or may not parse cleanly)
-      try {
-        const envelope = JSON.parse(stdout) as {
-          cost_usd?: number;
-          is_error?: boolean;
-          result?: unknown;
-        };
-        if (envelope.cost_usd) console.log(`[pm] cost: $${envelope.cost_usd.toFixed(4)}`);
-        if (envelope.is_error) {
-          cleanup();
-          reject(new Error(`claude API error: ${JSON.stringify(envelope.result).slice(0, 300)}`));
-          return;
-        }
-      } catch {
-        /* envelope not parseable — not fatal, carry on */
+      if (resultIsError) {
+        cleanup();
+        reject(
+          new Error(
+            `claude API error during PM planning: ${stderr.slice(0, 300) || stdoutTail.slice(-300)}`,
+          ),
+        );
+        return;
       }
 
       if (code !== 0 && !fs.existsSync(outputPath)) {
-        const detail = stderr.slice(0, 300) || stdout.slice(0, 300) || '(no output)';
+        const detail = stderr.slice(0, 300) || stdoutTail.slice(-300) || '(no output)';
         cleanup();
         reject(new Error(`claude exited ${code}: ${detail}`));
         return;
@@ -1021,7 +1044,7 @@ function runPmMessageSubprocess(
         // Log what Claude actually said so we can debug tool-call failures
         console.error('[pm] submit_pm_response was not called');
         console.error('[pm] MCP_CMD:', MCP_CMD, '| MCP_SERVER:', MCP_SERVER);
-        console.error('[pm] stdout:', stdout.slice(0, 400));
+        console.error('[pm] stdout:', stdoutTail.slice(-400));
         console.error('[pm] stderr:', stderr.slice(0, 400));
         cleanup();
         reject(new Error('PM did not call submit_pm_response — check server logs'));

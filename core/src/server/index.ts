@@ -1082,6 +1082,9 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
         ({ phase, question, summary, agent }) => {
           sendPmEvent({ type: 'research', phase, question, summary, agent });
         },
+        (thinking: string) => {
+          sendPmEvent({ type: 'thinking', text: thinking });
+        },
       )
         .then(result => {
           sendPmEvent({ type: 'result', ...result });
