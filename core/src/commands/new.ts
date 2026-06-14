@@ -187,8 +187,21 @@ function buildTaskGraph(
     result_ref: null,
     attempts: 0,
   };
+  // Deterministic gate alongside the LLM reviewers: typecheck + secret scan. A FAIL
+  // blocks done and spawns a fix-coder, the same as a CHANGES_REQUESTED review.
+  const checks: Task = {
+    id: 't5',
+    title: 'Deterministic checks — typecheck + hardcoded-secret scan',
+    status: 'pending',
+    owner: cfg.owner,
+    assignee: 'checks',
+    depends_on: ['t1'],
+    artifacts: [],
+    result_ref: null,
+    attempts: 0,
+  };
 
-  return [base, tester, security, reviewer];
+  return [base, tester, security, reviewer, checks];
 }
 
 // ─── Entry point ──────────────────────────────────────────────────────────────

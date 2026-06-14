@@ -640,12 +640,14 @@ export async function runLoop(): Promise<LoopResult> {
           finalStatus = 'blocked' as Task['status'];
           console.log(`  ⚑ ${task.id}: verdict ${result.verdict} blocks done`);
 
-          // Spawn a coder fix + re-review only for builtin review agents.
-          // Marketplace specialists block but don't auto-spawn remediation.
-          if (
+          // Spawn a coder fix + re-check for builtin gates (LLM reviewers on
+          // CHANGES_REQUESTED, the deterministic checks gate on FAIL). Marketplace
+          // specialists block but don't auto-spawn remediation.
+          const reviewerBlocked =
             result.verdict === 'CHANGES_REQUESTED' &&
-            (task.assignee === 'security' || task.assignee === 'reviewer')
-          ) {
+            (task.assignee === 'security' || task.assignee === 'reviewer');
+          const checksBlocked = result.verdict === 'FAIL' && task.assignee === 'checks';
+          if (reviewerBlocked || checksBlocked) {
             spawnRemediation(getState(), task.id, cfg);
           }
         }

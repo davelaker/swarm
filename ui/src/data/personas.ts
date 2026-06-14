@@ -20,6 +20,13 @@ export const PERSONAS: Record<string, Persona> = {
     color: '#ef8043',
     role: 'Arbitration',
   },
+  checks: {
+    id: 'checks',
+    name: 'Checks',
+    short: 'CK',
+    color: '#7dd3fc',
+    role: 'Deterministic gate',
+  },
 };
 
 function initials(name: string): string {

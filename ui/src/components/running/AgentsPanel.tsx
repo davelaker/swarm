@@ -3,7 +3,7 @@ import type { AgentState, RunStatus, Task } from '../../types';
 import { resolveAgentPersona } from '../../data/personas';
 import { VerdictChip } from '../common/VerdictChip';
 
-const BUILTIN_ORDER = ['pm', 'coder', 'tester', 'security', 'reviewer', 'negotiator'];
+const BUILTIN_ORDER = ['pm', 'coder', 'tester', 'security', 'reviewer', 'checks', 'negotiator'];
 
 // Idle labels while a run is active
 const IDLE_LABEL: Record<string, string> = {

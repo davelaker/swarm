@@ -450,7 +450,11 @@ function coderPrompt(task: Task, state: SwarmState): string {
   const isFixTask = task.id.startsWith('t_fix_');
   const reviewRef = isFixTask
     ? state.tasks
-        .filter(t => (t.assignee === 'reviewer' || t.assignee === 'security') && t.result_ref)
+        .filter(
+          t =>
+            (t.assignee === 'reviewer' || t.assignee === 'security' || t.assignee === 'checks') &&
+            t.result_ref,
+        )
         .map(t => `Review findings to address: ${path.join(swarmDir(), t.result_ref!)}`)
         .join('\n')
     : '';

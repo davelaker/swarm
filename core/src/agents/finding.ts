@@ -20,6 +20,8 @@ export interface ValidatedFinding {
 const SCHEMA_RULES: Record<string, { negotiable: boolean; blocksOnVerdicts: string[] }> = {
   'security-finding': { negotiable: false, blocksOnVerdicts: ['CHANGES_REQUESTED', 'FAIL'] },
   'tester-finding': { negotiable: false, blocksOnVerdicts: ['FAIL'] },
+  // Deterministic gate (typecheck + secret scan) — a tool result, never negotiable.
+  'checks-finding': { negotiable: false, blocksOnVerdicts: ['FAIL'] },
   'reviewer-finding': { negotiable: true, blocksOnVerdicts: ['CHANGES_REQUESTED'] },
   'coder-finding': { negotiable: false, blocksOnVerdicts: [] }, // completion report
   'ux-finding': { negotiable: true, blocksOnVerdicts: ['CHANGES_REQUESTED'] },

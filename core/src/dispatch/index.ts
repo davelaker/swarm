@@ -6,6 +6,7 @@
 import type { Task, SwarmState } from '../state/types.js';
 import { getDriver } from '../drivers/index.js';
 import { loadRoster } from '../state/roster.js';
+import { runDeterministicChecks } from '../agents/checks.js';
 
 export interface TaskResult {
   status: 'done' | 'failed';
@@ -47,6 +48,19 @@ export async function dispatch(
           outputTokens: r.outputTokens,
           verdict: r.verdict,
           blocksDone: false,
+        };
+      }
+
+      case 'checks': {
+        // Deterministic gate — no LLM, no driver. Runs tools and trusts exit codes.
+        const r = await runDeterministicChecks(task, state);
+        return {
+          status: 'done',
+          summary: r.summary,
+          finding: r.findingMarkdown,
+          costUsd: 0,
+          verdict: r.verdict,
+          blocksDone: BLOCKS_VERDICTS.has(r.verdict),
         };
       }
 
