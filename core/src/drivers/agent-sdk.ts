@@ -3,8 +3,10 @@
 // Agent SDK credit pool (Max 20x). No ANTHROPIC_API_KEY required.
 //
 // How it works:
-//   claude -p --output-format json --system-prompt '...' \
+//   claude -p --output-format stream-json --verbose --system-prompt '...' \
 //             --mcp-config <result+perm servers> --strict-mcp-config "<task prompt>"
+// The NDJSON stream is parsed live (stream-parse.ts) to surface thinking + tool
+// calls to the dashboard; the terminal `result` message carries cost.
 //
 // Claude Code handles tool execution (Read, Edit, Write, Bash) autonomously.
 // Structured output comes from a `submit_result` MCP tool the agent MUST call to
@@ -37,6 +39,8 @@ import {
 } from './findings.js';
 import { loadProjectContextBounded, getRoot, swarmDir } from '../state/repo.js';
 import { loadBuiltinInstructions } from '../state/builtin-instructions.js';
+import { parseStreamMessage, createNdjsonBuffer, type StreamEvent } from './stream-parse.js';
+import { streamToProgress } from './progress.js';
 import type {
   AgentDriver,
   DriverResult,
@@ -209,15 +213,6 @@ const SCOUT_SCHEMA = JSON.stringify({
 
 // ─── claude -p wrapper ────────────────────────────────────────────────────────
 
-interface ClaudeOutput {
-  type: string;
-  subtype?: string;
-  result: unknown; // string (JSON) or parsed object depending on version
-  is_error?: boolean;
-  cost_usd?: number;
-  duration_ms?: number;
-}
-
 async function runClaude(opts: {
   systemPrompt: string;
   userPrompt: string;
@@ -230,12 +225,14 @@ async function runClaude(opts: {
   permProxy?: { agentId: string; sqlPolicy?: Record<string, 'allow' | 'ask' | 'deny'> }; // when set, spawn the permission proxy MCP server
   requireFields?: string[]; // fields the result server must see present & non-empty
   minDetail?: number; // min length for `detail` (when required) — rejects one-word details
+  onStreamEvent?: (ev: StreamEvent) => void; // live thinking/tool-call events for the dashboard
 }): Promise<{ data: Record<string, unknown>; costUsd: number }> {
   const cfg = getConfig();
   const args = [
     '--print',
     '--output-format',
-    'json',
+    'stream-json', // NDJSON stream so we can surface thinking + tool calls live
+    '--verbose', // required by the CLI for stream-json under --print
     '--system-prompt',
     opts.systemPrompt,
     '--no-session-persistence',
@@ -313,8 +310,27 @@ async function runClaude(opts: {
   }
 
   return new Promise((resolve, reject) => {
-    let stdout = '';
+    // Bounded tail of raw stdout, kept only for error diagnostics — the live
+    // stream is consumed incrementally below, never re-parsed as one blob.
+    let stdoutTail = '';
     let stderr = '';
+    let resultCostUsd = 0;
+    let resultIsError = false;
+    let sawResult = false;
+
+    // Parse the NDJSON stream as it arrives: forward thinking/tool events to the
+    // dashboard and capture the final `result` message for cost + error state.
+    const ndjson = createNdjsonBuffer(raw => {
+      for (const ev of parseStreamMessage(raw)) {
+        if (ev.kind === 'result') {
+          sawResult = true;
+          resultCostUsd = ev.costUsd;
+          resultIsError = ev.isError;
+        } else if (opts.onStreamEvent) {
+          opts.onStreamEvent(ev);
+        }
+      }
+    });
 
     const proc = spawn('claude', args, {
       cwd: opts.cwd ?? getRoot(),
@@ -322,7 +338,9 @@ async function runClaude(opts: {
     });
 
     proc.stdout.on('data', (d: Buffer) => {
-      stdout += d.toString();
+      const chunk = d.toString();
+      ndjson.push(chunk);
+      stdoutTail = (stdoutTail + chunk).slice(-2000);
     });
     proc.stderr.on('data', (d: Buffer) => {
       stderr += d.toString();
@@ -337,6 +355,8 @@ async function runClaude(opts: {
     );
 
     proc.on('close', (code: number | null) => {
+      ndjson.flush();
+
       // Clean up both temp files (MCP config + result output) on every exit path.
       const cleanup = () => {
         try {
@@ -351,44 +371,32 @@ async function runClaude(opts: {
         }
       };
 
-      // Always try to parse stdout — claude exits 1 for is_error responses too.
-      let envelope: ClaudeOutput | null = null;
-      try {
-        envelope = JSON.parse(stdout) as ClaudeOutput;
-      } catch {
-        /* handled below */
-      }
-
-      if (code !== 0) {
+      // claude exits non-zero for is_error responses too; the stream also carries
+      // is_error on its terminal result message.
+      if (code !== 0 || resultIsError) {
         cleanup();
-        if (envelope?.is_error) {
-          reject(new Error(`claude API error: ${JSON.stringify(envelope.result).slice(0, 400)}`));
-        } else {
-          const detail = stderr.slice(0, 400) || stdout.slice(0, 400) || '(no output)';
-          reject(new Error(`claude exited ${code}: ${detail}`));
-        }
+        const detail = stderr.slice(0, 400) || stdoutTail.slice(-400) || '(no output)';
+        reject(
+          new Error(
+            `claude exited ${code ?? 'null'}${resultIsError ? ' (is_error)' : ''}: ${detail}`,
+          ),
+        );
         return;
       }
 
-      if (!envelope) {
+      if (!sawResult) {
         cleanup();
-        reject(new Error(`claude output is not valid JSON: ${stdout.slice(0, 200)}`));
-        return;
-      }
-
-      if (envelope.is_error) {
-        cleanup();
-        reject(new Error(`claude error: ${JSON.stringify(envelope.result)}`));
+        reject(new Error(`claude produced no result message: ${stdoutTail.slice(-200)}`));
         return;
       }
 
       // Structured output comes from the submit_result tool, which the result
-      // MCP server captured to resultOutputPath. We only parse the envelope for
-      // cost metering (handled below) — never for the result payload. There is
+      // MCP server captured to resultOutputPath. The stream's result message is
+      // used only for cost metering — never for the result payload. There is
       // deliberately NO prose fallback: a missing submission yields empty data,
       // which downstream defaults surface as an honest FAILED-ish finding rather
       // than a fabricated "Completed".
-      const costUsd = envelope.cost_usd ?? 0;
+      const costUsd = resultCostUsd;
       let data: Record<string, unknown> = {};
       try {
         if (fs.existsSync(resultOutputPath)) {
@@ -750,6 +758,7 @@ export const agentSdkDriver: AgentDriver = {
       cwd: worktreePath, // run inside the isolated worktree (if any)
       requireFields: ['summary', 'detail'],
       minDetail: 120,
+      onStreamEvent: streamToProgress(task.assignee),
     });
 
     const verdict = String(data.verdict ?? 'FAILED');
@@ -814,6 +823,7 @@ export const agentSdkDriver: AgentDriver = {
       model: cfg.testerModel,
       verbose: true,
       requireFields: ['summary', 'detail'],
+      onStreamEvent: streamToProgress(task.assignee),
     });
 
     const verdict = String(data.verdict ?? 'FAIL').toUpperCase();
@@ -848,6 +858,7 @@ export const agentSdkDriver: AgentDriver = {
       model: cfg.securityModel, // haiku — structured read-only checklist
       verbose: true,
       requireFields: ['summary', 'detail'],
+      onStreamEvent: streamToProgress(task.assignee),
     });
 
     const verdict = String(data.verdict ?? 'CHANGES_REQUESTED').toUpperCase();
@@ -885,6 +896,7 @@ export const agentSdkDriver: AgentDriver = {
       model: cfg.reviewerModel, // sonnet — needs judgment about code quality
       verbose: true,
       requireFields: ['summary', 'detail'],
+      onStreamEvent: streamToProgress(task.assignee),
     });
 
     const verdict = String(data.verdict ?? 'CHANGES_REQUESTED').toUpperCase();
@@ -963,6 +975,7 @@ export const agentSdkDriver: AgentDriver = {
       model: modelOverride,
       verbose: true,
       requireFields: ['summary', 'detail'],
+      onStreamEvent: streamToProgress(task.assignee),
       permProxy: needsProxy
         ? { agentId: task.id, ...(hasSqlTools ? { sqlPolicy: sqlPolicyMap } : {}) }
         : undefined,

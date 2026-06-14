@@ -1112,6 +1112,26 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
       return;
     }
 
+    // ── Live agent progress (cross-process) ──────────────────────────────────────
+    // The agent driver runs in the `swarm new` loop process and POSTs thinking /
+    // tool-call events here; we fan them straight out to SSE clients. Telemetry
+    // only — validated loosely, never persisted.
+    if (route === '/run/progress') {
+      const ev = payload as { type?: string; agent_id?: string };
+      if (
+        (ev.type === 'agent.thinking' || ev.type === 'agent.progress') &&
+        typeof ev.agent_id === 'string'
+      ) {
+        fanout(ev as SwarmEvent);
+        res.writeHead(204);
+        res.end();
+      } else {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'invalid progress event' }));
+      }
+      return;
+    }
+
     // ── Permission gates ────────────────────────────────────────────────────────
     // POST /run/permission/request  — MCP proxy long-polls here; returns when user decides
     // POST /run/permission/:id      — UI sends the user's allow/deny decision
