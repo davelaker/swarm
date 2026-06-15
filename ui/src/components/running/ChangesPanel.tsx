@@ -21,19 +21,6 @@ function shortRef(c: ReviewComment): string {
     : `${name}:${c.startLine}–${c.endLine}`;
 }
 
-function buildReviewMessage(comments: ReviewComment[]): string {
-  const lines = comments
-    .filter(c => c.body.trim())
-    .map(c => {
-      const ref =
-        c.startLine === c.endLine
-          ? `${c.file}:${c.startLine}`
-          : `${c.file}:${c.startLine}-${c.endLine}`;
-      return `• ${ref} — ${c.body.trim()}`;
-    });
-  return lines.length ? `Requested changes:\n${lines.join('\n')}` : '';
-}
-
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: ReviewComment['status'] }) {
@@ -143,6 +130,7 @@ function ReviewPane({
   onClearResolved,
   submitting,
   error,
+  pmReply,
 }: {
   comments: ReviewComment[];
   onJump: (c: ReviewComment) => void;
@@ -152,6 +140,7 @@ function ReviewPane({
   onClearResolved: () => void;
   submitting: 'pm' | 'fast' | null;
   error: string | null;
+  pmReply: string | null;
 }) {
   const withBody = comments.filter(c => c.body.trim());
   const inFlight = comments.some(c => c.status === 'fixing' || c.status === 'planned');
@@ -228,8 +217,19 @@ function ReviewPane({
         )}
       </div>
 
+      {pmReply && (
+        <div className="review-pm-reply">
+          <span className="review-pm-tag">PM</span>
+          <span>{pmReply}</span>
+        </div>
+      )}
+
       <div className="review-footer">
-        {inFlight ? (
+        {submitting === 'pm' ? (
+          <div className="review-inflight">
+            <span className="dv-status planned">PM is planning…</span>
+          </div>
+        ) : inFlight ? (
           <div className="review-inflight">
             <span className="dv-status fixing">applying fixes…</span>
             <span style={{ fontSize: 10, color: 'var(--tx-3)' }}>
@@ -260,7 +260,7 @@ function ReviewPane({
               style={{ width: '100%', marginTop: 7 }}
               title="Hand the comments to the PM, which triages and plans the fixes"
             >
-              {submitting === 'pm' ? 'Sending…' : 'Let the PM plan'}
+              Let the PM plan
             </button>
             {error && (
               <div
@@ -297,29 +297,17 @@ function ReviewPane({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function ChangesPanel({
-  onRequestChanges,
-}: {
-  onRequestChanges?: (message: string) => void;
-}) {
+export function ChangesPanel() {
   const [diff, setDiff] = useState<StructuredDiff | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState<'pm' | 'fast' | null>(null);
-  const [submitted, setSubmitted] = useState(false);
+  const [pmReply, setPmReply] = useState<string | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  const {
-    comments,
-    addComment,
-    setRange,
-    setBody,
-    remove,
-    markAllFixing,
-    clearResolved,
-    clearAll,
-  } = useReview();
+  const { comments, addComment, setRange, setBody, remove, markAllFixing, clearResolved } =
+    useReview();
 
   const loadDiff = () => {
     setLoading(true);
@@ -397,18 +385,45 @@ export function ChangesPanel({
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
-  // PM path — hand the comments to the PM (which triages + plans) via Planning.
+  // PM path — in-surface: flush the draft, run a PM planning turn over the comments.
+  // If the PM plans fixes, they execute (comments go fixing → resolved, polled); if
+  // it pushes back or asks a question, its reply is shown and comments stay open.
   const pmPlan = () => {
-    const msg = buildReviewMessage(comments);
-    if (!msg) {
+    if (!comments.some(c => c.body.trim())) {
       return;
     }
     setSubmitting('pm');
-    onRequestChanges?.(msg);
-    setSubmitted(true);
-    clearAll();
-    setActiveId(null);
-    setSubmitting(null);
+    setApplyError(null);
+    setPmReply(null);
+    fetch('/run/review/save', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ comments }),
+    })
+      .then(() =>
+        fetch('/run/review/pm', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{}',
+        }),
+      )
+      .then(async r => {
+        const d = (await r.json().catch(() => ({}))) as {
+          error?: string;
+          reply?: string;
+          executing?: boolean;
+        };
+        if (!r.ok) {
+          throw new Error(d.error || `HTTP ${r.status}`);
+        }
+        setPmReply(d.reply ?? null);
+        if (d.executing) {
+          markAllFixing();
+          setActiveId(null);
+        }
+      })
+      .catch((e: Error) => setApplyError(e.message))
+      .finally(() => setSubmitting(null));
   };
 
   // Fast path — flush the draft, then start a coder + reviewer fix run directly.
@@ -496,30 +511,6 @@ export function ChangesPanel({
           <EmptyDiff />
         ) : (
           <>
-            {submitted && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '8px 14px',
-                  background: 'rgba(52,207,138,0.08)',
-                  borderBottom: '1px solid rgba(52,207,138,0.2)',
-                  fontSize: 12,
-                  fontFamily: 'var(--mono)',
-                  color: 'var(--green)',
-                }}
-              >
-                <span>✓</span>
-                <span>Sent to the PM — see Planning, where it's scoping a coder + reviewer.</span>
-                <button
-                  onClick={() => setSubmitted(false)}
-                  style={{ marginLeft: 'auto', color: 'var(--green)', opacity: 0.7 }}
-                >
-                  ×
-                </button>
-              </div>
-            )}
             <div className="dv-source">
               {diff!.source}
               <span style={{ flex: 1 }} />
@@ -551,6 +542,7 @@ export function ChangesPanel({
         onClearResolved={clearResolved}
         submitting={submitting}
         error={applyError}
+        pmReply={pmReply}
       />
     </div>
   );

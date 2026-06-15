@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { Surface, SessionSnapshot } from './types';
 import { Planning } from './components/planning/Planning';
 import { Running } from './components/running/Running';
@@ -69,10 +69,6 @@ export function App() {
   const [repoUrl, setRepoUrl] = useState<string | null>(null);
   const [runDone, setRunDone] = useState(false);
   const [planNextKey, setPlanNextKey] = useState(0);
-  // Post-run "Request changes": a review the PM should turn into a coder+reviewer fix.
-  const [reviewRequest, setReviewRequest] = useState<{ key: number; text: string } | null>(null);
-  const autoExecuteArmed = useRef(false); // when a review is in flight, auto-run once the PM enables Execute
-  const reviewKeyRef = useRef(0);
   const [projectRoot, setProjectRoot] = useState<string | null>(null);
   const [showSwitcher, setShowSwitcher] = useState(false);
   const [isInitiating, setIsInitiating] = useState(false);
@@ -293,30 +289,14 @@ export function App() {
       if (goal) setRunGoal(goal);
       if (charter) setRunCharter(charter);
       if (team) setRunTeam(team);
-      // Review auto-execute: the user already reviewed the diff and asked for changes,
-      // so once the PM turns that into an executable plan, kick it off immediately
-      // (same branch) without a second Execute click. Fire once, then disarm.
-      if (v && goal && autoExecuteArmed.current) {
-        autoExecuteArmed.current = false;
-        startRun(goal, charter ?? null, team ?? []);
-      }
     },
-    [startRun],
+    [],
   );
 
   const goExecute = useCallback(
     () => startRun(runGoal, runCharter, runTeam),
     [startRun, runGoal, runCharter, runTeam],
   );
-
-  // From the Running tab's "Request changes": hand the review to the PM and arm
-  // auto-execute so the resulting coder+reviewer fix runs without extra clicks.
-  const handleRequestChanges = useCallback((text: string) => {
-    reviewKeyRef.current += 1;
-    setReviewRequest({ key: reviewKeyRef.current, text });
-    autoExecuteArmed.current = true;
-    setSurface('planning');
-  }, []);
 
   const handlePlanNext = useCallback(() => {
     setRunDone(false);
@@ -580,7 +560,6 @@ export function App() {
               setMarketplaceFocus(agentId);
               setSurface('marketplace');
             }}
-            reviewRequest={reviewRequest}
             serverStatus={serverStatus}
             recapMessage={completionRecap}
             planNextKey={planNextKey}
@@ -619,7 +598,6 @@ export function App() {
               key={projectRoot ?? 'init'}
               onPrCreated={onPrCreated}
               onRunDone={() => setRunDone(true)}
-              onRequestChanges={handleRequestChanges}
               isInitiating={isInitiating}
               noActiveRun={!runGoal && !historicalSession}
               historicalSession={historicalSession ?? undefined}

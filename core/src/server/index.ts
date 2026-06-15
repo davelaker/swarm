@@ -1225,6 +1225,69 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
         });
       return;
     }
+    if (route === '/run/review/pm') {
+      // PM-coordinated path, in-surface: run a PM planning turn over the review
+      // comments. If the PM produces a task graph, execute it (comments go
+      // fixing → resolved, polled by the UI); if it instead replies with a question
+      // or pushback, surface that and leave the comments open for the user.
+      if (activeRun) {
+        res.writeHead(409);
+        res.end(JSON.stringify({ error: 'A run is already in progress' }));
+        return;
+      }
+      const pmComments = readReview().filter(c => c.body.trim());
+      if (pmComments.length === 0) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'no comments to plan' }));
+        return;
+      }
+      const pmReviewLines = pmComments.map(c => {
+        const range = c.endLine !== c.startLine ? `${c.startLine}-${c.endLine}` : `${c.startLine}`;
+        return `- ${c.file}:${range} — ${c.body.trim()}`;
+      });
+      const pmMessage = `I reviewed the changes and left these code-review comments. Plan and apply the fixes on the current branch; if anything is ambiguous or you disagree, say so instead of guessing:\n${pmReviewLines.join('\n')}`;
+      activeRun = true; // hold the slot through PM planning + any execution
+      runPmMessage(pmMessage, [])
+        .then(pmResp => {
+          const graph = pmResp.taskGraph?.length ? pmResp.taskGraph : null;
+          if (!graph) {
+            // PM pushed back / asked a question — don't execute; surface the reply.
+            activeRun = false;
+            res.writeHead(200);
+            res.end(JSON.stringify({ ok: true, reply: pmResp.reply, executing: false }));
+            return;
+          }
+          writeReview(pmComments.map(c => ({ ...c, status: 'fixing' as const })));
+          res.writeHead(200);
+          res.end(JSON.stringify({ ok: true, reply: pmResp.reply, executing: true }));
+          const pmCharter: import('../state/types.js').RunCharter = {
+            constraints: ['Apply the reviewer’s comments — do not refactor unrelated code.'],
+            nongoals: [],
+            questions: [],
+            branchMode: 'main',
+            taskGraph: graph,
+          };
+          runNew(pmMessage, pmCharter)
+            .then(() => {
+              writeReview(readReview().map(c => ({ ...c, status: 'resolved' as const })));
+            })
+            .catch(err => {
+              console.error('  ✗ review pm-fix error:', (err as Error).message);
+              writeReview(readReview().map(c => ({ ...c, status: 'open' as const })));
+              fanout({ type: 'run.blocked', reason: (err as Error).message });
+            })
+            .finally(() => {
+              activeRun = false;
+            });
+        })
+        .catch(err => {
+          activeRun = false;
+          console.error('  ✗ review pm-plan error:', (err as Error).message);
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: (err as Error).message }));
+        });
+      return;
+    }
     if (route === '/run/review/fix') {
       // Fast path: apply the review comments directly via a coder + reviewer run, no
       // PM round. The comments reach the coder through the run goal + constraints.

@@ -98,7 +98,6 @@ interface RunViewProps {
   onPause?: () => void;
   onAbort?: () => void;
   onPrCreated?: (url: string) => void;
-  onRequestChanges?: (message: string) => void;
 }
 
 // ─── Run summary strip ────────────────────────────────────────────────────────
@@ -853,7 +852,6 @@ function RunView({
   onPause,
   onAbort,
   onPrCreated,
-  onRequestChanges,
 }: RunViewProps) {
   const [showChanges, setShowChanges] = useState(false);
 
@@ -970,7 +968,7 @@ function RunView({
       )}
 
       {showChanges ? (
-        <ChangesPanel onRequestChanges={onRequestChanges} />
+        <ChangesPanel />
       ) : (
         <>
           <div className="run-right">
@@ -1280,14 +1278,12 @@ function HistoricalRunView({ session }: { session: SessionSnapshot }) {
 export function Running({
   onPrCreated,
   onRunDone,
-  onRequestChanges,
   isInitiating,
   noActiveRun,
   historicalSession,
 }: {
   onPrCreated?: (url: string) => void;
   onRunDone?: () => void;
-  onRequestChanges?: (message: string) => void;
   isInitiating?: boolean;
   noActiveRun?: boolean;
   historicalSession?: SessionSnapshot;
@@ -1430,7 +1426,6 @@ export function Running({
         onPause={state.status === 'paused' ? resume : pause}
         onAbort={abort}
         onPrCreated={onPrCreated}
-        onRequestChanges={onRequestChanges}
       />
       {state.pendingPermission && (
         <PermissionGate request={state.pendingPermission} onResolve={resolvePermission} />
