@@ -150,7 +150,7 @@ async function captureRoutes(
       try {
         await page.goto(`http://127.0.0.1:${port}${route}`, {
           waitUntil: 'networkidle',
-          timeout: 15_000,
+          timeout: 30_000, // cold Next.js dev routes first-compile on demand — be generous
         });
         await page.screenshot({ path: abs, fullPage: true });
       } catch (err) {
