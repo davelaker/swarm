@@ -26,12 +26,19 @@ export function useReview(): {
   setRange: (id: string, line: number) => void;
   setBody: (id: string, body: string) => void;
   remove: (id: string) => void;
+  markAllFixing: () => void;
+  clearResolved: () => void;
   clearAll: () => void;
   reload: () => void;
 } {
   const [comments, setComments] = useState<ReviewComment[]>([]);
   const loaded = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // While a fix is in flight (or done), the server owns the comment statuses — the
+  // client only displays them. Editing/persisting resumes once everything is 'open'.
+  const editable = comments.every(c => c.status === 'open');
+  const inFlight = comments.some(c => c.status === 'fixing' || c.status === 'planned');
 
   const reload = useCallback(() => {
     fetch('/run/review')
@@ -49,9 +56,9 @@ export function useReview(): {
     reload();
   }, [reload]);
 
-  // Debounced persist — skip the first render (the load itself).
+  // Debounced persist — only while the draft is editable (server owns it otherwise).
   useEffect(() => {
-    if (!loaded.current) {
+    if (!loaded.current || !editable) {
       return;
     }
     if (saveTimer.current) {
@@ -69,7 +76,16 @@ export function useReview(): {
         clearTimeout(saveTimer.current);
       }
     };
-  }, [comments]);
+  }, [comments, editable]);
+
+  // Poll for status transitions while a fix is applying (open → fixing → resolved).
+  useEffect(() => {
+    if (!inFlight) {
+      return;
+    }
+    const id = setInterval(reload, 2500);
+    return () => clearInterval(id);
+  }, [inFlight, reload]);
 
   const addComment = useCallback((file: string, side: 'old' | 'new', line: number): string => {
     const id = rid();
@@ -99,7 +115,35 @@ export function useReview(): {
     setComments(prev => prev.filter(c => c.id !== id));
   }, []);
 
+  const markAllFixing = useCallback(
+    () => setComments(prev => prev.map(c => ({ ...c, status: 'fixing' as ReviewStatus }))),
+    [],
+  );
+
+  // Dismiss the resolved comments (and persist the cleared draft).
+  const clearResolved = useCallback(() => {
+    setComments(prev => {
+      const next = prev.filter(c => c.status !== 'resolved');
+      fetch('/run/review/save', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ comments: next }),
+      }).catch(() => {});
+      return next;
+    });
+  }, []);
+
   const clearAll = useCallback(() => setComments([]), []);
 
-  return { comments, addComment, setRange, setBody, remove, clearAll, reload };
+  return {
+    comments,
+    addComment,
+    setRange,
+    setBody,
+    remove,
+    markAllFixing,
+    clearResolved,
+    clearAll,
+    reload,
+  };
 }

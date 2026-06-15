@@ -31,7 +31,7 @@ import {
 import { serverFreshness } from './freshness.js';
 import { runPreflight } from './preflight.js';
 import { buildStructuredDiff } from './diff.js';
-import { readReview, writeReview, clearReview } from './review.js';
+import { readReview, writeReview } from './review.js';
 import { runPmMessage, PM_SYSTEM } from '../pm/index.js';
 import { runNew, checkGitClean } from '../commands/new.js';
 import { pauseRun, resumeRun, abortRun } from '../loop-control.js';
@@ -1274,10 +1274,14 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
       console.log(`\n  ▸ review fix: ${comments.length} comment(s)\n`);
       runNew(goal, charter)
         .then(() => {
-          clearReview(); // comments resolved — applied
+          // Mark the comments resolved (don't drop them) so the review surface can
+          // show they were addressed; the user dismisses them when ready.
+          writeReview(readReview().map(c => ({ ...c, status: 'resolved' as const })));
         })
         .catch(err => {
           console.error('  ✗ review fix error:', (err as Error).message);
+          // Roll the comments back to open so the user can retry.
+          writeReview(readReview().map(c => ({ ...c, status: 'open' as const })));
           fanout({ type: 'run.blocked', reason: (err as Error).message });
         })
         .finally(() => {

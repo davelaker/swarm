@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DiffView, lineKey, type StructuredDiffFile } from './DiffView';
 import { useReview, type ReviewComment } from '../../hooks/useReview';
 
@@ -34,6 +34,21 @@ function buildReviewMessage(comments: ReviewComment[]): string {
   return lines.length ? `Requested changes:\n${lines.join('\n')}` : '';
 }
 
+// ─── Status badge ─────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: ReviewComment['status'] }) {
+  if (status === 'fixing') {
+    return <span className="dv-status fixing">fixing…</span>;
+  }
+  if (status === 'planned') {
+    return <span className="dv-status planned">planned</span>;
+  }
+  if (status === 'resolved') {
+    return <span className="dv-status resolved">✓ resolved</span>;
+  }
+  return null;
+}
+
 // ─── Inline comment thread (rendered under the commented line) ─────────────────
 
 function CommentThread({
@@ -47,23 +62,31 @@ function CommentThread({
   onChange: (body: string) => void;
   onRemove: () => void;
 }) {
+  const locked = comment.status !== 'open';
   return (
-    <div className="dv-thread">
+    <div className={`dv-thread${locked ? ' locked' : ''}`}>
       <div className="dv-thread-head">
         <span className="dv-thread-ref">{rangeLabel(comment)}</span>
+        <StatusBadge status={comment.status} />
         <span className="spacer" style={{ flex: 1 }} />
-        <button className="dv-thread-remove" onClick={onRemove} title="Remove comment">
-          ×
-        </button>
+        {!locked && (
+          <button className="dv-thread-remove" onClick={onRemove} title="Remove comment">
+            ×
+          </button>
+        )}
       </div>
-      <textarea
-        className="dv-thread-input"
-        autoFocus={autoFocus}
-        value={comment.body}
-        placeholder="Leave a comment… (shift-click another line to extend the range)"
-        onChange={e => onChange(e.target.value)}
-        rows={2}
-      />
+      {locked ? (
+        <div className="dv-thread-readonly">{comment.body || <em>(no note)</em>}</div>
+      ) : (
+        <textarea
+          className="dv-thread-input"
+          autoFocus={autoFocus}
+          value={comment.body}
+          placeholder="Leave a comment… (shift-click another line to extend the range)"
+          onChange={e => onChange(e.target.value)}
+          rows={2}
+        />
+      )}
     </div>
   );
 }
@@ -117,6 +140,7 @@ function ReviewPane({
   onRemove,
   onPmPlan,
   onApplyDirect,
+  onClearResolved,
   submitting,
   error,
 }: {
@@ -125,11 +149,14 @@ function ReviewPane({
   onRemove: (id: string) => void;
   onPmPlan: () => void;
   onApplyDirect: () => void;
+  onClearResolved: () => void;
   submitting: 'pm' | 'fast' | null;
   error: string | null;
 }) {
   const withBody = comments.filter(c => c.body.trim());
-  const disabled = withBody.length === 0 || submitting !== null;
+  const inFlight = comments.some(c => c.status === 'fixing' || c.status === 'planned');
+  const resolved = comments.some(c => c.status === 'resolved');
+  const disabled = withBody.length === 0 || submitting !== null || inFlight || resolved;
 
   return (
     <div className="review-pane">
@@ -169,22 +196,25 @@ function ReviewPane({
                 <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--blue)' }}>
                   {shortRef(c)}
                 </span>
-                <button
-                  onClick={e => {
-                    e.stopPropagation();
-                    onRemove(c.id);
-                  }}
-                  style={{
-                    marginLeft: 'auto',
-                    color: 'var(--tx-3)',
-                    fontSize: 13,
-                    lineHeight: 1,
-                    flexShrink: 0,
-                  }}
-                  title="Remove"
-                >
-                  ×
-                </button>
+                <StatusBadge status={c.status} />
+                {c.status === 'open' && (
+                  <button
+                    onClick={e => {
+                      e.stopPropagation();
+                      onRemove(c.id);
+                    }}
+                    style={{
+                      marginLeft: 'auto',
+                      color: 'var(--tx-3)',
+                      fontSize: 13,
+                      lineHeight: 1,
+                      flexShrink: 0,
+                    }}
+                    title="Remove"
+                  >
+                    ×
+                  </button>
+                )}
               </div>
               <div className="review-preview">
                 {c.body.trim() ? (
@@ -199,46 +229,66 @@ function ReviewPane({
       </div>
 
       <div className="review-footer">
-        <button
-          className="btn primary"
-          onClick={onApplyDirect}
-          disabled={disabled}
-          style={{ width: '100%' }}
-          title="Apply the comments now via a coder + reviewer run — no PM round"
-        >
-          {submitting === 'fast'
-            ? 'Starting…'
-            : `Apply directly${withBody.length ? ` (${withBody.length})` : ''}`}
-        </button>
-        <button
-          className="btn"
-          onClick={onPmPlan}
-          disabled={disabled}
-          style={{ width: '100%', marginTop: 7 }}
-          title="Hand the comments to the PM, which triages and plans the fixes"
-        >
-          {submitting === 'pm' ? 'Sending…' : 'Let the PM plan'}
-        </button>
-        {error && (
-          <div
-            style={{ marginTop: 6, fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--red)' }}
-          >
-            ⚠ {error}
+        {inFlight ? (
+          <div className="review-inflight">
+            <span className="dv-status fixing">applying fixes…</span>
+            <span style={{ fontSize: 10, color: 'var(--tx-3)' }}>
+              A coder is addressing your comments. The diff updates when it lands.
+            </span>
           </div>
-        )}
-        {withBody.length > 0 && !error && (
-          <div
-            style={{
-              marginTop: 6,
-              fontSize: 10,
-              fontFamily: 'var(--mono)',
-              color: 'var(--tx-3)',
-              textAlign: 'center',
-              lineHeight: 1.4,
-            }}
-          >
-            Apply directly runs a coder + reviewer now. The PM option lets it triage first.
-          </div>
+        ) : resolved ? (
+          <button className="btn primary" onClick={onClearResolved} style={{ width: '100%' }}>
+            ✓ Fixes applied — clear
+          </button>
+        ) : (
+          <>
+            <button
+              className="btn primary"
+              onClick={onApplyDirect}
+              disabled={disabled}
+              style={{ width: '100%' }}
+              title="Apply the comments now via a coder + reviewer run — no PM round"
+            >
+              {submitting === 'fast'
+                ? 'Starting…'
+                : `Apply directly${withBody.length ? ` (${withBody.length})` : ''}`}
+            </button>
+            <button
+              className="btn"
+              onClick={onPmPlan}
+              disabled={disabled}
+              style={{ width: '100%', marginTop: 7 }}
+              title="Hand the comments to the PM, which triages and plans the fixes"
+            >
+              {submitting === 'pm' ? 'Sending…' : 'Let the PM plan'}
+            </button>
+            {error && (
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 11,
+                  fontFamily: 'var(--mono)',
+                  color: 'var(--red)',
+                }}
+              >
+                ⚠ {error}
+              </div>
+            )}
+            {withBody.length > 0 && !error && (
+              <div
+                style={{
+                  marginTop: 6,
+                  fontSize: 10,
+                  fontFamily: 'var(--mono)',
+                  color: 'var(--tx-3)',
+                  textAlign: 'center',
+                  lineHeight: 1.4,
+                }}
+              >
+                Apply directly runs a coder + reviewer now. The PM option lets it triage first.
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -249,10 +299,8 @@ function ReviewPane({
 
 export function ChangesPanel({
   onRequestChanges,
-  onReviewFixStarted,
 }: {
   onRequestChanges?: (message: string) => void;
-  onReviewFixStarted?: () => void;
 }) {
   const [diff, setDiff] = useState<StructuredDiff | null>(null);
   const [loading, setLoading] = useState(true);
@@ -262,7 +310,16 @@ export function ChangesPanel({
   const [applyError, setApplyError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  const { comments, addComment, setRange, setBody, remove, clearAll } = useReview();
+  const {
+    comments,
+    addComment,
+    setRange,
+    setBody,
+    remove,
+    markAllFixing,
+    clearResolved,
+    clearAll,
+  } = useReview();
 
   const loadDiff = () => {
     setLoading(true);
@@ -380,13 +437,25 @@ export function ChangesPanel({
         }
       })
       .then(() => {
-        clearAll();
+        // Keep the diff open and flip the comments to 'fixing' — they update live
+        // (poll) through to 'resolved', and the diff refreshes when the fix lands.
+        markAllFixing();
         setActiveId(null);
-        onReviewFixStarted?.(); // close the diff so the live fix run shows
       })
       .catch((e: Error) => setApplyError(e.message))
       .finally(() => setSubmitting(null));
   };
+
+  // When comments transition to resolved (the fix landed), refresh the diff.
+  const resolvedCount = comments.filter(c => c.status === 'resolved').length;
+  const prevResolved = useRef(0);
+  useEffect(() => {
+    if (resolvedCount > prevResolved.current) {
+      loadDiff();
+    }
+    prevResolved.current = resolvedCount;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolvedCount]);
 
   if (loading) {
     return (
@@ -479,6 +548,7 @@ export function ChangesPanel({
         }}
         onPmPlan={pmPlan}
         onApplyDirect={applyDirect}
+        onClearResolved={clearResolved}
         submitting={submitting}
         error={applyError}
       />
