@@ -870,19 +870,27 @@ function RunView({
       return true;
     }
   });
-  const toggleChat = useCallback(
-    () =>
-      setChatOpen(v => {
-        const next = !v;
-        try {
-          localStorage.setItem('swarm-chat-open', String(next));
-        } catch {}
-        return next;
-      }),
-    [],
-  );
+  // The code-changes view wants the room — collapse the PM chat there by default,
+  // but keep it toggleable. Tracked separately so it doesn't disturb the user's
+  // normal-view preference.
+  const [chatOpenInChanges, setChatOpenInChanges] = useState(false);
+  const effectiveChatOpen = showChanges ? chatOpenInChanges : chatOpen;
 
-  const gridCols = `${leftPx}px 4px 1fr ${chatOpen ? `4px ${chatPx}px` : '1px 36px'}`;
+  const toggleChat = useCallback(() => {
+    if (showChanges) {
+      setChatOpenInChanges(v => !v);
+      return;
+    }
+    setChatOpen(v => {
+      const next = !v;
+      try {
+        localStorage.setItem('swarm-chat-open', String(next));
+      } catch {}
+      return next;
+    });
+  }, [showChanges]);
+
+  const gridCols = `${leftPx}px 4px 1fr ${effectiveChatOpen ? `4px ${chatPx}px` : '1px 36px'}`;
 
   const tierColour = tier === 'tweak' ? 'blue' : tier === 'greenfield' ? 'green' : 'amber';
   const statusMeta: Record<RunStatus, { cls: string; label: string }> = {
@@ -986,11 +994,11 @@ function RunView({
             hoveredTaskId={hoveredTaskId}
             onHoverTask={setHoveredTaskId}
           />
-          {chatOpen && <DragHandle gridColumn={4} onMouseDown={onDragChat} />}
+          {effectiveChatOpen && <DragHandle gridColumn={4} onMouseDown={onDragChat} />}
         </>
       )}
 
-      <PmChat pmMsgs={pmMsgs} status={status} open={chatOpen} onToggle={toggleChat} />
+      <PmChat pmMsgs={pmMsgs} status={status} open={effectiveChatOpen} onToggle={toggleChat} />
     </div>
   );
 }
