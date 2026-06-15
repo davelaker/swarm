@@ -111,6 +111,43 @@ function PlanReadyCallout({
   );
 }
 
+// First-run guidance: when a session is brand new (the user hasn't said anything
+// yet), offer a few example goals to make the blank page actionable. Picking one
+// fills the composer so the user can complete the specifics, not send it blind.
+const STARTER_PROMPTS: { label: string; template: string }[] = [
+  {
+    label: 'Add a small UI feature',
+    template: 'On the page at app/…, add ',
+  },
+  {
+    label: 'Fix a specific bug',
+    template: 'Fix the bug where ',
+  },
+  {
+    label: 'Add tests',
+    template: 'Write tests for ',
+  },
+  {
+    label: 'Refactor safely',
+    template: 'Refactor … without changing its behavior, and ',
+  },
+];
+
+function StarterPrompts({ onPick }: { onPick: (text: string) => void }) {
+  return (
+    <div className="starter-prompts anim-in">
+      <div className="starter-prompts-label">Not sure where to start? Try one of these:</div>
+      <div className="starter-prompts-chips">
+        {STARTER_PROMPTS.map(s => (
+          <button key={s.label} className="starter-chip" onClick={() => onPick(s.template)}>
+            {s.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // The PM recommends hiring a marketplace specialist. One-click CTA that jumps to the
 // Agents tab focused on this agent's hire page.
 function HireCallout({
@@ -464,6 +501,17 @@ export function Planning({
             {session.messages.map((m, i) => (
               <Message key={i} m={m} />
             ))}
+            {!session.messages.some(m => m.from === 'you') &&
+              !session.typing &&
+              !session.streamingPmText &&
+              !session.researching && (
+                <StarterPrompts
+                  onPick={text => {
+                    setInput(text);
+                    textareaRef.current?.focus();
+                  }}
+                />
+              )}
             {session.streamingPmText ? (
               <StreamingMessage text={session.streamingPmText} />
             ) : session.pmActivity && session.pmActivity.length > 0 ? (
