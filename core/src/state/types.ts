@@ -30,6 +30,7 @@ export interface Task {
   cost_usd?: number; // accumulated agent cost for this task (api-key driver only)
   lease?: Lease;
   skip_reason?: string; // set when status === 'skipped'; explains why the task was not run
+  steer?: string[]; // mid-run user guidance, injected into the agent's prompt when (re)dispatched
 }
 
 // A specialist agent hired from the marketplace and persisted in .swarm/roster.json.

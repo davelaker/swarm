@@ -1613,6 +1613,75 @@ select {
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+.tnode-steer-btn {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--tx-3);
+  background: none;
+  border: 1px solid var(--border-1);
+  border-radius: 5px;
+  padding: 1px 7px;
+  cursor: pointer;
+  transition:
+    color 0.12s,
+    border-color 0.12s;
+}
+.tnode-steer-btn:hover {
+  color: var(--blue);
+  border-color: color-mix(in srgb, var(--blue) 40%, transparent);
+}
+.tnode-steer {
+  margin-top: 8px;
+  border: 1px solid color-mix(in srgb, var(--blue) 30%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--blue) 5%, transparent);
+  overflow: hidden;
+}
+.tnode-steer-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--tx-1);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  resize: vertical;
+  outline: none;
+}
+.tnode-steer-error {
+  padding: 0 10px 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--amber);
+}
+.tnode-steer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  padding: 0 8px 8px;
+}
+.tnode-steer-cancel {
+  font-size: 11px;
+  color: var(--tx-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 3px 8px;
+}
+.tnode-steer-send {
+  font-size: 11px;
+  color: #fff;
+  background: var(--blue);
+  border: none;
+  border-radius: 5px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+.tnode-steer-send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 .tnode-step {
   font-family: var(--mono);
   font-size: 11px;

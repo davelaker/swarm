@@ -62,6 +62,8 @@ function TaskCard({
   durationMs,
   durationLive,
   isHovered,
+  runActive,
+  onSteer,
 }: {
   t: Task;
   agentSteps: Record<string, string>;
@@ -69,14 +71,39 @@ function TaskCard({
   durationMs?: number | null;
   durationLive?: boolean;
   isHovered?: boolean;
+  runActive?: boolean;
+  onSteer?: (taskId: string, note: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [steering, setSteering] = useState(false);
+  const [steerDraft, setSteerDraft] = useState('');
+  const [steerBusy, setSteerBusy] = useState(false);
+  const [steerError, setSteerError] = useState<string | null>(null);
   const p = resolveAgentPersona(t.assignee);
   const color = STATUS_COLOR[t.status];
   const isActive = t.status === 'in_progress';
   const isSkipped = t.status === 'skipped';
   const step = isActive ? agentSteps[t.assignee] : null;
   const needsTruncation = t.title.length > TRUNCATE;
+  // Steering is offered during an active run on tasks that aren't skipped.
+  const canSteer = !!runActive && !!onSteer && !isSkipped;
+
+  const submitSteer = async () => {
+    const note = steerDraft.trim();
+    if (!note || !onSteer) {
+      return;
+    }
+    setSteerBusy(true);
+    setSteerError(null);
+    const r = await onSteer(t.id, note);
+    setSteerBusy(false);
+    if (r.ok) {
+      setSteerDraft('');
+      setSteering(false);
+    } else {
+      setSteerError(r.error ?? 'Could not steer');
+    }
+  };
   const displayTitle =
     needsTruncation && !expanded ? t.title.slice(0, TRUNCATE).trimEnd() + '…' : t.title;
 
@@ -133,10 +160,63 @@ function TaskCard({
             {fmtDuration(durationMs)}
           </span>
         )}
+        {canSteer && !steering && (
+          <button
+            className="tnode-steer-btn"
+            onClick={() => setSteering(true)}
+            title="Steer this task — add guidance and re-dispatch it"
+          >
+            ⤳ steer
+          </button>
+        )}
         <span className="tnode-status" style={{ color }}>
           {STATUS_LABEL[t.status]}
         </span>
       </div>
+
+      {steering && (
+        <div className="tnode-steer">
+          <textarea
+            className="tnode-steer-input"
+            autoFocus
+            value={steerDraft}
+            placeholder={
+              isActive
+                ? 'Pause the run first, then steer once this task lands…'
+                : 'Add guidance — re-runs this task (and its downstream) with your note…'
+            }
+            rows={2}
+            onChange={e => setSteerDraft(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                submitSteer();
+              } else if (e.key === 'Escape') {
+                setSteering(false);
+                setSteerError(null);
+              }
+            }}
+          />
+          {steerError && <div className="tnode-steer-error">⚠ {steerError}</div>}
+          <div className="tnode-steer-actions">
+            <button
+              className="tnode-steer-cancel"
+              onClick={() => {
+                setSteering(false);
+                setSteerError(null);
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              className="tnode-steer-send"
+              onClick={submitSteer}
+              disabled={!steerDraft.trim() || steerBusy}
+            >
+              {steerBusy ? 'Steering…' : 'Steer ↵'}
+            </button>
+          </div>
+        </div>
+      )}
       {isSkipped && t.skip_reason && (
         <div className="tnode-step" style={{ color: 'var(--tx-3)', fontStyle: 'italic' }}>
           {t.skip_reason.replace(/^Skipped: /, '')}
@@ -176,6 +256,8 @@ export function TaskGraph({
   taskTimings = {},
   hoveredTaskId,
   onHoverTask,
+  runActive,
+  onSteer,
 }: {
   tasks: Task[];
   agentSteps: Record<string, string>;
@@ -183,6 +265,8 @@ export function TaskGraph({
   taskTimings?: Record<string, { startedAt: number; endedAt: number | null }>;
   hoveredTaskId: string | null;
   onHoverTask: (id: string | null) => void;
+  runActive?: boolean;
+  onSteer?: (taskId: string, note: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
   // Tick once a second so the active task's live duration counts up. Idle when no
   // task is running (every timing has an endedAt or none has started).
@@ -369,6 +453,8 @@ export function TaskGraph({
                   })()}
                   durationLive={taskTimings[t.id] != null && taskTimings[t.id].endedAt == null}
                   isHovered={isHovered}
+                  runActive={runActive}
+                  onSteer={onSteer}
                 />
               </div>
             );

@@ -457,6 +457,18 @@ function charterBlock(state: SwarmState): string {
   return parts.join('\n');
 }
 
+// Mid-run user steering — guidance the user added on a task while the run was live.
+// Injected prominently so the (re)dispatched agent adapts without a full restart.
+function steerBlock(task: Task): string {
+  if (!task.steer?.length) {
+    return '';
+  }
+  return [
+    'IMPORTANT — mid-run steering from the user. Apply these to your work on this task:',
+    ...task.steer.map(s => `- ${s}`),
+  ].join('\n');
+}
+
 function coderPrompt(task: Task, state: SwarmState): string {
   // For remediation fix tasks, point the coder at the review finding it must address.
   // Findings live in the real repo's .swarm/ dir, which is gitignored and so
@@ -492,6 +504,7 @@ function coderPrompt(task: Task, state: SwarmState): string {
     state.goal ? `Goal: ${state.goal}` : '',
     charterBlock(state),
     auditRef || reviewRef,
+    steerBlock(task),
   ]
     .filter(Boolean)
     .join('\n');
@@ -506,6 +519,7 @@ function testerPrompt(task: Task, state: SwarmState): string {
     ctx,
     coderTask?.result_ref ? `Coder findings: .swarm/${coderTask.result_ref}` : '',
     'Find and run the test suite (use Bash). Report PASS or FAIL.',
+    steerBlock(task),
   ]
     .filter(Boolean)
     .join('\n');
@@ -522,6 +536,7 @@ function securityPrompt(task: Task, state: SwarmState): string {
       state.goal ? `Goal: ${state.goal}` : '',
       charterBlock(state),
       'READ-ONLY. Conduct a full codebase security audit. Explore the project files thoroughly. Report APPROVED or CHANGES_REQUESTED with structured findings (id, severity, type, location, fix).',
+      steerBlock(task),
     ]
       .filter(Boolean)
       .join('\n');
@@ -536,6 +551,7 @@ function securityPrompt(task: Task, state: SwarmState): string {
     ctx + ref,
     charterBlock(state),
     'READ-ONLY. Review changed files. Report APPROVED or CHANGES_REQUESTED with structured findings.',
+    steerBlock(task),
   ]
     .filter(Boolean)
     .join('\n');
@@ -551,6 +567,7 @@ function reviewerPrompt(task: Task, state: SwarmState): string {
     ctx + ref,
     charterBlock(state),
     'READ-ONLY. Review for correctness, robustness, design, and testability. Do NOT flag security issues.',
+    steerBlock(task),
   ]
     .filter(Boolean)
     .join('\n');

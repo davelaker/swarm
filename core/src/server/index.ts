@@ -24,6 +24,7 @@ import {
   stateFile,
   sessionsDir,
   snapshotSession,
+  updateTask,
   projectContextFile,
   writeDeploymentInfo,
   appendLog,
@@ -1294,6 +1295,65 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
           res.writeHead(500);
           res.end(JSON.stringify({ error: (err as Error).message }));
         });
+      return;
+    }
+    if (route === '/run/steer') {
+      // Mid-run intervention — pause → amend → re-dispatch. Adds a steering note to a
+      // task and resets it (plus its terminal downstream chain) to pending so the loop
+      // re-runs it with the note in the agent's prompt. Refuses in-progress tasks (the
+      // one-shot agent can't be interrupted) — pause first, then steer once it lands.
+      const { taskId, note } = payload as { taskId?: string; note?: string };
+      if (!taskId || !note?.trim()) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'taskId and note required' }));
+        return;
+      }
+      if (!activeRun) {
+        res.writeHead(409);
+        res.end(JSON.stringify({ error: 'Steering is only available during an active run' }));
+        return;
+      }
+      const cur = getState();
+      const target = cur.tasks.find(t => t.id === taskId);
+      if (!target) {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: 'task not found' }));
+        return;
+      }
+      if (target.status === 'in_progress') {
+        res.writeHead(409);
+        res.end(
+          JSON.stringify({
+            error: 'This task is running — pause the run, then steer it once it finishes.',
+          }),
+        );
+        return;
+      }
+      const isTerminal = (s: string) => s === 'done' || s === 'failed' || s === 'blocked';
+      // The task: append the note and (re-)queue it.
+      updateTask(taskId, {
+        steer: [...(target.steer ?? []), note.trim()],
+        status: 'pending',
+      });
+      // Re-run the whole downstream chain so the change is re-reviewed/re-gated. BFS
+      // over transitive dependents; only re-queue ones that already finished.
+      const queue = [taskId];
+      const seen = new Set<string>([taskId]);
+      while (queue.length) {
+        const id = queue.shift()!;
+        for (const t of cur.tasks) {
+          if (t.depends_on.includes(id) && !seen.has(t.id)) {
+            seen.add(t.id);
+            queue.push(t.id);
+            if (isTerminal(t.status)) {
+              updateTask(t.id, { status: 'pending' });
+            }
+          }
+        }
+      }
+      console.log(`  ▸ steer ${taskId}: "${note.trim()}" (re-dispatching ${seen.size} task(s))`);
+      res.writeHead(200);
+      res.end(JSON.stringify({ ok: true, requeued: seen.size }));
       return;
     }
     if (route === '/run/review/fix') {

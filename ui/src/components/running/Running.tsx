@@ -894,6 +894,28 @@ function RunView({
 
   const gridCols = `${leftPx}px 4px 1fr ${effectiveChatOpen ? `4px ${chatPx}px` : '1px 36px'}`;
 
+  // Mid-run steering — add guidance to a task and re-dispatch it. Returns the outcome
+  // so the card can surface the server's message (e.g. "pause first" for a live task).
+  const steerTask = async (
+    taskId: string,
+    note: string,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const r = await fetch('/run/steer', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ taskId, note }),
+      });
+      if (!r.ok) {
+        const d = (await r.json().catch(() => ({}))) as { error?: string };
+        return { ok: false, error: d.error ?? `HTTP ${r.status}` };
+      }
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  };
+
   const tierColour = tier === 'tweak' ? 'blue' : tier === 'greenfield' ? 'green' : 'amber';
   const statusMeta: Record<RunStatus, { cls: string; label: string }> = {
     running: { cls: 'running', label: 'running' },
@@ -992,6 +1014,8 @@ function RunView({
             taskTimings={taskTimings}
             hoveredTaskId={hoveredTaskId}
             onHoverTask={setHoveredTaskId}
+            runActive={status === 'running' || status === 'paused'}
+            onSteer={steerTask}
           />
           {effectiveChatOpen && <DragHandle gridColumn={4} onMouseDown={onDragChat} />}
         </>
