@@ -98,6 +98,10 @@ interface RunViewProps {
   onPause?: () => void;
   onAbort?: () => void;
   onPrCreated?: (url: string) => void;
+  // Lifted to the stable parent so the diff survives RunView remounts during a
+  // review-fix run (which briefly wipes the task list).
+  showChanges: boolean;
+  onToggleShowChanges: () => void;
 }
 
 // ─── Run summary strip ────────────────────────────────────────────────────────
@@ -852,9 +856,9 @@ function RunView({
   onPause,
   onAbort,
   onPrCreated,
+  showChanges,
+  onToggleShowChanges,
 }: RunViewProps) {
-  const [showChanges, setShowChanges] = useState(false);
-
   // ── Hover-to-highlight ────────────────────────────────────────────────────
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
 
@@ -924,7 +928,7 @@ function RunView({
           tasks={tasks}
           onPause={onPause}
           onAbort={onAbort}
-          onToggleChanges={() => setShowChanges(v => !v)}
+          onToggleChanges={onToggleShowChanges}
           showChanges={showChanges}
           onPrCreated={onPrCreated}
           alreadyPushed={alreadyPushed}
@@ -1253,6 +1257,7 @@ function sessionToRunViewData(session: SessionSnapshot): {
 
 function HistoricalRunView({ session }: { session: SessionSnapshot }) {
   const { tasks, agents, findings, pmMsgs } = sessionToRunViewData(session);
+  const [showChanges, setShowChanges] = useState(false);
   return (
     <RunView
       project={session.project}
@@ -1261,6 +1266,8 @@ function HistoricalRunView({ session }: { session: SessionSnapshot }) {
       agents={agents}
       findings={findings}
       pmMsgs={pmMsgs}
+      showChanges={showChanges}
+      onToggleShowChanges={() => setShowChanges(v => !v)}
       spend={0}
       spendCap={0}
       status={'done' as RunStatus}
@@ -1289,6 +1296,11 @@ export function Running({
   historicalSession?: SessionSnapshot;
 }) {
   const { serverStatus, state, resolvePermission } = useRealRun();
+
+  // Owned here (not in RunView) so the diff stays open across a review-fix run, which
+  // briefly empties the task list and would otherwise remount RunView and close it.
+  const [showChanges, setShowChanges] = useState(false);
+  const toggleShowChanges = useCallback(() => setShowChanges(v => !v), []);
 
   // Desktop notification + chime on finish / stop / needs-approval (opt-in via the bell).
   useRunNotifications(state?.status ?? 'running', state?.pendingPermission != null);
@@ -1360,7 +1372,9 @@ export function Running({
   }
 
   // Show "no active run" when the planning session was reset or no run has started yet.
-  if (noActiveRun || (state.tasks.length === 0 && state.status === 'running')) {
+  // Skip this while the user is reviewing (showChanges) so a review-fix run that briefly
+  // empties the task list doesn't yank the diff out from under them.
+  if (!showChanges && (noActiveRun || (state.tasks.length === 0 && state.status === 'running'))) {
     return (
       <div
         style={{
@@ -1426,6 +1440,8 @@ export function Running({
         onPause={state.status === 'paused' ? resume : pause}
         onAbort={abort}
         onPrCreated={onPrCreated}
+        showChanges={showChanges}
+        onToggleShowChanges={toggleShowChanges}
       />
       {state.pendingPermission && (
         <PermissionGate request={state.pendingPermission} onResolve={resolvePermission} />
