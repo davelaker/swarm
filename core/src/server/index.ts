@@ -28,6 +28,7 @@ import {
   writeDeploymentInfo,
   appendLog,
 } from '../state/repo.js';
+import { serverFreshness } from './freshness.js';
 import { runPmMessage, PM_SYSTEM } from '../pm/index.js';
 import { runNew, checkGitClean } from '../commands/new.js';
 import { pauseRun, resumeRun, abortRun } from '../loop-control.js';
@@ -360,6 +361,17 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
         }),
       );
     }
+    return;
+  }
+
+  if (url.pathname === '/server/info') {
+    // Reports whether the running backend source is older than what's on disk, so
+    // the dashboard can nudge for a restart (tsx loads source once at startup).
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.end(JSON.stringify(serverFreshness()));
     return;
   }
 

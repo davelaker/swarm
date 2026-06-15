@@ -208,6 +208,68 @@ select {
   background: var(--bg-1);
 }
 
+.stale-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  padding: 7px 16px;
+  font-size: 12px;
+  color: var(--amber);
+  background: var(--amber-d);
+  border-bottom: 1px solid color-mix(in srgb, var(--amber) 28%, transparent);
+}
+.stale-banner .stale-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--amber);
+  flex: 0 0 auto;
+  animation: stalePulse 1.6s ease-in-out infinite;
+}
+@keyframes stalePulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.stale-banner .stale-text {
+  flex: 1;
+  line-height: 1.4;
+}
+.stale-banner .stale-text strong {
+  font-weight: 600;
+  color: var(--tx-1);
+}
+.stale-banner .stale-cmd {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--tx-1);
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid color-mix(in srgb, var(--amber) 24%, transparent);
+  border-radius: 5px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.stale-banner .stale-dismiss {
+  flex: 0 0 auto;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--amber);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0.7;
+}
+.stale-banner .stale-dismiss:hover {
+  opacity: 1;
+}
+
 .brand {
   display: flex;
   align-items: center;

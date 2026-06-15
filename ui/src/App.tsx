@@ -6,6 +6,7 @@ import { Branches } from './components/branches/Branches';
 import { Marketplace } from './components/marketplace/Marketplace';
 import { SessionsPanel } from './components/sessions/SessionsPanel';
 import { ProjectSwitcher } from './components/common/ProjectSwitcher';
+import { StaleServerBanner } from './components/common/StaleServerBanner';
 import { IconGitHub, IconFolder } from './components/common/icons';
 
 export type ServerStatus = 'probing' | 'up' | 'down';
@@ -354,6 +355,7 @@ export function App() {
 
   return (
     <div className="app">
+      <StaleServerBanner />
       <div className="topbar">
         <div className="brand">
           <span className="glyph">
