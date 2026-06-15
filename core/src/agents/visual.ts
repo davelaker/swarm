@@ -138,8 +138,12 @@ async function captureRoutes(
     for (const route of routes) {
       const page = await browser.newPage();
       const consoleErrors: string[] = [];
+      // Dev-server noise (HMR websocket, hot-update, devtools nag, favicon) is not a
+      // page defect — don't let it downgrade an otherwise-healthy render to ADVISORY.
+      const NOISE =
+        /webpack-hmr|_next\/(webpack|static\/.*hot-update)|websocket|hot-update|React DevTools|favicon\.ico/i;
       page.on('console', (m: { type: () => string; text: () => string }) => {
-        if (m.type() === 'error') {
+        if (m.type() === 'error' && !NOISE.test(m.text())) {
           consoleErrors.push(m.text());
         }
       });
