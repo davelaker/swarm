@@ -2,6 +2,8 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import type React from 'react';
 import { useRunSimulation } from '../../hooks/useRunSimulation';
 import { useRealRun } from '../../hooks/useRealRun';
+import { useRunNotifications } from '../../hooks/useRunNotifications';
+import { NotifyToggle } from './NotifyToggle';
 import { TaskGraph } from './TaskGraph';
 import { AgentsPanel } from './AgentsPanel';
 import { FindingsFeed } from './FindingsFeed';
@@ -866,6 +868,7 @@ function RunView({
           <span className="rdot" />
           {label}
         </span>
+        <NotifyToggle />
         <div className="spacer" />
         <RunControls
           status={status}
@@ -1238,6 +1241,9 @@ export function Running({
   historicalSession?: SessionSnapshot;
 }) {
   const { serverStatus, state, resolvePermission } = useRealRun();
+
+  // Desktop notification + chime on finish / stop / needs-approval (opt-in via the bell).
+  useRunNotifications(state?.status ?? 'running', state?.pendingPermission != null);
 
   // Notify parent once when the run transitions to done.
   // Reset the flag when a new run starts so it fires again on subsequent runs.
