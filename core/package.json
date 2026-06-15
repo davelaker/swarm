@@ -7,24 +7,25 @@
     "swarm": "./src/index.ts"
   },
   "scripts": {
-    "dev":        "tsx src/index.ts dev",
-    "check":      "tsx src/index.ts check",
-    "init":       "tsx src/index.ts init",
-    "new":        "tsx src/index.ts new",
-    "eval":       "tsx src/index.ts eval",
-    "eval:p1":    "tsx src/index.ts eval simple-rename add-comment",
-    "eval:p2":    "tsx src/index.ts eval add-feature-with-tests vulnerability-caught",
-    "build":      "tsc",
-    "typecheck":  "tsc --noEmit",
-    "test:unit":  "node --import tsx --test $(find src -name '*.test.ts')",
-    "test":       "tsc --noEmit && node --import tsx --test $(find src -name '*.test.ts')"
+    "dev": "tsx src/index.ts dev",
+    "check": "tsx src/index.ts check",
+    "init": "tsx src/index.ts init",
+    "new": "tsx src/index.ts new",
+    "eval": "tsx src/index.ts eval",
+    "eval:p1": "tsx src/index.ts eval simple-rename add-comment",
+    "eval:p2": "tsx src/index.ts eval add-feature-with-tests vulnerability-caught",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "node --import tsx --test $(find src -name '*.test.ts')",
+    "test": "tsc --noEmit && node --import tsx --test $(find src -name '*.test.ts')"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.51.0"
+    "@anthropic-ai/sdk": "^0.51.0",
+    "playwright": "^1.60.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "tsx":        "^4.19.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.8.0"
   }
 }
