@@ -22,6 +22,8 @@ const SCHEMA_RULES: Record<string, { negotiable: boolean; blocksOnVerdicts: stri
   'tester-finding': { negotiable: false, blocksOnVerdicts: ['FAIL'] },
   // Deterministic gate (typecheck + secret scan) — a tool result, never negotiable.
   'checks-finding': { negotiable: false, blocksOnVerdicts: ['FAIL'] },
+  // Visual verification — advisory evidence (screenshots + console errors), never blocks.
+  'visual-finding': { negotiable: true, blocksOnVerdicts: [] },
   'reviewer-finding': { negotiable: true, blocksOnVerdicts: ['CHANGES_REQUESTED'] },
   'coder-finding': { negotiable: false, blocksOnVerdicts: [] }, // completion report
   'ux-finding': { negotiable: true, blocksOnVerdicts: ['CHANGES_REQUESTED'] },

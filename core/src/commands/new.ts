@@ -200,8 +200,21 @@ function buildTaskGraph(
     result_ref: null,
     attempts: 0,
   };
+  // Advisory visual verification — renders any changed routes and attaches
+  // screenshots. Self-skips fast when the run touched no frontend files.
+  const visual: Task = {
+    id: 't6',
+    title: 'Visual verification — screenshot changed routes',
+    status: 'pending',
+    owner: cfg.owner,
+    assignee: 'visual',
+    depends_on: ['t1'],
+    artifacts: [],
+    result_ref: null,
+    attempts: 0,
+  };
 
-  return [base, tester, security, reviewer, checks];
+  return [base, tester, security, reviewer, checks, visual];
 }
 
 // ─── Entry point ──────────────────────────────────────────────────────────────

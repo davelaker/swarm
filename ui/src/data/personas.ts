@@ -27,6 +27,13 @@ export const PERSONAS: Record<string, Persona> = {
     color: '#7dd3fc',
     role: 'Deterministic gate',
   },
+  visual: {
+    id: 'visual',
+    name: 'Visual',
+    short: 'VI',
+    color: '#f472b6',
+    role: 'Visual verification',
+  },
 };
 
 function initials(name: string): string {
