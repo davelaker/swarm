@@ -85,6 +85,7 @@ interface RunViewProps {
   tasks: ReturnType<typeof useRunSimulation>['tasks'];
   agents: ReturnType<typeof useRunSimulation>['agents'];
   taskActivity?: Record<string, ActivityEntry[]>;
+  taskTimings?: Record<string, { startedAt: number; endedAt: number | null }>;
   findings: ReturnType<typeof useRunSimulation>['findings'];
   pmMsgs: ReturnType<typeof useRunSimulation>['pmMsgs'];
   spend: number;
@@ -839,6 +840,7 @@ function RunView({
   tasks,
   agents,
   taskActivity = {},
+  taskTimings = {},
   findings,
   pmMsgs,
   spend,
@@ -977,6 +979,7 @@ function RunView({
             tasks={tasks}
             agentSteps={agentSteps}
             taskActivity={taskActivity}
+            taskTimings={taskTimings}
             hoveredTaskId={hoveredTaskId}
             onHoverTask={setHoveredTaskId}
           />
@@ -1406,6 +1409,7 @@ export function Running({
         tasks={state.tasks}
         agents={state.agents}
         taskActivity={state.taskActivity}
+        taskTimings={state.taskTimings}
         findings={state.findings}
         pmMsgs={state.pmMsgs}
         spend={state.spend}

@@ -155,6 +155,7 @@ export interface RealRunState {
   tasks: Task[];
   agents: Record<string, AgentState>;
   taskActivity: Record<string, ActivityEntry[]>; // transcript per task id (thinking + tool steps)
+  taskTimings: Record<string, { startedAt: number; endedAt: number | null }>; // per-task wall-clock
   findings: Finding[];
   pmMsgs: ChatMessage[];
   status: RunStatus;
@@ -281,6 +282,7 @@ export function useRealRun(): {
           tasks,
           agents,
           taskActivity: {},
+          taskTimings: {},
           findings,
           pmMsgs,
           status: allDone ? 'done' : 'running',
@@ -380,6 +382,7 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
         pmMsgs: [],
         agents: initAgents(),
         taskActivity: {},
+        taskTimings: {},
         spend: 0,
         pushed: false,
         branchName: undefined,
@@ -451,6 +454,22 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
 
       const allTerminal = (s: string) =>
         s === 'done' || s === 'skipped' || s === 'blocked' || s === 'failed';
+
+      // Per-task wall-clock: stamp start on first in_progress, end on terminal.
+      // A skipped task never ran, so it gets no timing (no misleading "0s").
+      let taskTimings = prev.taskTimings;
+      if (ev.status === 'in_progress' && !prev.taskTimings[ev.task_id]) {
+        taskTimings = {
+          ...prev.taskTimings,
+          [ev.task_id]: { startedAt: Date.now(), endedAt: null },
+        };
+      } else if (isTerminal && ev.status !== 'skipped' && prev.taskTimings[ev.task_id]) {
+        taskTimings = {
+          ...prev.taskTimings,
+          [ev.task_id]: { ...prev.taskTimings[ev.task_id], endedAt: Date.now() },
+        };
+      }
+
       return {
         ...prev,
         tasks: prev.tasks.map(t =>
@@ -463,6 +482,7 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
             : t,
         ),
         agents,
+        taskTimings,
         // Run is done when every task (including the one just updated) is terminal.
         // run.completed SSE is the canonical signal; this is a belt-and-suspenders
         // fast path so the UI transitions without waiting for the next file-watcher tick.

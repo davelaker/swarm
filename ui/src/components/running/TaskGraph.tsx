@@ -6,6 +6,15 @@ import { ActivityLog } from '../common/ActivityLog';
 
 const TRUNCATE = 72; // chars shown before "more" toggle appears
 
+// Compact wall-clock for a task card: "8s", "1m04s", "2m".
+function fmtDuration(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem > 0 ? `${m}m${String(rem).padStart(2, '0')}` : `${m}m`;
+}
+
 interface Edge {
   from: { x: number; y: number };
   to: { x: number; y: number };
@@ -50,11 +59,15 @@ function TaskCard({
   t,
   agentSteps,
   activity,
+  durationMs,
+  durationLive,
   isHovered,
 }: {
   t: Task;
   agentSteps: Record<string, string>;
   activity: ActivityEntry[];
+  durationMs?: number | null;
+  durationLive?: boolean;
   isHovered?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -111,6 +124,15 @@ function TaskCard({
           <span className="pdot" style={{ background: isSkipped ? 'var(--tx-3)' : p?.color }} />
           {p?.name}
         </span>
+        {durationMs != null && (
+          <span
+            className="tnode-duration"
+            title={durationLive ? 'running…' : 'task duration'}
+            style={durationLive ? { color: 'var(--blue)' } : undefined}
+          >
+            {fmtDuration(durationMs)}
+          </span>
+        )}
         <span className="tnode-status" style={{ color }}>
           {STATUS_LABEL[t.status]}
         </span>
@@ -151,15 +173,26 @@ export function TaskGraph({
   tasks,
   agentSteps,
   taskActivity,
+  taskTimings = {},
   hoveredTaskId,
   onHoverTask,
 }: {
   tasks: Task[];
   agentSteps: Record<string, string>;
   taskActivity: Record<string, ActivityEntry[]>;
+  taskTimings?: Record<string, { startedAt: number; endedAt: number | null }>;
   hoveredTaskId: string | null;
   onHoverTask: (id: string | null) => void;
 }) {
+  // Tick once a second so the active task's live duration counts up. Idle when no
+  // task is running (every timing has an endedAt or none has started).
+  const anyRunning = tasks.some(t => t.status === 'in_progress');
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!anyRunning) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [anyRunning]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const dotRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -329,6 +362,12 @@ export function TaskGraph({
                   t={t}
                   agentSteps={agentSteps}
                   activity={taskActivity[t.id] ?? []}
+                  durationMs={(() => {
+                    const tm = taskTimings[t.id];
+                    if (!tm) return null;
+                    return tm.endedAt != null ? tm.endedAt - tm.startedAt : now - tm.startedAt;
+                  })()}
+                  durationLive={taskTimings[t.id] != null && taskTimings[t.id].endedAt == null}
                   isHovered={isHovered}
                 />
               </div>
