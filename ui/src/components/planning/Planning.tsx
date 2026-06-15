@@ -7,6 +7,8 @@ import { Message, StreamingMessage, ProgressiveTypingIndicator } from './Message
 import { resolveAgentPersona } from '../../data/personas';
 import { IconSend } from '../common/icons';
 import { ActivityItem } from '../common/ActivityItem';
+import { ReadinessPanel } from './ReadinessPanel';
+import { useReadiness } from '../../hooks/useReadiness';
 import type { ServerStatus, RunCharter } from '../../App';
 import type { CharterData, SessionSnapshot } from '../../types';
 
@@ -19,6 +21,7 @@ function PlanReadyCallout({
   team: string[];
   onExecute?: () => void;
 }) {
+  const readiness = useReadiness();
   const openQuestions = charter.questions.filter(q => !q.resolved);
   const noTeam = team.length === 0;
   const noGoal = !charter.goal;
@@ -30,6 +33,11 @@ function PlanReadyCallout({
     blockers.push(
       `${openQuestions.length} open question${openQuestions.length > 1 ? 's' : ''} unresolved`,
     );
+  // A hard pre-flight fail (uncommitted tree) would 400 the run — block it up front.
+  if (!readiness.canRun) {
+    const failed = readiness.checks.find(c => c.status === 'fail');
+    blockers.push(failed ? failed.detail : 'the working tree is not ready');
+  }
 
   const canExecute = blockers.length === 0;
 
@@ -60,6 +68,11 @@ function PlanReadyCallout({
           </p>
         </>
       )}
+      <ReadinessPanel
+        project={readiness.report?.project ?? null}
+        checks={readiness.checks}
+        loading={readiness.loading}
+      />
       <div className="plan-ready-actions">
         <button
           className="btn primary"
