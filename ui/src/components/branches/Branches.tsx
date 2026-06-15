@@ -212,6 +212,148 @@ function DeleteBranchDialog({
   );
 }
 
+// ─── Bulk delete (all merged) ─────────────────────────────────────────────────
+
+function DeleteMergedDialog({
+  branches,
+  onClose,
+  onDone,
+}: {
+  branches: SwarmBranch[]; // merged, already excluding the current branch
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [errors, setErrors] = useState<string[]>([]);
+
+  const confirm = async () => {
+    setBusy(true);
+    setErrors([]);
+    const failed: string[] = [];
+    // Sequential — keeps the load light and any error message attributable.
+    for (const b of branches) {
+      try {
+        const r = await fetch('/branches/delete', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ branch: b.name }),
+        });
+        if (!r.ok) {
+          const d = (await r.json().catch(() => ({}))) as { error?: string };
+          failed.push(`${b.shortName}: ${d.error || r.status}`);
+        }
+      } catch (e) {
+        failed.push(`${b.shortName}: ${(e as Error).message}`);
+      }
+    }
+    onDone();
+    if (failed.length) {
+      setErrors(failed);
+      setBusy(false);
+    } else {
+      onClose();
+    }
+  };
+
+  const btnBase = {
+    fontSize: 12,
+    fontFamily: 'var(--mono)',
+    padding: '7px 14px',
+    borderRadius: 7,
+    border: '1px solid var(--border)',
+    background: 'transparent',
+    cursor: busy ? 'default' : 'pointer',
+  } as const;
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.55)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: 460,
+          maxWidth: '90vw',
+          background: 'var(--bg-1)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--r-lg)',
+          padding: 20,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 14,
+        }}
+      >
+        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--tx-1)' }}>
+          Delete {branches.length} merged branch{branches.length !== 1 ? 'es' : ''}?
+        </div>
+        <div
+          style={{
+            background: TONE.safe.bg,
+            border: `1px solid ${TONE.safe.border}`,
+            borderRadius: 8,
+            padding: '10px 14px',
+            fontSize: 12.5,
+            lineHeight: 1.5,
+            color: 'var(--tx-2)',
+          }}
+        >
+          These are all merged — their commits already live in the default branch, so deleting only
+          removes the local branches. Nothing is lost.
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 3,
+            maxHeight: 160,
+            overflowY: 'auto',
+            fontFamily: 'var(--mono)',
+            fontSize: 12,
+            color: 'var(--tx-2)',
+          }}
+        >
+          {branches.map(b => (
+            <div key={b.name}>⎇ {b.shortName}</div>
+          ))}
+        </div>
+        {errors.length > 0 && (
+          <div style={{ fontSize: 11.5, fontFamily: 'var(--mono)', color: 'var(--red)' }}>
+            {errors.map((e, i) => (
+              <div key={i}>⚠ {e}</div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button onClick={onClose} disabled={busy} style={{ ...btnBase, color: 'var(--tx-2)' }}>
+            Cancel
+          </button>
+          <button
+            onClick={confirm}
+            disabled={busy}
+            style={{
+              ...btnBase,
+              color: '#fff',
+              background: 'var(--red)',
+              borderColor: 'var(--red)',
+            }}
+          >
+            {busy ? 'Deleting…' : `Delete ${branches.length}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Status chip ──────────────────────────────────────────────────────────────
 
 function BranchStatus({ branch }: { branch: SwarmBranch }) {
@@ -643,6 +785,9 @@ export function Branches() {
 
   const open = branches.filter(b => !b.merged);
   const merged = branches.filter(b => b.merged);
+  // The current branch can't be deleted even if merged — git refuses to drop HEAD.
+  const mergedDeletable = merged.filter(b => !b.isCurrent);
+  const [showBulkDelete, setShowBulkDelete] = useState(false);
 
   return (
     <div
@@ -759,15 +904,42 @@ export function Branches() {
           <section>
             <div
               style={{
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                color: 'var(--tx-3)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
                 marginBottom: 10,
               }}
             >
-              Merged — {merged.length}
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                  color: 'var(--tx-3)',
+                }}
+              >
+                Merged — {merged.length}
+              </span>
+              <span style={{ flex: 1 }} />
+              {mergedDeletable.length > 0 && (
+                <button
+                  onClick={() => setShowBulkDelete(true)}
+                  title={`Delete all ${mergedDeletable.length} merged branch${mergedDeletable.length !== 1 ? 'es' : ''} (safe — already merged)`}
+                  style={{
+                    fontSize: 11,
+                    fontFamily: 'var(--mono)',
+                    color: 'var(--tx-2)',
+                    background: 'none',
+                    border: '1px solid var(--border)',
+                    borderRadius: 6,
+                    padding: '3px 10px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Delete all merged
+                </button>
+              )}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {merged.map(b => (
@@ -783,6 +955,14 @@ export function Branches() {
           </section>
         )}
       </div>
+
+      {showBulkDelete && (
+        <DeleteMergedDialog
+          branches={mergedDeletable}
+          onClose={() => setShowBulkDelete(false)}
+          onDone={load}
+        />
+      )}
     </div>
   );
 }
