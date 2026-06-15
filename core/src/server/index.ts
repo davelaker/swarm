@@ -31,7 +31,7 @@ import {
 import { serverFreshness } from './freshness.js';
 import { runPreflight } from './preflight.js';
 import { buildStructuredDiff } from './diff.js';
-import { readReview, writeReview } from './review.js';
+import { readReview, writeReview, clearReview } from './review.js';
 import { runPmMessage, PM_SYSTEM } from '../pm/index.js';
 import { runNew, checkGitClean } from '../commands/new.js';
 import { pauseRun, resumeRun, abortRun } from '../loop-control.js';
@@ -1222,6 +1222,66 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
           console.error('[pm/message] error:', (err as Error).message);
           sendPmEvent({ type: 'error', error: (err as Error).message });
           res.end();
+        });
+      return;
+    }
+    if (route === '/run/review/fix') {
+      // Fast path: apply the review comments directly via a coder + reviewer run, no
+      // PM round. The comments reach the coder through the run goal + constraints.
+      if (activeRun) {
+        res.writeHead(409);
+        res.end(JSON.stringify({ error: 'A run is already in progress' }));
+        return;
+      }
+      const comments = readReview().filter(c => c.body.trim());
+      if (comments.length === 0) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'no comments to apply' }));
+        return;
+      }
+      const reviewLines = comments.map(c => {
+        const range = c.endLine !== c.startLine ? `${c.startLine}-${c.endLine}` : `${c.startLine}`;
+        return `- ${c.file}:${range} — ${c.body.trim()}`;
+      });
+      const goal = `Apply these code-review comments to the existing code on the current branch:\n${reviewLines.join('\n')}`;
+      const charter: import('../state/types.js').RunCharter = {
+        constraints: [
+          'Apply exactly the requested review changes — do not refactor or touch unrelated code.',
+        ],
+        nongoals: [],
+        questions: [],
+        branchMode: 'main', // fix the current branch in place — do not spin a new one
+        taskGraph: [
+          {
+            id: 't_review_fix',
+            assignee: 'coder',
+            title: 'Apply the review comments',
+            depends_on: [],
+          },
+          {
+            id: 't_review_check',
+            assignee: 'reviewer',
+            title: 'Re-review the applied changes',
+            depends_on: ['t_review_fix'],
+          },
+        ],
+      };
+
+      activeRun = true;
+      writeReview(comments.map(c => ({ ...c, status: 'fixing' as const })));
+      res.writeHead(200);
+      res.end(JSON.stringify({ ok: true }));
+      console.log(`\n  ▸ review fix: ${comments.length} comment(s)\n`);
+      runNew(goal, charter)
+        .then(() => {
+          clearReview(); // comments resolved — applied
+        })
+        .catch(err => {
+          console.error('  ✗ review fix error:', (err as Error).message);
+          fanout({ type: 'run.blocked', reason: (err as Error).message });
+        })
+        .finally(() => {
+          activeRun = false;
         });
       return;
     }

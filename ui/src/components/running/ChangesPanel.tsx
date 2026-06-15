@@ -115,16 +115,21 @@ function ReviewPane({
   comments,
   onJump,
   onRemove,
-  onSubmit,
+  onPmPlan,
+  onApplyDirect,
   submitting,
+  error,
 }: {
   comments: ReviewComment[];
   onJump: (c: ReviewComment) => void;
   onRemove: (id: string) => void;
-  onSubmit: () => void;
-  submitting: boolean;
+  onPmPlan: () => void;
+  onApplyDirect: () => void;
+  submitting: 'pm' | 'fast' | null;
+  error: string | null;
 }) {
   const withBody = comments.filter(c => c.body.trim());
+  const disabled = withBody.length === 0 || submitting !== null;
 
   return (
     <div className="review-pane">
@@ -196,15 +201,32 @@ function ReviewPane({
       <div className="review-footer">
         <button
           className="btn primary"
-          onClick={onSubmit}
-          disabled={withBody.length === 0 || submitting}
+          onClick={onApplyDirect}
+          disabled={disabled}
           style={{ width: '100%' }}
+          title="Apply the comments now via a coder + reviewer run — no PM round"
         >
-          {submitting
-            ? 'Sending…'
-            : `Request changes${withBody.length ? ` (${withBody.length})` : ''}`}
+          {submitting === 'fast'
+            ? 'Starting…'
+            : `Apply directly${withBody.length ? ` (${withBody.length})` : ''}`}
         </button>
-        {withBody.length > 0 && (
+        <button
+          className="btn"
+          onClick={onPmPlan}
+          disabled={disabled}
+          style={{ width: '100%', marginTop: 7 }}
+          title="Hand the comments to the PM, which triages and plans the fixes"
+        >
+          {submitting === 'pm' ? 'Sending…' : 'Let the PM plan'}
+        </button>
+        {error && (
+          <div
+            style={{ marginTop: 6, fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--red)' }}
+          >
+            ⚠ {error}
+          </div>
+        )}
+        {withBody.length > 0 && !error && (
           <div
             style={{
               marginTop: 6,
@@ -215,7 +237,7 @@ function ReviewPane({
               lineHeight: 1.4,
             }}
           >
-            Sends to the PM, which plans a coder + reviewer to apply the fixes.
+            Apply directly runs a coder + reviewer now. The PM option lets it triage first.
           </div>
         )}
       </div>
@@ -227,19 +249,23 @@ function ReviewPane({
 
 export function ChangesPanel({
   onRequestChanges,
+  onReviewFixStarted,
 }: {
   onRequestChanges?: (message: string) => void;
+  onReviewFixStarted?: () => void;
 }) {
   const [diff, setDiff] = useState<StructuredDiff | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState<'pm' | 'fast' | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const { comments, addComment, setRange, setBody, remove, clearAll } = useReview();
 
-  useEffect(() => {
+  const loadDiff = () => {
+    setLoading(true);
     fetch('/run/diff/structured')
       .then(r => {
         if (!r.ok) {
@@ -255,7 +281,9 @@ export function ChangesPanel({
         setFetchError(e.message);
         setLoading(false);
       });
-  }, []);
+  };
+
+  useEffect(loadDiff, []);
 
   // Click a line → start a comment there. Shift-click → extend the active comment's
   // range. Clicking an empty single-line comment again removes it (toggle).
@@ -312,17 +340,52 @@ export function ChangesPanel({
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
-  const submitReview = () => {
+  // PM path — hand the comments to the PM (which triages + plans) via Planning.
+  const pmPlan = () => {
     const msg = buildReviewMessage(comments);
     if (!msg) {
       return;
     }
-    setSubmitting(true);
+    setSubmitting('pm');
     onRequestChanges?.(msg);
     setSubmitted(true);
     clearAll();
     setActiveId(null);
-    setSubmitting(false);
+    setSubmitting(null);
+  };
+
+  // Fast path — flush the draft, then start a coder + reviewer fix run directly.
+  const applyDirect = () => {
+    if (!comments.some(c => c.body.trim())) {
+      return;
+    }
+    setSubmitting('fast');
+    setApplyError(null);
+    fetch('/run/review/save', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ comments }),
+    })
+      .then(() =>
+        fetch('/run/review/fix', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{}',
+        }),
+      )
+      .then(async r => {
+        if (!r.ok) {
+          const d = (await r.json().catch(() => ({}))) as { error?: string };
+          throw new Error(d.error || `HTTP ${r.status}`);
+        }
+      })
+      .then(() => {
+        clearAll();
+        setActiveId(null);
+        onReviewFixStarted?.(); // close the diff so the live fix run shows
+      })
+      .catch((e: Error) => setApplyError(e.message))
+      .finally(() => setSubmitting(null));
   };
 
   if (loading) {
@@ -388,7 +451,13 @@ export function ChangesPanel({
                 </button>
               </div>
             )}
-            <div className="dv-source">{diff!.source}</div>
+            <div className="dv-source">
+              {diff!.source}
+              <span style={{ flex: 1 }} />
+              <button className="dv-refresh" onClick={loadDiff} title="Reload the diff">
+                ↻ refresh
+              </button>
+            </div>
             <DiffView
               files={diff!.files}
               onLineClick={onLineClick}
@@ -408,8 +477,10 @@ export function ChangesPanel({
             setActiveId(null);
           }
         }}
-        onSubmit={submitReview}
+        onPmPlan={pmPlan}
+        onApplyDirect={applyDirect}
         submitting={submitting}
+        error={applyError}
       />
     </div>
   );

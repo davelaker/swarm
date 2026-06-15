@@ -2035,6 +2035,9 @@ select {
 
 /* ── Shiki-rendered diff (DiffView) ──────────────────────────────────────────── */
 .dv-source {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 6px 14px;
   font-family: var(--mono);
   font-size: 11px;
@@ -2044,6 +2047,18 @@ select {
   top: 0;
   background: var(--bg-1);
   z-index: 5;
+}
+.dv-refresh {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--blue);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.dv-refresh:hover {
+  text-decoration: underline;
 }
 .dv-file {
   border-bottom: 1px solid var(--border);

@@ -962,7 +962,10 @@ function RunView({
       )}
 
       {showChanges ? (
-        <ChangesPanel onRequestChanges={onRequestChanges} />
+        <ChangesPanel
+          onRequestChanges={onRequestChanges}
+          onReviewFixStarted={() => setShowChanges(false)}
+        />
       ) : (
         <>
           <div className="run-right">
