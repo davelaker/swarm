@@ -111,6 +111,36 @@ function formatElapsed(ms: number): string {
   return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
 }
 
+// The quality gates the system enforces, in pipeline order. A badge shows for each
+// gate that actually ran (produced a finding) — making the "structurally enforced
+// quality" promise visible at a glance after a run.
+const GATE_DEFS: { agent: string; label: string }[] = [
+  { agent: 'tester', label: 'Tests' },
+  { agent: 'security', label: 'Security' },
+  { agent: 'reviewer', label: 'Review' },
+  { agent: 'checks', label: 'Checks' },
+  { agent: 'visual', label: 'Visual' },
+];
+
+// Pure: collapse the findings into one pass/fail badge per gate that ran. Uses the
+// NEWEST finding per gate so a re-review that ultimately passed reads as a pass,
+// not the superseded "changes requested".
+export function deriveGates(
+  findings: RunViewProps['findings'],
+): { label: string; status: 'pass' | 'fail' }[] {
+  const newestFirst = [...findings].sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0));
+  const out: { label: string; status: 'pass' | 'fail' }[] = [];
+  for (const def of GATE_DEFS) {
+    const newest = newestFirst.find(f => f.agent === def.agent);
+    if (!newest) {
+      continue;
+    }
+    const failed = newest.verdict === 'fail' || newest.verdict === 'changes';
+    out.push({ label: def.label, status: failed ? 'fail' : 'pass' });
+  }
+  return out;
+}
+
 function RunSummary({
   tasks,
   findings,
@@ -122,6 +152,7 @@ function RunSummary({
   spend: number;
   elapsedMs: number | null | undefined;
 }) {
+  const gates = deriveGates(findings);
   const total = tasks.length;
   // 'blocked' = "changes requested" — the task did its job; only true failures count here.
   const failed = tasks.filter(t => t.status === 'failed').length;
@@ -149,6 +180,16 @@ function RunSummary({
           <span className="run-summary-sep">·</span>
           <span>${spend.toFixed(4)}</span>
         </>
+      )}
+      {gates.length > 0 && (
+        <span className="run-summary-gates" title="Quality gates enforced this run">
+          {gates.map(g => (
+            <span key={g.label} className={`gate-badge ${g.status}`}>
+              <span className="gate-mark">{g.status === 'pass' ? '✓' : '✗'}</span>
+              {g.label}
+            </span>
+          ))}
+        </span>
       )}
     </div>
   );

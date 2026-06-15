@@ -3189,6 +3189,36 @@ select {
   color: var(--tx-3);
   user-select: none;
 }
+.run-summary-gates {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.gate-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+.gate-badge .gate-mark {
+  font-size: 11px;
+  line-height: 1;
+}
+.gate-badge.pass {
+  color: var(--green);
+  background: rgba(52, 207, 138, 0.1);
+  border-color: rgba(52, 207, 138, 0.25);
+}
+.gate-badge.fail {
+  color: var(--amber);
+  background: rgba(232, 169, 58, 0.1);
+  border-color: rgba(232, 169, 58, 0.28);
+}
 
 /* ─── Ship modal ─────────────────────────────────────────────────────────── */
 .ship-backdrop {
