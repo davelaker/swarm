@@ -31,6 +31,7 @@ import {
 import { serverFreshness } from './freshness.js';
 import { runPreflight } from './preflight.js';
 import { buildStructuredDiff } from './diff.js';
+import { readReview, writeReview } from './review.js';
 import { runPmMessage, PM_SYSTEM } from '../pm/index.js';
 import { runNew, checkGitClean } from '../commands/new.js';
 import { pauseRun, resumeRun, abortRun } from '../loop-control.js';
@@ -470,6 +471,16 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
 
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify({ projectMd, contextFiles }));
+    return;
+  }
+
+  if (url.pathname === '/run/review') {
+    // The persisted review draft (comments left on the diff).
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.end(JSON.stringify({ comments: readReview() }));
     return;
   }
 
@@ -1212,6 +1223,19 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
           sendPmEvent({ type: 'error', error: (err as Error).message });
           res.end();
         });
+      return;
+    }
+    if (route === '/run/review/save') {
+      // Persist the review draft so it survives reload and is readable by fixers.
+      const { comments } = payload as { comments?: import('./review.js').ReviewComment[] };
+      try {
+        writeReview(Array.isArray(comments) ? comments : []);
+        res.writeHead(200);
+        res.end(JSON.stringify({ ok: true }));
+      } catch (err) {
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: (err as Error).message }));
+      }
       return;
     }
     if (route === '/run/message') {

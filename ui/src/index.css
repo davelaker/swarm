@@ -2191,6 +2191,60 @@ select {
   color: var(--tx-3);
   font-size: 12px;
 }
+/* Inline comment thread under a diff line */
+.dv-thread {
+  margin: 4px 12px 8px 60px;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  background: var(--bg-1);
+  overflow: hidden;
+}
+.dv-thread-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+.dv-thread-ref {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--blue);
+}
+.dv-thread-remove {
+  color: var(--tx-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.dv-thread-remove:hover {
+  color: var(--red);
+}
+.dv-thread-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--tx-1);
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  resize: vertical;
+  outline: none;
+}
+.review-preview {
+  font-size: 11.5px;
+  color: var(--tx-2);
+  line-height: 1.45;
+  margin-top: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .run-chat .chat-scroll {
   padding: 14px 20px 6px;
   gap: 12px;

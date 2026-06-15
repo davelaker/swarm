@@ -1,15 +1,6 @@
 import { useEffect, useState } from 'react';
 import { DiffView, lineKey, type StructuredDiffFile } from './DiffView';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface ReviewComment {
-  id: string;
-  file: string;
-  side: 'old' | 'new';
-  line: number;
-  text: string;
-}
+import { useReview, type ReviewComment } from '../../hooks/useReview';
 
 interface StructuredDiff {
   source: string;
@@ -19,19 +10,62 @@ interface StructuredDiff {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function shortRef(file: string, line: number): string {
-  const name = file.split('/').pop() ?? file;
-  return `${name}:${line}`;
+function rangeLabel(c: ReviewComment): string {
+  return c.startLine === c.endLine ? `line ${c.startLine}` : `lines ${c.startLine}–${c.endLine}`;
+}
+
+function shortRef(c: ReviewComment): string {
+  const name = c.file.split('/').pop() ?? c.file;
+  return c.startLine === c.endLine
+    ? `${name}:${c.startLine}`
+    : `${name}:${c.startLine}–${c.endLine}`;
 }
 
 function buildReviewMessage(comments: ReviewComment[]): string {
   const lines = comments
-    .filter(c => c.text.trim())
-    .map(c => `• ${c.file}:${c.line} — ${c.text.trim()}`);
-  if (lines.length === 0) {
-    return '';
-  }
-  return `Requested changes:\n${lines.join('\n')}`;
+    .filter(c => c.body.trim())
+    .map(c => {
+      const ref =
+        c.startLine === c.endLine
+          ? `${c.file}:${c.startLine}`
+          : `${c.file}:${c.startLine}-${c.endLine}`;
+      return `• ${ref} — ${c.body.trim()}`;
+    });
+  return lines.length ? `Requested changes:\n${lines.join('\n')}` : '';
+}
+
+// ─── Inline comment thread (rendered under the commented line) ─────────────────
+
+function CommentThread({
+  comment,
+  autoFocus,
+  onChange,
+  onRemove,
+}: {
+  comment: ReviewComment;
+  autoFocus: boolean;
+  onChange: (body: string) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="dv-thread">
+      <div className="dv-thread-head">
+        <span className="dv-thread-ref">{rangeLabel(comment)}</span>
+        <span className="spacer" style={{ flex: 1 }} />
+        <button className="dv-thread-remove" onClick={onRemove} title="Remove comment">
+          ×
+        </button>
+      </div>
+      <textarea
+        className="dv-thread-input"
+        autoFocus={autoFocus}
+        value={comment.body}
+        placeholder="Leave a comment… (shift-click another line to extend the range)"
+        onChange={e => onChange(e.target.value)}
+        rows={2}
+      />
+    </div>
+  );
 }
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
@@ -75,22 +109,22 @@ function EmptyDiff() {
   );
 }
 
-// ─── Review sidebar ───────────────────────────────────────────────────────────
+// ─── Review summary sidebar ───────────────────────────────────────────────────
 
 function ReviewPane({
   comments,
-  onUpdate,
+  onJump,
   onRemove,
   onSubmit,
   submitting,
 }: {
   comments: ReviewComment[];
-  onUpdate: (id: string, text: string) => void;
+  onJump: (c: ReviewComment) => void;
   onRemove: (id: string) => void;
   onSubmit: () => void;
   submitting: boolean;
 }) {
-  const hasText = comments.some(c => c.text.trim());
+  const withBody = comments.filter(c => c.body.trim());
 
   return (
     <div className="review-pane">
@@ -116,17 +150,25 @@ function ReviewPane({
               lineHeight: 1.6,
             }}
           >
-            Click any line in the diff to annotate it.
+            Click a line in the diff to comment. Shift-click another line to span a range.
           </div>
         ) : (
           comments.map(c => (
-            <div key={c.id} className="review-comment">
+            <div
+              key={c.id}
+              className="review-comment"
+              onClick={() => onJump(c)}
+              style={{ cursor: 'pointer' }}
+            >
               <div className="review-ref">
                 <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--blue)' }}>
-                  {shortRef(c.file, c.line)}
+                  {shortRef(c)}
                 </span>
                 <button
-                  onClick={() => onRemove(c.id)}
+                  onClick={e => {
+                    e.stopPropagation();
+                    onRemove(c.id);
+                  }}
                   style={{
                     marginLeft: 'auto',
                     color: 'var(--tx-3)',
@@ -139,13 +181,13 @@ function ReviewPane({
                   ×
                 </button>
               </div>
-              <textarea
-                className="review-text"
-                placeholder="Describe the issue or change needed…"
-                value={c.text}
-                onChange={e => onUpdate(c.id, e.target.value)}
-                rows={2}
-              />
+              <div className="review-preview">
+                {c.body.trim() ? (
+                  c.body.trim()
+                ) : (
+                  <span style={{ opacity: 0.5 }}>empty — add a note</span>
+                )}
+              </div>
             </div>
           ))
         )}
@@ -155,12 +197,14 @@ function ReviewPane({
         <button
           className="btn primary"
           onClick={onSubmit}
-          disabled={!hasText || submitting}
+          disabled={withBody.length === 0 || submitting}
           style={{ width: '100%' }}
         >
-          {submitting ? 'Sending…' : 'Request changes'}
+          {submitting
+            ? 'Sending…'
+            : `Request changes${withBody.length ? ` (${withBody.length})` : ''}`}
         </button>
-        {hasText && (
+        {withBody.length > 0 && (
           <div
             style={{
               marginTop: 6,
@@ -189,9 +233,11 @@ export function ChangesPanel({
   const [diff, setDiff] = useState<StructuredDiff | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [comments, setComments] = useState<ReviewComment[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const { comments, addComment, setRange, setBody, remove, clearAll } = useReview();
 
   useEffect(() => {
     fetch('/run/diff/structured')
@@ -211,22 +257,60 @@ export function ChangesPanel({
       });
   }, []);
 
-  // Click a diff line → add (or remove if already noted) a comment anchored to the
-  // structured model — no DOM scraping.
-  const toggleLine = (file: string, side: 'old' | 'new', line: number) => {
-    setComments(prev => {
-      const existing = prev.find(c => c.file === file && c.side === side && c.line === line);
-      if (existing) {
-        // Only remove if the note is still empty — don't lose typed feedback.
-        return existing.text.trim() ? prev : prev.filter(c => c !== existing);
+  // Click a line → start a comment there. Shift-click → extend the active comment's
+  // range. Clicking an empty single-line comment again removes it (toggle).
+  const onLineClick = (
+    file: string,
+    side: 'old' | 'new',
+    line: number,
+    opts: { shift: boolean },
+  ) => {
+    if (opts.shift && activeId) {
+      const active = comments.find(c => c.id === activeId);
+      if (active && active.file === file && active.side === side) {
+        setRange(activeId, line);
+        return;
       }
-      return [...prev, { id: Math.random().toString(36).slice(2), file, side, line, text: '' }];
-    });
+    }
+    const existing = comments.find(
+      c => c.file === file && c.side === side && c.startLine === line && c.endLine === line,
+    );
+    if (existing && !existing.body.trim()) {
+      remove(existing.id);
+      if (activeId === existing.id) {
+        setActiveId(null);
+      }
+      return;
+    }
+    const id = addComment(file, side, line);
+    setActiveId(id);
   };
 
-  const updateComment = (id: string, text: string) =>
-    setComments(prev => prev.map(c => (c.id === id ? { ...c, text } : c)));
-  const removeComment = (id: string) => setComments(prev => prev.filter(c => c.id !== id));
+  const renderThread = (file: string, side: 'old' | 'new', line: number) => {
+    const here = comments.filter(c => c.file === file && c.side === side && c.endLine === line);
+    if (here.length === 0) {
+      return null;
+    }
+    return here.map(c => (
+      <CommentThread
+        key={c.id}
+        comment={c}
+        autoFocus={c.id === activeId}
+        onChange={b => setBody(c.id, b)}
+        onRemove={() => {
+          remove(c.id);
+          if (activeId === c.id) {
+            setActiveId(null);
+          }
+        }}
+      />
+    ));
+  };
+
+  const jumpTo = (c: ReviewComment) => {
+    const el = document.querySelector(`[data-line="${lineKey(c.file, c.side, c.endLine)}"]`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
 
   const submitReview = () => {
     const msg = buildReviewMessage(comments);
@@ -236,7 +320,8 @@ export function ChangesPanel({
     setSubmitting(true);
     onRequestChanges?.(msg);
     setSubmitted(true);
-    setComments([]);
+    clearAll();
+    setActiveId(null);
     setSubmitting(false);
   };
 
@@ -265,7 +350,12 @@ export function ChangesPanel({
   }
 
   const isEmpty = !diff || diff.files.length === 0;
-  const selected = new Set(comments.map(c => lineKey(c.file, c.side, c.line)));
+  const selected = new Set<string>();
+  for (const c of comments) {
+    for (let n = c.startLine; n <= c.endLine; n++) {
+      selected.add(lineKey(c.file, c.side, n));
+    }
+  }
 
   return (
     <div className="run-changes">
@@ -299,15 +389,25 @@ export function ChangesPanel({
               </div>
             )}
             <div className="dv-source">{diff!.source}</div>
-            <DiffView files={diff!.files} onLineClick={toggleLine} selected={selected} />
+            <DiffView
+              files={diff!.files}
+              onLineClick={onLineClick}
+              selected={selected}
+              renderThread={renderThread}
+            />
           </>
         )}
       </div>
 
       <ReviewPane
         comments={comments}
-        onUpdate={updateComment}
-        onRemove={removeComment}
+        onJump={jumpTo}
+        onRemove={id => {
+          remove(id);
+          if (activeId === id) {
+            setActiveId(null);
+          }
+        }}
         onSubmit={submitReview}
         submitting={submitting}
       />
