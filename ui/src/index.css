@@ -2033,41 +2033,163 @@ select {
   border-top: 1px solid var(--border);
 }
 
-/* ── diff2html dark theme — minimal overrides on top of built-in .d2h-dark-color-scheme ── */
-/* Use the library's own colorScheme:'dark' which adds .d2h-dark-color-scheme to its wrapper.
-   Only override what we actually need to change for our app: font, sticky header, interaction. */
-/* diff2html sets font-family directly on .d2h-diff-table so inheritance doesn't reach it —
-   target the table and header explicitly to match the app's coding font */
-.d2h-dark-color-scheme {
-  font-size: 12px;
-}
-.diff-pane .d2h-diff-table {
-  font-family: var(--mono) !important;
-  font-size: 12px !important;
-}
-.diff-pane .d2h-file-header {
-  font-family: var(--mono) !important;
-}
-/* Give .d2h-code-wrapper a position context so the absolute-positioned line number
-   cells are anchored to it (which scrolls inside .diff-pane) rather than to some
-   ancestor outside the scroll container — fixes line numbers drifting on scroll */
-.diff-pane .d2h-code-wrapper {
-  position: relative;
-}
-/* Sticky file list — stays pinned at top while scrolling through the diff */
-.diff-pane .d2h-file-list-wrapper {
+/* ── Shiki-rendered diff (DiffView) ──────────────────────────────────────────── */
+.dv-source {
+  padding: 6px 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--tx-3);
+  border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
-  z-index: 10;
+  background: var(--bg-1);
+  z-index: 5;
 }
-/* Row hover + click-to-annotate highlight */
-.d2h-dark-color-scheme tr:hover td {
-  background: rgba(77, 141, 244, 0.06) !important;
+.dv-file {
+  border-bottom: 1px solid var(--border);
+}
+.dv-file-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 14px;
+  background: var(--bg-1);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  position: sticky;
+  top: 29px; /* below .dv-source */
+  z-index: 4;
+}
+.dv-file-head:hover {
+  background: var(--bg-2);
+}
+.dv-caret {
+  color: var(--tx-3);
+  font-size: 10px;
+  transition: transform 0.12s;
+}
+.dv-caret.closed {
+  transform: rotate(-90deg);
+}
+.dv-file-status {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.dv-file-status.added {
+  color: var(--green);
+  background: rgba(52, 207, 138, 0.12);
+}
+.dv-file-status.deleted {
+  color: var(--red);
+  background: rgba(240, 90, 82, 0.12);
+}
+.dv-file-status.modified {
+  color: var(--blue);
+  background: rgba(77, 141, 244, 0.12);
+}
+.dv-file-status.renamed {
+  color: var(--amber);
+  background: rgba(232, 169, 58, 0.12);
+}
+.dv-file-path {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--tx-1);
+}
+.dv-file-counts {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  display: flex;
+  gap: 7px;
+}
+.dv-add-count {
+  color: var(--green);
+}
+.dv-del-count {
+  color: var(--red);
+}
+.dv-file-body {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+.dv-gap {
+  padding: 2px 14px 2px 96px;
+  color: var(--tx-3);
+  background: var(--bg);
+  font-size: 11px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.dv-gap-ctx {
+  color: var(--tx-2);
+  opacity: 0.7;
+}
+.dv-row {
+  display: flex;
+  white-space: pre;
+  border-left: 2px solid transparent;
+}
+.dv-row.clickable {
   cursor: pointer;
 }
-.d2h-dark-color-scheme tr.diff-selected td {
-  background: rgba(77, 141, 244, 0.15) !important;
-  box-shadow: inset 3px 0 0 var(--blue);
+.dv-row.clickable:hover {
+  background: rgba(77, 141, 244, 0.07);
+}
+.dv-row.add {
+  background: rgba(52, 207, 138, 0.1);
+}
+.dv-row.del {
+  background: rgba(240, 90, 82, 0.1);
+}
+.dv-row.selected {
+  border-left-color: var(--blue);
+  background: rgba(77, 141, 244, 0.16);
+}
+.dv-gutter {
+  flex: 0 0 auto;
+  width: 42px;
+  padding: 0 8px;
+  text-align: right;
+  color: var(--tx-3);
+  background: var(--bg-1);
+  user-select: none;
+}
+.dv-row.add .dv-gutter,
+.dv-row.del .dv-gutter {
+  background: transparent;
+}
+.dv-sign {
+  flex: 0 0 auto;
+  width: 16px;
+  text-align: center;
+  user-select: none;
+  color: var(--tx-3);
+}
+.dv-row.add .dv-sign {
+  color: var(--green);
+}
+.dv-row.del .dv-sign {
+  color: var(--red);
+}
+.dv-code {
+  flex: 1;
+  padding-right: 16px;
+  white-space: pre;
+}
+.dv-binary {
+  padding: 12px 16px;
+  color: var(--tx-3);
+  font-size: 12px;
 }
 .run-chat .chat-scroll {
   padding: 14px 20px 6px;

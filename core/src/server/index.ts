@@ -30,6 +30,7 @@ import {
 } from '../state/repo.js';
 import { serverFreshness } from './freshness.js';
 import { runPreflight } from './preflight.js';
+import { buildStructuredDiff } from './diff.js';
 import { runPmMessage, PM_SYSTEM } from '../pm/index.js';
 import { runNew, checkGitClean } from '../commands/new.js';
 import { pauseRun, resumeRun, abortRun } from '../loop-control.js';
@@ -469,6 +470,27 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
 
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify({ projectMd, contextFiles }));
+    return;
+  }
+
+  if (url.pathname === '/run/diff/structured') {
+    // Structured diff (parsed hunks + language + old/new content) for the review
+    // surface. The UI tokenizes whole files with Shiki, so it needs full content.
+    buildStructuredDiff(path.dirname(swarmDir()))
+      .then(structured => {
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(JSON.stringify(structured));
+      })
+      .catch((err: Error) => {
+        res.writeHead(500, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(JSON.stringify({ error: err.message, source: 'error', files: [] }));
+      });
     return;
   }
 
