@@ -81,6 +81,38 @@ function buildFromPmGraph(entries: TaskGraphEntry[], cfg: ReturnType<typeof getC
   }));
 }
 
+// Deterministic gates are STRUCTURALLY enforced — they must run on any run that
+// produces code, regardless of whether the graph came from the PM or the classifier
+// (the PM must not be able to opt out of the secret scan or the typecheck). Appends
+// the checks + visual gates depending on every coder task, unless already present.
+function withEnforcedGates(tasks: Task[], cfg: ReturnType<typeof getConfig>): Task[] {
+  const coderIds = tasks.filter(t => t.assignee === 'coder').map(t => t.id);
+  if (!coderIds.length) {
+    return tasks;
+  }
+  const gate = (id: string, assignee: string, title: string): Task => ({
+    id,
+    title,
+    status: 'pending',
+    owner: cfg.owner,
+    assignee,
+    depends_on: coderIds,
+    artifacts: [],
+    result_ref: null,
+    attempts: 0,
+  });
+  const extra: Task[] = [];
+  if (!tasks.some(t => t.assignee === 'checks')) {
+    extra.push(
+      gate('t_checks', 'checks', 'Deterministic checks — typecheck + hardcoded-secret scan'),
+    );
+  }
+  if (!tasks.some(t => t.assignee === 'visual')) {
+    extra.push(gate('t_visual', 'visual', 'Visual verification — screenshot changed routes'));
+  }
+  return [...tasks, ...extra];
+}
+
 function buildTaskGraph(
   goal: string,
   tier: Tier,
@@ -282,9 +314,11 @@ export async function runNew(
 
   // ── Build task graph ───────────────────────────────────────────────────────
   // PM-provided graph takes precedence; fall back to buildTaskGraph for simple runs.
-  const tasks = charter?.taskGraph?.length
+  // Either way the deterministic gates are appended — they are not the PM's to skip.
+  let tasks = charter?.taskGraph?.length
     ? buildFromPmGraph(charter.taskGraph, cfg)
     : buildTaskGraph(goal, cls.tier, cls.sensitive, cls.securityAudit, cfg);
+  tasks = withEnforcedGates(tasks, cfg);
   for (const t of tasks) addTask(t);
   // Don't echo graph or constraints to the PM chat — the task graph panel shows
   // the structure already, and the user wrote the constraints in Planning.
