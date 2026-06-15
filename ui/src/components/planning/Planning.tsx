@@ -416,6 +416,8 @@ export function Planning({
         branchMode={session.branchMode}
         branchName={session.branchName}
         onBranchNameChange={session.setBranchName}
+        onConstraintsChange={session.setConstraints}
+        onNongoalsChange={session.setNongoals}
         projectName={projectName}
         projectMd={context.projectMd}
         contextFiles={context.contextFiles}

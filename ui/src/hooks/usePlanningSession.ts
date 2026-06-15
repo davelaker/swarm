@@ -853,6 +853,15 @@ export function usePlanningSession(
     setState(prev => ({ ...prev, branchName: slug || undefined }));
   }, []);
 
+  // Direct charter edits — let the user tweak constraints/non-goals without a PM
+  // round-trip. Same item shape the PM produces ({ text, resolved? }).
+  const setConstraints = useCallback((items: Array<{ text: string; resolved?: boolean }>) => {
+    setState(prev => ({ ...prev, charter: { ...prev.charter, constraints: items } }));
+  }, []);
+  const setNongoals = useCallback((items: Array<{ text: string; resolved?: boolean }>) => {
+    setState(prev => ({ ...prev, charter: { ...prev.charter, nongoals: items } }));
+  }, []);
+
   return {
     ...state,
     send,
@@ -862,6 +871,8 @@ export function usePlanningSession(
     reopen,
     sessionKey,
     setBranchName,
+    setConstraints,
+    setNongoals,
     dismissHire,
   };
 }

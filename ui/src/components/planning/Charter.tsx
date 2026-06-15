@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { CharterData } from '../../types';
 import type { ContextFile } from '../../hooks/useContextFiles';
 import { resolveAgentPersona } from '../../data/personas';
@@ -33,6 +34,8 @@ interface CharterProps {
   branchMode?: 'branch' | 'main';
   branchName?: string; // user-set slug (no swarm/ prefix)
   onBranchNameChange?: (slug: string) => void;
+  onConstraintsChange?: (items: CharterData['constraints']) => void;
+  onNongoalsChange?: (items: CharterData['nongoals']) => void;
   projectName?: string;
   projectMd: ContextFile | null;
   contextFiles: ContextFile[];
@@ -55,6 +58,8 @@ export function Charter({
   branchMode,
   branchName,
   onBranchNameChange,
+  onConstraintsChange,
+  onNongoalsChange,
   projectName,
   projectMd,
   contextFiles,
@@ -104,6 +109,7 @@ export function Charter({
           mk="▸"
           optional
           active={active}
+          onChange={onConstraintsChange}
         />
         <Section
           num="03"
@@ -113,6 +119,7 @@ export function Charter({
           mk="✕"
           optional
           active={active}
+          onChange={onNongoalsChange}
         />
         <Section
           num="04"
@@ -200,6 +207,120 @@ export function Charter({
   );
 }
 
+// A charter list item whose text becomes editable on click (Enter/blur commits,
+// Escape reverts; clearing it removes the item).
+function EditableText({ value, onCommit }: { value: string; onCommit: (text: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+
+  if (editing) {
+    return (
+      <input
+        className="charter-edit-input"
+        autoFocus
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Enter') {
+            onCommit(draft);
+            setEditing(false);
+          } else if (e.key === 'Escape') {
+            setDraft(value);
+            setEditing(false);
+          }
+        }}
+        onBlur={() => {
+          onCommit(draft);
+          setEditing(false);
+        }}
+      />
+    );
+  }
+  return (
+    <span
+      className="editable-text"
+      title="Click to edit"
+      onClick={() => {
+        setDraft(value);
+        setEditing(true);
+      }}
+    >
+      {value}
+    </span>
+  );
+}
+
+// The editable rendering of a charter list — used for constraints/non-goals so the
+// user can tweak them directly. Questions stay read-only (PM-driven).
+function EditableList({
+  items,
+  kind,
+  mk,
+  label,
+  onChange,
+}: {
+  items: CharterData['constraints'];
+  kind: string;
+  mk: string;
+  label: string;
+  onChange: (items: CharterData['constraints']) => void;
+}) {
+  const [adding, setAdding] = useState('');
+
+  const commitEdit = (i: number, text: string) => {
+    const next = items.slice();
+    if (!text.trim()) {
+      next.splice(i, 1);
+    } else {
+      next[i] = { ...next[i], text: text.trim() };
+    }
+    onChange(next);
+  };
+  const remove = (i: number) => {
+    const next = items.slice();
+    next.splice(i, 1);
+    onChange(next);
+  };
+  const add = () => {
+    const text = adding.trim();
+    if (text) {
+      onChange([...items, { text }]);
+      setAdding('');
+    }
+  };
+
+  return (
+    <ul className="editable-list">
+      {items.map((it, i) => (
+        <li key={i} className={`${kind} ${it.resolved ? 'resolved' : ''}`}>
+          <span className="mk">{it.resolved ? '✓' : mk}</span>
+          <EditableText value={it.text} onCommit={t => commitEdit(i, t)} />
+          <button className="row-remove" title="Remove" onClick={() => remove(i)}>
+            ×
+          </button>
+        </li>
+      ))}
+      <li className={`${kind} editable-add`}>
+        <span className="mk" style={{ opacity: 0.4 }}>
+          +
+        </span>
+        <input
+          className="charter-edit-input"
+          value={adding}
+          placeholder={`Add ${label.toLowerCase()}…`}
+          onChange={e => setAdding(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              add();
+            }
+          }}
+          onBlur={add}
+        />
+      </li>
+    </ul>
+  );
+}
+
 function Section({
   num,
   label,
@@ -208,6 +329,7 @@ function Section({
   mk,
   optional,
   active,
+  onChange,
 }: {
   num: string;
   label: string;
@@ -216,6 +338,7 @@ function Section({
   mk: string;
   optional?: boolean;
   active?: boolean;
+  onChange?: (items: CharterData['constraints']) => void;
 }) {
   return (
     <div className="csec">
@@ -223,7 +346,9 @@ function Section({
         <span className="num">{num}</span> {label}
         {optional && <span className="field-opt">optional</span>}
       </div>
-      {items.length === 0 ? (
+      {onChange ? (
+        <EditableList items={items} kind={kind} mk={mk} label={label} onChange={onChange} />
+      ) : items.length === 0 ? (
         <div className="empty">{active && optional ? 'Not specified' : 'Waiting on PM…'}</div>
       ) : (
         <ul>

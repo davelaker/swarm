@@ -609,6 +609,70 @@ select {
   font-size: 12.5px;
   font-style: italic;
 }
+
+/* ─── Inline charter editing (constraints / non-goals) ─────────────────────── */
+.editable-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.editable-list li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 13px;
+  color: var(--tx-1);
+  line-height: 1.4;
+}
+.editable-list .editable-text {
+  flex: 1;
+  cursor: text;
+  border-bottom: 1px dashed transparent;
+  transition: border-color 0.12s;
+}
+.editable-list li:hover .editable-text {
+  border-bottom-color: var(--border-1);
+}
+.editable-list .row-remove {
+  flex: 0 0 auto;
+  color: var(--tx-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0;
+  transition:
+    opacity 0.12s,
+    color 0.12s;
+}
+.editable-list li:hover .row-remove {
+  opacity: 1;
+}
+.editable-list .row-remove:hover {
+  color: var(--red);
+}
+.charter-edit-input {
+  flex: 1;
+  background: var(--bg-2);
+  border: 1px solid var(--border-1);
+  border-radius: 5px;
+  padding: 2px 7px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--tx-1);
+  outline: none;
+}
+.charter-edit-input:focus {
+  border-color: var(--blue);
+}
+.editable-add {
+  opacity: 0.75;
+}
+.editable-add:focus-within {
+  opacity: 1;
+}
 .team-chips {
   display: flex;
   flex-wrap: wrap;
