@@ -276,6 +276,15 @@ async function distillMemory(state: SwarmState): Promise<void> {
   });
   writeProjectMemory(learnings);
   if (learnings.trim() && learnings.trim() !== before.trim()) {
+    // Commit the memory update so it doesn't leave CLAUDE.md uncommitted — a dirty
+    // working tree would block the NEXT run's git-clean check. Best-effort and
+    // scoped to CLAUDE.md only; runs on the run's branch alongside the coder's work.
+    try {
+      git(['add', 'CLAUDE.md']);
+      git(['commit', '-m', 'chore(swarm): update project memory (Swarm Learnings)']);
+    } catch {
+      /* nothing staged / no git / hooks — non-fatal, the write still landed */
+    }
     appendLog('pm', '✓ Updated project memory (CLAUDE.md) with what we learned this run.');
   }
 }
