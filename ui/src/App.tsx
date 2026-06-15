@@ -79,6 +79,14 @@ export function App() {
   // "Re-open in Planning": seed an editable plan from a past session.
   const [reopenSeed, setReopenSeed] = useState<SessionSnapshot | null>(null);
   const [reopenKey, setReopenKey] = useState(0);
+  // null = unknown (don't nag); false = visual verification disabled (Playwright missing).
+  const [playwrightAvailable, setPlaywrightAvailable] = useState<boolean | null>(null);
+  useEffect(() => {
+    fetch('/capabilities')
+      .then(r => r.json())
+      .then((d: { playwright?: boolean }) => setPlaywrightAvailable(!!d.playwright))
+      .catch(() => {});
+  }, []);
   // True once we've confirmed the correct project root (no mismatch, or switch
   // completed). The Running tab waits behind a loading screen until this is set
   // so we never show a flash of the wrong project's state.
@@ -576,6 +584,7 @@ export function App() {
             planNextKey={planNextKey}
             reopenKey={reopenKey}
             reopenSeed={reopenSeed}
+            playwrightAvailable={playwrightAvailable}
             runBlockedReason={executeError}
             historicalSession={historicalSession ?? undefined}
           />

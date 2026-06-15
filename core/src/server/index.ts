@@ -363,6 +363,30 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     return;
   }
 
+  if (url.pathname === '/capabilities') {
+    // Is the visual gate actually usable? Requires BOTH the playwright package and a
+    // downloaded browser binary — package-only would advertise a capability that fails
+    // at run time. Checked live each request (it can change without a restart).
+    (async () => {
+      let playwright = false;
+      try {
+        const pw = (await import('playwright' as string)) as {
+          chromium: { executablePath: () => string };
+        };
+        const exe = pw.chromium.executablePath();
+        playwright = !!exe && fs.existsSync(exe);
+      } catch {
+        /* not installed */
+      }
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.end(JSON.stringify({ playwright }));
+    })();
+    return;
+  }
+
   if (url.pathname === '/context') {
     const SKIP = new Set([
       'node_modules',

@@ -128,6 +128,7 @@ interface PlanningProps {
   planNextKey?: number;
   reopenKey?: number;
   reopenSeed?: SessionSnapshot | null;
+  playwrightAvailable?: boolean | null;
   runBlockedReason?: string | null;
   historicalSession?: SessionSnapshot;
 }
@@ -143,6 +144,7 @@ export function Planning({
   planNextKey,
   reopenKey,
   reopenSeed,
+  playwrightAvailable,
   runBlockedReason,
   historicalSession,
 }: PlanningProps) {
@@ -468,6 +470,37 @@ export function Planning({
               <button className="compact-btn" onClick={session.compact} disabled={!!session.typing}>
                 Compact
               </button>
+            </div>
+          )}
+          {playwrightAvailable === false && (
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 3,
+                padding: '8px 12px',
+                margin: '0 0 8px',
+                borderRadius: 8,
+                background: 'var(--bg-2)',
+                border: '1px solid var(--border)',
+                fontSize: 11.5,
+                color: 'var(--tx-2)',
+              }}
+            >
+              <span>
+                🎭 Visual verification is off — install Playwright to screenshot UI changes during
+                runs.
+              </span>
+              <code
+                style={{
+                  fontFamily: 'var(--mono)',
+                  fontSize: 10.5,
+                  color: 'var(--tx-3)',
+                  userSelect: 'all',
+                }}
+              >
+                npm i playwright && npx playwright install chromium
+              </code>
             </div>
           )}
           <div className="composer">
