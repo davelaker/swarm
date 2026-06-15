@@ -31,6 +31,7 @@ import {
 import { serverFreshness } from './freshness.js';
 import { runPreflight } from './preflight.js';
 import { buildStructuredDiff } from './diff.js';
+import { buildScorecards } from './scorecards.js';
 import { readReview, writeReview } from './review.js';
 import { runPmMessage, PM_SYSTEM } from '../pm/index.js';
 import { runNew, checkGitClean } from '../commands/new.js';
@@ -1013,6 +1014,13 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
         JSON.stringify({ path: target, parent: null, entries: [], error: 'Cannot read directory' }),
       );
     }
+    return;
+  }
+
+  if (url.pathname === '/marketplace/scorecards') {
+    // Per-agent track records aggregated across all saved runs.
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({ scorecards: buildScorecards() }));
     return;
   }
 

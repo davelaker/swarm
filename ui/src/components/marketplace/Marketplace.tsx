@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { MarketAgent, HiredAgent } from '../../types';
 import { MARKET_AGENTS, AGENT_BY_ID, BUILTINS, UX_UPGRADE } from '../../data/marketAgents';
 import { AgentCard } from './AgentCard';
+import { useScorecards } from '../../hooks/useScorecards';
 import { AgentPage } from './AgentPage';
 import { BuiltinDrawer } from './BuiltinDrawer';
 import { MyTeam } from './MyTeam';
@@ -63,6 +64,7 @@ export function Marketplace({
   const [upgrading, setUpgrading] = useState(false);
   const [team, setTeam] = useState<HiredAgent[]>([]);
   const [viewingBuiltin, setViewingBuiltin] = useState<string | null>(null);
+  const scorecards = useScorecards();
 
   // Load roster from server on mount; fall back to empty list. Enrich each entry
   // with name/prompt from the catalog so older rosters persisted without a name are
@@ -152,6 +154,7 @@ export function Marketplace({
           <MyTeam
             team={team}
             projectName={projectName}
+            scorecards={scorecards}
             onToggle={id =>
               saveTeam(team.map(h => (h.id === id ? { ...h, enabled: !h.enabled } : h)))
             }
@@ -180,7 +183,13 @@ export function Marketplace({
             </div>
             <div className="grid">
               {filtered.map(a => (
-                <AgentCard key={a.id} a={a} hired={hiredIds.has(a.id)} onOpen={setDrawer} />
+                <AgentCard
+                  key={a.id}
+                  a={a}
+                  hired={hiredIds.has(a.id)}
+                  scorecard={scorecards[a.id]}
+                  onOpen={setDrawer}
+                />
               ))}
               {filtered.length === 0 && (
                 <div

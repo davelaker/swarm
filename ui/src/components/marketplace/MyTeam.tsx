@@ -2,6 +2,8 @@ import type { HiredAgent } from '../../types';
 import { PERSONAS } from '../../data/personas';
 import { AGENT_BY_ID, BUILTINS, UX_UPGRADE } from '../../data/marketAgents';
 import { AgentIcon, RoleChip, LockBadge, rgba } from './shared';
+import { ScorecardInline } from './Scorecard';
+import type { Scorecard } from '../../hooks/useScorecards';
 import { ToolGlyph } from '../common/ToolIcon';
 import { CONNECTOR_BY_ID } from '../../data/connectors';
 import { Switch } from '../common/Switch';
@@ -11,6 +13,7 @@ import type { Sensitivity } from '../../types';
 interface MyTeamProps {
   team: HiredAgent[];
   projectName?: string;
+  scorecards: Record<string, Scorecard>;
   onToggle: (id: string) => void;
   onRemove: (id: string) => void;
   onUpgrade: (id: string) => void;
@@ -21,6 +24,7 @@ interface MyTeamProps {
 export function MyTeam({
   team,
   projectName,
+  scorecards,
   onToggle,
   onRemove,
   onUpgrade,
@@ -67,6 +71,7 @@ export function MyTeam({
                 </div>
                 <div className="trow-sub">
                   <RoleChip role={b.role} />
+                  <ScorecardInline card={scorecards[b.id]} />
                 </div>
               </div>
               <div className="trow-tools">
@@ -163,6 +168,7 @@ export function MyTeam({
                 </div>
                 <div className="trow-sub">
                   <RoleChip role={a.role} />
+                  <ScorecardInline card={scorecards[h.id]} />
                   <span className="mono" style={{ color: 'var(--tx-3)' }}>
                     {h.model}
                   </span>

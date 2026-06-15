@@ -2604,6 +2604,59 @@ select {
   line-height: 1.45;
   flex: 1;
 }
+/* Agent scorecard — track record across runs */
+.scorecard {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.scorecard.empty {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--tx-3);
+  font-style: italic;
+}
+.sc-stat {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--tx-2);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 7px;
+}
+.sc-stat b {
+  color: var(--tx-1);
+  font-weight: 700;
+}
+.sc-stat.caught {
+  color: var(--green);
+  border-color: rgba(52, 207, 138, 0.3);
+  background: rgba(52, 207, 138, 0.08);
+}
+.sc-stat.caught b {
+  color: var(--green);
+}
+.sc-stat.fail {
+  color: var(--amber);
+  border-color: rgba(232, 169, 58, 0.3);
+  background: rgba(232, 169, 58, 0.08);
+}
+.sc-stat.fail b {
+  color: var(--amber);
+}
+.sc-inline {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--tx-3);
+}
+.sc-inline .caught {
+  color: var(--green);
+  font-weight: 700;
+}
 .stars {
   display: inline-flex;
   align-items: center;
