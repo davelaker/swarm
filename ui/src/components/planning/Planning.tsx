@@ -9,19 +9,25 @@ import { IconSend } from '../common/icons';
 import { ActivityItem } from '../common/ActivityItem';
 import { ReadinessPanel } from './ReadinessPanel';
 import { useReadiness } from '../../hooks/useReadiness';
-import type { ServerStatus, RunCharter } from '../../App';
+import type { ServerStatus, RunCharter, TaskGraphEntry } from '../../App';
+import { forecastFromRoles, formatForecastTime } from '../../data/forecast';
 import type { CharterData, SessionSnapshot } from '../../types';
 
 function PlanReadyCallout({
   charter,
   team,
+  taskGraph,
   onExecute,
 }: {
   charter: CharterData;
   team: string[];
+  taskGraph?: TaskGraphEntry[];
   onExecute?: () => void;
 }) {
   const readiness = useReadiness();
+  // Prefer the PM's actual task graph for the forecast; fall back to the team roster.
+  const roles = taskGraph && taskGraph.length ? taskGraph.map(e => e.assignee) : team;
+  const forecast = forecastFromRoles(roles);
   const openQuestions = charter.questions.filter(q => !q.resolved);
   const noTeam = team.length === 0;
   const noGoal = !charter.goal;
@@ -74,6 +80,24 @@ function PlanReadyCallout({
         loading={readiness.loading}
       />
       <div className="plan-ready-actions">
+        {canExecute && (
+          <span
+            className="plan-forecast"
+            title="Rough estimate — the live spend bar and timer are the truth once the run starts"
+          >
+            <span className="plan-forecast-n">
+              {forecast.taskCount} task{forecast.taskCount !== 1 ? 's' : ''}
+            </span>
+            {forecast.costUsd > 0 && (
+              <>
+                <span className="plan-forecast-sep">·</span>
+                <span>~${forecast.costUsd.toFixed(2)}</span>
+              </>
+            )}
+            <span className="plan-forecast-sep">·</span>
+            <span>{formatForecastTime(forecast.seconds)}</span>
+          </span>
+        )}
         <button
           className="btn primary"
           onClick={onExecute}
@@ -470,6 +494,7 @@ export function Planning({
               <PlanReadyCallout
                 charter={session.charter}
                 team={session.team}
+                taskGraph={session.taskGraph}
                 onExecute={onExecute}
               />
             )}
