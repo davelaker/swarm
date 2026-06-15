@@ -29,6 +29,7 @@ import {
   appendLog,
 } from '../state/repo.js';
 import { serverFreshness } from './freshness.js';
+import { runPreflight } from './preflight.js';
 import { runPmMessage, PM_SYSTEM } from '../pm/index.js';
 import { runNew, checkGitClean } from '../commands/new.js';
 import { pauseRun, resumeRun, abortRun } from '../loop-control.js';
@@ -361,6 +362,17 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
         }),
       );
     }
+    return;
+  }
+
+  if (url.pathname === '/run/preflight') {
+    // Readiness checks for the TARGET repo (getRoot), so the dashboard can surface
+    // the dirty-tree / wrong-repo footguns before a run instead of as a raw 400.
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.end(JSON.stringify(runPreflight(getRoot())));
     return;
   }
 

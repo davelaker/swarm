@@ -10,6 +10,7 @@ import {
   appendLog,
   getRoot,
 } from '../state/repo.js';
+import { parseDirtyStatus } from '../server/preflight.js';
 import { classify } from '../agents/classifier.js';
 import { runLoop } from '../loop.js';
 import { resetControl } from '../loop-control.js';
@@ -44,20 +45,13 @@ export function checkGitClean(cwd: string): void {
     return; // git status failed — proceed cautiously
   }
 
-  // Files swarm itself writes during planning — not user dirt, never a blocker.
-  const SWARM_OWNED = new Set<string>(); // no files written pre-Execute
+  // Same "dirty" definition the pre-flight endpoint uses, so the UI's readiness
+  // panel and this hard guard never disagree.
+  const dirtyFiles = parseDirtyStatus(status);
 
-  const dirty = status
-    .split('\n')
-    .filter(l => l.trim())
-    .filter(l => !l.startsWith('??')) // ignore untracked
-    .filter(l => !SWARM_OWNED.has(l.slice(3))) // ignore swarm-managed files
-    .join('\n')
-    .trim();
-
-  if (dirty) {
-    const preview = dirty.split('\n').slice(0, 6).join('\n');
-    const more = dirty.split('\n').length > 6 ? '\n  …' : '';
+  if (dirtyFiles.length) {
+    const preview = dirtyFiles.slice(0, 6).join('\n');
+    const more = dirtyFiles.length > 6 ? '\n  …' : '';
     throw new Error(
       `Uncommitted changes detected — commit or stash before running agents:\n\n${preview}${more}\n\nTo bypass: SWARM_SKIP_GIT_CHECK=1`,
     );
