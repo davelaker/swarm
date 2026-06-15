@@ -83,6 +83,24 @@ const mdComponents: Components = {
   code({ children }) {
     return <code>{children}</code>;
   },
+  img({ src, alt }) {
+    // Visual-gate screenshots are embedded as `![route](visual/<task>/x.png)` —
+    // a path relative to .swarm/. Route those through the backend image endpoint;
+    // leave absolute/data URLs untouched.
+    const raw = typeof src === 'string' ? src : '';
+    const isExternal = /^(https?:|data:|\/findings\/image)/.test(raw);
+    const resolved = isExternal ? raw : `/findings/image?path=${encodeURIComponent(raw)}`;
+    return (
+      <a
+        href={resolved}
+        target="_blank"
+        rel="noreferrer"
+        title={`${alt || 'screenshot'} — open full size`}
+      >
+        <img src={resolved} alt={alt || ''} className="finding-shot" loading="lazy" />
+      </a>
+    );
+  },
 };
 
 // ─── Chip ─────────────────────────────────────────────────────────────────────

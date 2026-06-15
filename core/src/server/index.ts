@@ -852,6 +852,53 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     return;
   }
 
+  if (url.pathname === '/findings/image') {
+    // Serve a binary image referenced by a finding (e.g. the visual gate's
+    // `.swarm/visual/<task>/*.png`). Kept separate from the text `/findings`
+    // handler so each route has one job and one return shape.
+    const relPath = url.searchParams.get('path');
+    if (!relPath) {
+      res.writeHead(400);
+      res.end('path required');
+      return;
+    }
+    const IMAGE_MIME: Record<string, string> = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+      '.svg': 'image/svg+xml',
+    };
+    const ext = path.extname(relPath).toLowerCase();
+    const mime = IMAGE_MIME[ext];
+    if (!mime) {
+      res.writeHead(415);
+      res.end('unsupported image type');
+      return;
+    }
+    try {
+      const abs = path.resolve(swarmDir(), relPath);
+      // Safety: must stay inside .swarm/
+      if (!abs.startsWith(swarmDir())) {
+        res.writeHead(403);
+        res.end('forbidden');
+        return;
+      }
+      const bytes = fs.readFileSync(abs);
+      res.writeHead(200, {
+        'Content-Type': mime,
+        'Cache-Control': 'no-cache',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.end(bytes);
+    } catch {
+      res.writeHead(404);
+      res.end('not found');
+    }
+    return;
+  }
+
   if (url.pathname === '/findings') {
     const relPath = url.searchParams.get('path');
     if (!relPath) {

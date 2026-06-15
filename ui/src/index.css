@@ -1570,6 +1570,20 @@ select {
 .finding-md li code {
   font-size: 11px;
 }
+.finding-md .finding-shot {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 8px 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  transition: border-color 0.12s;
+}
+.finding-md a:hover .finding-shot {
+  border-color: var(--blue);
+}
 .fb-row {
   font-size: 12px;
   color: var(--tx-1);
