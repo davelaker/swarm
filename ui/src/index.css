@@ -2166,6 +2166,16 @@ select {
 .dv-row.del {
   background: rgba(240, 90, 82, 0.1);
 }
+/* Word-level intra-line change highlight — stronger tint on just the edited chars */
+.dv-word {
+  border-radius: 2px;
+}
+.dv-word.add {
+  background: rgba(52, 207, 138, 0.32);
+}
+.dv-word.del {
+  background: rgba(240, 90, 82, 0.32);
+}
 .dv-row.selected {
   border-left-color: var(--blue);
   background: rgba(77, 141, 244, 0.16);
