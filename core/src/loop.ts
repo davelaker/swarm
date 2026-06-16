@@ -3,6 +3,7 @@
 // Phase 3+: parallel dispatch, pause/resume/abort, real-time cost SSE.
 
 import fsp from 'node:fs/promises';
+import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
@@ -346,6 +347,31 @@ function git(args: string[], cwd: string = getRoot()): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: 'pipe' });
 }
 
+// Per-task diff support: while a coder runs in its worktree we expose a live
+// "accumulating" diff (base → worktree working tree); once it lands we capture that
+// diff to .swarm/diffs/<id>.diff so the card can keep showing it after cleanup.
+const activeWorktrees = new Map<string, { path: string; base: string }>();
+
+export function worktreeInfo(taskId: string): { path: string; base: string } | null {
+  return activeWorktrees.get(taskId) ?? null;
+}
+
+function taskDiffDir(): string {
+  return path.join(swarmDir(), 'diffs');
+}
+
+// Capture the task's full diff (everything since its branch base, committed or not)
+// from the worktree, so the per-task view survives worktree cleanup.
+function captureTaskDiff(taskId: string, worktreePath: string, base: string): void {
+  try {
+    const raw = git(['diff', base], worktreePath);
+    fs.mkdirSync(taskDiffDir(), { recursive: true });
+    fs.writeFileSync(path.join(taskDiffDir(), `${taskId}.diff`), raw);
+  } catch {
+    /* best-effort — a missing per-task diff just hides the card's diff toggle */
+  }
+}
+
 // Create an isolated worktree on a fresh `swarm/<task.id>` branch off HEAD.
 function createWorktree(taskId: string): string {
   const worktreePath = path.join(os.tmpdir(), `swarm-${taskId}-${Date.now()}`);
@@ -650,6 +676,12 @@ export async function runLoop(): Promise<LoopResult> {
     if (isCoder && !isFixTask) {
       try {
         worktreePath = createWorktree(task.id);
+        // Track the worktree + its base commit so the per-task diff endpoint can show
+        // the change accumulating live, and so we can capture the final diff on landing.
+        activeWorktrees.set(task.id, {
+          path: worktreePath,
+          base: git(['rev-parse', 'HEAD']).trim(),
+        });
       } catch (err) {
         clearInterval(heartbeat);
         const msg = err instanceof Error ? err.message : String(err);
@@ -675,6 +707,14 @@ export async function runLoop(): Promise<LoopResult> {
           ? await withMainTreeLock(() => dispatch(dispatched, getState(), worktreePath))
           : await dispatch(dispatched, getState(), worktreePath);
       clearInterval(heartbeat);
+
+      // Coder has finished + committed in its worktree: capture the per-task diff to
+      // disk and stop serving the live worktree view (switch the card to the snapshot).
+      const wt = activeWorktrees.get(task.id);
+      if (wt) {
+        captureTaskDiff(task.id, wt.path, wt.base);
+        activeWorktrees.delete(task.id);
+      }
 
       // Merge the coder's isolated branch back into the working branch
       // (serialised — one merge at a time). A conflict marks the task failed.
@@ -780,6 +820,8 @@ export async function runLoop(): Promise<LoopResult> {
       // Always clean up the worktree + branch — never leave orphans, even on
       // crash. (On the merge-failure path worktreePath is already cleared.)
       if (worktreePath) cleanupWorktree(task.id, worktreePath);
+      // Drop any live-worktree tracking left over from a thrown dispatch.
+      activeWorktrees.delete(task.id);
     }
   }
 

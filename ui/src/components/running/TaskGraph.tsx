@@ -3,6 +3,7 @@ import type { ActivityEntry, Task } from '../../types';
 import { resolveAgentPersona } from '../../data/personas';
 import { STATUS_COLOR, STATUS_LABEL } from '../../data/runScript';
 import { ActivityLog } from '../common/ActivityLog';
+import { DiffView, type StructuredDiffFile } from './DiffView';
 
 const TRUNCATE = 72; // chars shown before "more" toggle appears
 
@@ -79,6 +80,8 @@ function TaskCard({
   const [steerDraft, setSteerDraft] = useState('');
   const [steerBusy, setSteerBusy] = useState(false);
   const [steerError, setSteerError] = useState<string | null>(null);
+  const [diffOpen, setDiffOpen] = useState(false);
+  const [diffFiles, setDiffFiles] = useState<StructuredDiffFile[] | null>(null);
   const p = resolveAgentPersona(t.assignee);
   const color = STATUS_COLOR[t.status];
   const isActive = t.status === 'in_progress';
@@ -106,6 +109,36 @@ function TaskCard({
   };
   const displayTitle =
     needsTruncation && !expanded ? t.title.slice(0, TRUNCATE).trimEnd() + '…' : t.title;
+
+  // Coder tasks produce diffs. The card can show that task's change, accumulating
+  // live while the coder runs (poll) and the captured snapshot once it lands.
+  const isCoderTask = t.assignee === 'coder';
+  useEffect(() => {
+    if (!diffOpen) {
+      return;
+    }
+    let cancelled = false;
+    const load = () =>
+      fetch(`/run/task-diff?task=${encodeURIComponent(t.id)}`)
+        .then(r => (r.ok ? r.json() : null))
+        .then((d: { files?: StructuredDiffFile[] } | null) => {
+          if (!cancelled && d) {
+            setDiffFiles(d.files ?? []);
+          }
+        })
+        .catch(() => {});
+    load();
+    if (isActive) {
+      const id = setInterval(load, 1500);
+      return () => {
+        cancelled = true;
+        clearInterval(id);
+      };
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [diffOpen, isActive, t.id]);
 
   return (
     <div
@@ -229,6 +262,29 @@ function TaskCard({
         </div>
       )}
       <ActivityLog activity={activity} active={isActive} color={p?.color} />
+
+      {isCoderTask && (t.status === 'in_progress' || t.status === 'done' || diffOpen) && (
+        <>
+          <button className="tnode-diff-toggle" onClick={() => setDiffOpen(o => !o)}>
+            {diffOpen ? '▾ hide diff' : '▸ diff'}
+            {diffOpen && diffFiles
+              ? ` · ${diffFiles.length} file${diffFiles.length === 1 ? '' : 's'}`
+              : ''}
+            {isActive && diffOpen ? ' · live' : ''}
+          </button>
+          {diffOpen && (
+            <div className="tnode-diff">
+              {diffFiles == null ? (
+                <div className="tnode-diff-empty">loading diff…</div>
+              ) : diffFiles.length === 0 ? (
+                <div className="tnode-diff-empty">no changes yet</div>
+              ) : (
+                <DiffView files={diffFiles} />
+              )}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

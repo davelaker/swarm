@@ -31,7 +31,8 @@ import {
 } from '../state/repo.js';
 import { serverFreshness } from './freshness.js';
 import { runPreflight } from './preflight.js';
-import { buildStructuredDiff } from './diff.js';
+import { buildStructuredDiff, buildTaskDiff } from './diff.js';
+import { worktreeInfo } from '../loop.js';
 import { buildScorecards } from './scorecards.js';
 import { readReview, writeReview } from './review.js';
 import { runPmMessage, PM_SYSTEM } from '../pm/index.js';
@@ -483,6 +484,33 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       'Access-Control-Allow-Origin': '*',
     });
     res.end(JSON.stringify({ comments: readReview() }));
+    return;
+  }
+
+  if (url.pathname === '/run/task-diff') {
+    // Per-task diff for a card — live from the coder's worktree while it runs, then
+    // from the captured snapshot once it lands.
+    const taskId = url.searchParams.get('task');
+    if (!taskId) {
+      res.writeHead(400);
+      res.end('task required');
+      return;
+    }
+    buildTaskDiff(taskId, worktreeInfo(taskId))
+      .then(structured => {
+        res.writeHead(200, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(JSON.stringify(structured));
+      })
+      .catch((err: Error) => {
+        res.writeHead(500, {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end(JSON.stringify({ error: err.message, source: 'error', files: [] }));
+      });
     return;
   }
 

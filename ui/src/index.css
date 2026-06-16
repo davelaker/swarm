@@ -1682,6 +1682,39 @@ select {
   opacity: 0.4;
   cursor: not-allowed;
 }
+/* Per-task diff on the card */
+.tnode-diff-toggle {
+  all: unset;
+  cursor: pointer;
+  display: block;
+  margin-top: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--tx-3);
+}
+.tnode-diff-toggle:hover {
+  color: var(--blue);
+}
+.tnode-diff {
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: auto;
+  max-height: 320px;
+  background: var(--bg);
+}
+.tnode-diff .dv-file-head {
+  position: static; /* don't stick inside the card's small scroll area */
+}
+.tnode-diff .dv-source {
+  position: static;
+}
+.tnode-diff-empty {
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--tx-3);
+}
 .tnode-step {
   font-family: var(--mono);
   font-size: 11px;

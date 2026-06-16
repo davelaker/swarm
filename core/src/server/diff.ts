@@ -7,6 +7,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
 import path from 'node:path';
+import { swarmDir } from '../state/repo.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -307,6 +308,44 @@ function readWorktree(cwd: string, filePath: string): string | null {
   } catch {
     return null;
   }
+}
+
+// Per-task diff for a single task's card. While the coder runs, `live` points at its
+// worktree + branch base so the diff accumulates; once it lands we fall back to the
+// captured .swarm/diffs/<id>.diff snapshot. Rendered without full-file highlighting
+// (hunks only) — a compact, per-card view, not the main syntax-highlighted surface.
+export async function buildTaskDiff(
+  taskId: string,
+  live: { path: string; base: string } | null,
+): Promise<StructuredDiff> {
+  let raw = '';
+  if (live) {
+    const tracked = await gitSafe(live.path, ['diff', live.base]);
+    const status = await gitSafe(live.path, ['status', '--porcelain']);
+    const untracked = status
+      .split('\n')
+      .filter(l => l.startsWith('??'))
+      .map(l => l.slice(3).trim())
+      .filter(f => f && !f.endsWith('/'));
+    const newDiffs = await Promise.all(
+      untracked.map(f => gitSafe(live.path, ['diff', '--no-index', '--', '/dev/null', f])),
+    );
+    raw = [tracked, ...newDiffs].filter(s => s.trim()).join('\n');
+  } else {
+    try {
+      raw = fs.readFileSync(path.join(swarmDir(), 'diffs', `${taskId}.diff`), 'utf8');
+    } catch {
+      raw = '';
+    }
+  }
+  const files: StructuredDiffFile[] = parseUnifiedDiff(raw).map(f => ({
+    ...f,
+    language: detectLanguage(f.path),
+    oldContent: null,
+    newContent: null,
+    contentSkipped: true,
+  }));
+  return { source: live ? `task ${taskId} · live` : `task ${taskId}`, files };
 }
 
 // Build the structured diff for the repo at cwd: parse hunks, attach language and
