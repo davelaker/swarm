@@ -94,7 +94,7 @@ export function App() {
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let mounted = true;
-    let autoSyncDone = false;
+    let switchInFlight = false; // guards against overlapping /project/switch calls
 
     const probe = () => {
       fetch('/state', { signal: AbortSignal.timeout(2000) })
@@ -117,57 +117,58 @@ export function App() {
             if (s.repoUrl) setRepoUrl(s.repoUrl);
             if (s.root) setProjectRoot(s.root);
 
-            // Auto-sync: if the user previously switched to a different project,
-            // the server may have lost that on restart (process.cwd() resets).
-            // Push the remembered root to the server once per page-load.
-            // We hold projectSynced=false until the switch resolves so the Running
-            // tab never renders with the wrong project's state.
-            if (!autoSyncDone) {
-              autoSyncDone = true;
-              let localRoot: string | null = null;
-              try {
-                localRoot = localStorage.getItem('swarm-active-root');
-              } catch {}
-              if (localRoot && s.root && localRoot !== s.root) {
-                // Root mismatch — switch first, then unblock Running.
-                // Both setProjectRoot and setProjectSynced are called in the same
-                // .then() callback so React 18 batches them into a single render —
-                // <Running> always mounts with the correct key.
-                fetch('/project/switch', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ path: localRoot }),
+            // Auto-sync: keep the server pointed at the remembered project. The server
+            // resets its root to process.cwd() on every restart, so re-assert on EVERY
+            // probe that shows drift — not just the first — or a run triggered after a
+            // mid-session restart targets the wrong repo. We hold projectSynced=false
+            // until a pending switch resolves so the Running tab never renders the wrong
+            // project's state.
+            let localRoot: string | null = null;
+            try {
+              localRoot = localStorage.getItem('swarm-active-root');
+            } catch {}
+            const rootMismatch = !!(localRoot && s.root && localRoot !== s.root);
+
+            if (rootMismatch && !switchInFlight) {
+              switchInFlight = true;
+              // setProjectRoot and setProjectSynced land in the same .then() so React
+              // batches them into one render — <Running> always mounts with the right key.
+              fetch('/project/switch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: localRoot }),
+              })
+                .then(
+                  r =>
+                    r.json() as Promise<{
+                      ok: boolean;
+                      project?: string;
+                      repoUrl?: string | null;
+                    }>,
+                )
+                .then(d => {
+                  switchInFlight = false;
+                  if (!mounted) return;
+                  if (d.ok) {
+                    if (d.project) setProjectName(d.project);
+                    if (d.repoUrl !== undefined) setRepoUrl(d.repoUrl);
+                    setProjectRoot(localRoot!);
+                  } else {
+                    // Saved path no longer valid — forget it so we stop retrying.
+                    try {
+                      localStorage.removeItem('swarm-active-root');
+                    } catch {}
+                  }
+                  setProjectSynced(true); // always unblock, regardless of d.ok
                 })
-                  .then(
-                    r =>
-                      r.json() as Promise<{
-                        ok: boolean;
-                        project?: string;
-                        repoUrl?: string | null;
-                      }>,
-                  )
-                  .then(d => {
-                    if (!mounted) return;
-                    if (d.ok) {
-                      if (d.project) setProjectName(d.project);
-                      if (d.repoUrl !== undefined) setRepoUrl(d.repoUrl);
-                      setProjectRoot(localRoot!);
-                    } else {
-                      // Saved path no longer valid — forget it
-                      try {
-                        localStorage.removeItem('swarm-active-root');
-                      } catch {}
-                    }
-                    setProjectSynced(true); // always unblock, regardless of d.ok
-                  })
-                  .catch(() => {
-                    // Network error — unblock with server's root (already set above)
-                    if (mounted) setProjectSynced(true);
-                  });
-              } else {
-                // No mismatch (or no saved root) — already on the right project
-                setProjectSynced(true);
-              }
+                .catch(() => {
+                  switchInFlight = false;
+                  // Network error — unblock with the server's root (already set above)
+                  if (mounted) setProjectSynced(true);
+                });
+            } else if (!rootMismatch) {
+              // On the right project (or nothing remembered) — unblock Running.
+              setProjectSynced(true);
             }
 
             // If the server says a run is active, snap to the Running tab regardless
