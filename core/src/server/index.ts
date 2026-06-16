@@ -15,31 +15,6 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-
-// Resolve a collision-free `swarm/<slug>` branch name. `git checkout -b` hard-fails if
-// the branch already exists, and a PM-chosen slug carries no timestamp, so it can clash
-// with a prior run's branch (a goal-derived slug can't — it already appends a timestamp).
-// Append -2, -3, … until the name is free so Execute never blocks on a name clash.
-async function uniqueSwarmBranch(cwd: string, slug: string): Promise<string> {
-  const exists = async (name: string): Promise<boolean> => {
-    try {
-      await execFileAsync('git', ['show-ref', '--verify', '--quiet', `refs/heads/${name}`], {
-        cwd,
-      });
-      return true; // exit 0 → ref exists
-    } catch {
-      return false; // non-zero exit → ref does not exist
-    }
-  };
-  const base = `swarm/${slug}`;
-  let candidate = base;
-  let n = 2;
-  while (await exists(candidate)) {
-    candidate = `${base}-${n}`;
-    n += 1;
-  }
-  return candidate;
-}
 import { bus } from '../state/events.js';
 import {
   getRoot,
@@ -55,7 +30,7 @@ import {
   appendLog,
 } from '../state/repo.js';
 import { serverFreshness } from './freshness.js';
-import { runPreflight } from './preflight.js';
+import { runPreflight, uniqueSwarmBranch } from './preflight.js';
 import { buildStructuredDiff, buildTaskDiff } from './diff.js';
 import { worktreeInfo } from '../loop.js';
 import { buildScorecards } from './scorecards.js';
@@ -1677,7 +1652,7 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
           slug = `${goalSlug}-${ts}`;
         }
         // Auto-suffix on collision so a name clash never hard-fails the run.
-        branchName = await uniqueSwarmBranch(cwd, slug);
+        branchName = uniqueSwarmBranch(cwd, slug);
         try {
           await execFileAsync('git', ['checkout', '-b', branchName], { cwd });
           const suffixed = branchName !== `swarm/${slug}`;

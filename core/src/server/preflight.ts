@@ -61,6 +61,27 @@ export function currentBranch(cwd: string): string | null {
   return git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])?.trim() || null;
 }
 
+export function branchExists(cwd: string, name: string): boolean {
+  // `show-ref --verify --quiet` exits 0 (→ non-null stdout, empty) when the ref exists,
+  // non-zero (→ null) when it doesn't.
+  return git(cwd, ['show-ref', '--verify', '--quiet', `refs/heads/${name}`]) !== null;
+}
+
+// Resolve a collision-free `swarm/<slug>` branch name. `git checkout -b` hard-fails if the
+// branch already exists, and a PM-chosen slug carries no timestamp, so it can clash with a
+// prior run's branch (a goal-derived slug can't — it appends a timestamp). Append -2, -3, …
+// until the name is free so Execute never blocks on a name clash.
+export function uniqueSwarmBranch(cwd: string, slug: string): string {
+  const base = `swarm/${slug}`;
+  let candidate = base;
+  let n = 2;
+  while (branchExists(cwd, candidate)) {
+    candidate = `${base}-${n}`;
+    n += 1;
+  }
+  return candidate;
+}
+
 export type CheckStatus = 'ok' | 'warn' | 'fail';
 
 export interface PreflightCheck {
