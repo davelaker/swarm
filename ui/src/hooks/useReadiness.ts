@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export type CheckStatus = 'ok' | 'warn' | 'fail';
 
@@ -59,6 +59,22 @@ export function useReadiness(refreshKey: number = 0): Readiness {
       window.removeEventListener('focus', onFocus);
     };
   }, [tick, refreshKey]);
+
+  // While the panel is BLOCKING (a hard fail), poll so a just-cleaned tree recovers on its
+  // own — e.g. a phantom stat-dirty that settles, or the user commits in another terminal —
+  // instead of staying stuck until they refocus the tab. One always-on timer reads the
+  // latest canRun through a ref (avoiding any effect-dependency transition subtlety) and
+  // only re-checks while blocked, so a ready run costs nothing.
+  const blockedRef = useRef(false);
+  blockedRef.current = report?.canRun === false;
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (blockedRef.current) {
+        setTick(t => t + 1);
+      }
+    }, 3000);
+    return () => clearInterval(id);
+  }, []);
 
   const checks: PreflightCheck[] = [...(report?.checks ?? [])];
   if (playwright !== null) {
