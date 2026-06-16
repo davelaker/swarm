@@ -798,4 +798,22 @@ export const BUILTINS = [
     role: 'Review',
     tools: [{ sens: 'read' as const }, { sens: 'network' as const }],
   },
+  {
+    id: 'reviewer',
+    name: 'Code Reviewer',
+    role: 'Quality',
+    tools: [{ sens: 'read' as const }],
+  },
+  {
+    id: 'scout',
+    name: 'Scout',
+    role: 'Research',
+    tools: [{ sens: 'read' as const }],
+  },
+  {
+    id: 'negotiator',
+    name: 'Negotiator',
+    role: 'Arbitration',
+    tools: [{ sens: 'read' as const }],
+  },
 ];

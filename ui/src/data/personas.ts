@@ -13,6 +13,13 @@ export const PERSONAS: Record<string, Persona> = {
     color: '#c084fc',
     role: 'Quality',
   },
+  scout: {
+    id: 'scout',
+    name: 'Scout',
+    short: 'SC',
+    color: '#5bb8c4',
+    role: 'Research',
+  },
   negotiator: {
     id: 'negotiator',
     name: 'Negotiator',

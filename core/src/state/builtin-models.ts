@@ -8,6 +8,8 @@ export interface BuiltinModels {
   tester: string;
   reviewer: string;
   security: string;
+  scout: string;
+  negotiator: string;
 }
 
 // Per-agent defaults — match the cost-aware defaults in config.ts (sonnet for the
@@ -20,6 +22,8 @@ const DEFAULT: BuiltinModels = {
   tester: 'claude-haiku-4-5-20251001',
   reviewer: 'claude-sonnet-4-6',
   security: 'claude-haiku-4-5-20251001',
+  scout: 'claude-haiku-4-5-20251001',
+  negotiator: 'claude-sonnet-4-6',
 };
 
 function filePath(): string {

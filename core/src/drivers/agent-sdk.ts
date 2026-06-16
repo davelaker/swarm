@@ -1072,13 +1072,12 @@ export const agentSdkDriver: AgentDriver = {
   // Runtime deadlock arbiter — invoked directly by the loop (NOT dispatched as a
   // task). Read-only; reads the cited findings and returns a recovery decision.
   async runNegotiator(ctx: DeadlockContext): Promise<NegotiatorDecision> {
-    const cfg = getConfig();
     const { data } = await runClaude({
       systemPrompt: NEGOTIATOR_SYSTEM,
       userPrompt: negotiatorPrompt(ctx),
       schema: NEGOTIATOR_SCHEMA,
       allowedTools: ['Read', 'LS', 'Glob', 'Grep'],
-      model: cfg.negotiatorModel,
+      model: loadBuiltinModels().negotiator,
       requireFields: ['reasoning'],
       verbose: true,
     });
@@ -1103,13 +1102,12 @@ export const agentSdkDriver: AgentDriver = {
   // from the PM flow (NOT dispatched, NOT in a worktree). Answers one specific
   // question with a factual digest the PM uses to plan.
   async runScout(question: string): Promise<ScoutResult> {
-    const cfg = getConfig();
     const { data, costUsd } = await runClaude({
       systemPrompt: SCOUT_SYSTEM,
       userPrompt: scoutPrompt(question),
       schema: SCOUT_SCHEMA,
       allowedTools: ['Read', 'LS', 'Glob', 'Grep'],
-      model: cfg.scoutModel,
+      model: loadBuiltinModels().scout,
       requireFields: ['digest'],
       verbose: true,
     });

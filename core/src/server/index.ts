@@ -50,6 +50,8 @@ import {
   TESTER_SYSTEM,
   REVIEWER_SYSTEM,
   SECURITY_SYSTEM,
+  SCOUT_SYSTEM,
+  NEGOTIATOR_SYSTEM,
 } from '../agents/prompts.js';
 import type { SwarmEvent, SwarmState, Task } from '../state/types.js';
 
@@ -1087,6 +1089,8 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
         tester: TESTER_SYSTEM,
         reviewer: REVIEWER_SYSTEM,
         security: SECURITY_SYSTEM,
+        scout: SCOUT_SYSTEM,
+        negotiator: NEGOTIATOR_SYSTEM,
       }),
     );
     return;
