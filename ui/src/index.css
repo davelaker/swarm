@@ -1678,6 +1678,13 @@ select {
   height: 7px;
   border-radius: 50%;
 }
+.tnode-cost {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--green, #4ade80);
+  font-variant-numeric: tabular-nums;
+}
 .tnode-duration {
   margin-left: auto;
   font-family: var(--mono);
@@ -1685,8 +1692,15 @@ select {
   color: var(--tx-3);
   font-variant-numeric: tabular-nums;
 }
+/* When cost is shown, it anchors the right cluster; duration sits beside it. */
+.tnode-cost + .tnode-duration {
+  margin-left: 6px;
+}
 .tnode-duration + .tnode-status {
   margin-left: 0;
+}
+.tnode-cost + .tnode-status {
+  margin-left: 6px;
 }
 .tnode-status {
   margin-left: auto;

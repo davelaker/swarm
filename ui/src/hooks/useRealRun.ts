@@ -23,6 +23,7 @@ interface ServerTask {
   finding_summary?: string;
   skip_reason?: string;
   model?: string; // PM-chosen model for this task
+  cost_usd?: number; // accumulated agent cost for this task
 }
 
 interface ServerState {
@@ -120,6 +121,7 @@ function adaptTask(t: ServerTask, lane: number, prev?: Task): Task {
     late: prev === undefined,
     ...(t.skip_reason ? { skip_reason: t.skip_reason } : {}),
     ...(t.model ? { model: t.model } : {}),
+    ...(t.cost_usd != null ? { costUsd: t.cost_usd } : {}),
   };
 }
 
@@ -697,6 +699,10 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
             contextPct: ev.context_pct,
           },
         },
+        // Mirror the cost onto the owning task so the graph card can show per-task spend.
+        tasks: ev.task_id
+          ? prev.tasks.map(t => (t.id === ev.task_id ? { ...t, costUsd: ev.cost_usd } : t))
+          : prev.tasks,
       };
 
     case 'run.cost_updated':

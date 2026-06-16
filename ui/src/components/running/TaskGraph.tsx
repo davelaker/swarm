@@ -197,6 +197,11 @@ function TaskCard({
             ) : null;
           })()}
         </span>
+        {t.costUsd != null && t.costUsd > 0 && (
+          <span className="tnode-cost" title="task cost so far">
+            ${t.costUsd < 0.01 ? t.costUsd.toFixed(3) : t.costUsd.toFixed(2)}
+          </span>
+        )}
         {durationMs != null && (
           <span
             className="tnode-duration"

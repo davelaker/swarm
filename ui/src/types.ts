@@ -55,6 +55,7 @@ export interface Task {
   late?: boolean;
   skip_reason?: string;
   model?: string; // PM-chosen model for this task
+  costUsd?: number; // accumulated agent cost for this task
 }
 
 // One entry in an agent's live activity transcript — either a block of extended
