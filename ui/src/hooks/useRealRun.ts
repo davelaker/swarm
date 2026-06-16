@@ -22,6 +22,7 @@ interface ServerTask {
   finding_verdict?: string; // enriched by server from finding frontmatter
   finding_summary?: string;
   skip_reason?: string;
+  model?: string; // PM-chosen model for this task
 }
 
 interface ServerState {
@@ -118,6 +119,7 @@ function adaptTask(t: ServerTask, lane: number, prev?: Task): Task {
     status: t.status as Task['status'],
     late: prev === undefined,
     ...(t.skip_reason ? { skip_reason: t.skip_reason } : {}),
+    ...(t.model ? { model: t.model } : {}),
   };
 }
 

@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import type { CharterData } from '../../types';
 import type { ContextFile } from '../../hooks/useContextFiles';
+import type { TaskGraphEntry } from '../../App';
 import { resolveAgentPersona } from '../../data/personas';
+import { modelMeta } from '../../data/models';
 import { ContextFiles } from './ContextFiles';
 
 function renderText(t: string) {
@@ -30,6 +32,7 @@ function renderText(t: string) {
 interface CharterProps {
   charter: CharterData;
   team: string[];
+  taskGraph?: TaskGraphEntry[]; // per-task model assignments the PM chose
   phase: string; // planning phase — controls empty-state copy
   branchMode?: 'branch' | 'main';
   branchName?: string; // user-set slug (no swarm/ prefix)
@@ -54,6 +57,7 @@ function slugify(text: string): string {
 export function Charter({
   charter,
   team,
+  taskGraph,
   phase,
   branchMode,
   branchName,
@@ -140,10 +144,31 @@ export function Charter({
             <div className="team-chips">
               {team.map(id => {
                 const p = resolveAgentPersona(id);
+                // Distinct models the PM assigned to this agent's task(s).
+                const models = [
+                  ...new Set(
+                    (taskGraph ?? [])
+                      .filter(t => t.assignee === id && t.model)
+                      .map(t => t.model as string),
+                  ),
+                ];
                 return (
                   <span key={id} className="agent-chip anim-in">
                     <span className="pdot" style={{ background: p.color }} />
                     {p.name}
+                    {models.map(m => {
+                      const meta = modelMeta(m);
+                      return meta ? (
+                        <span
+                          key={m}
+                          className="model-badge"
+                          style={{ color: meta.color, borderColor: meta.color }}
+                          title={`Runs on ${meta.label}`}
+                        >
+                          {meta.label}
+                        </span>
+                      ) : null;
+                    })}
                   </span>
                 );
               })}

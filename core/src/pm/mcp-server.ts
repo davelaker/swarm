@@ -145,8 +145,13 @@ const SUBMIT_TOOL = {
               items: { type: 'string' },
               description: 'IDs that must complete first.',
             },
+            model: {
+              type: 'string',
+              description:
+                "REQUIRED. The Claude model this agent should run on, chosen by THIS task's complexity: 'opus' (hardest / most critical reasoning, security-sensitive or architecturally tricky code, the most rigorous reviews), 'sonnet' (the standard choice for most coding and review), 'fable' (fast, capable — straightforward well-scoped edits and routine reviews), or 'haiku' (trivial, mechanical, or read-only scans). Pick deliberately per task — do not default everything to one model.",
+            },
           },
-          required: ['id', 'assignee', 'title', 'depends_on'],
+          required: ['id', 'assignee', 'title', 'depends_on', 'model'],
         },
       },
       suggest_compact: {

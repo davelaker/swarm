@@ -449,6 +449,7 @@ export function Planning({
       <Charter
         charter={session.charter}
         team={session.team}
+        taskGraph={session.taskGraph}
         phase={session.phase}
         branchMode={session.branchMode}
         branchName={session.branchName}

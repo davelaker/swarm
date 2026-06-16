@@ -16,6 +16,7 @@ export interface TaskGraphEntry {
   assignee: 'coder' | 'tester' | 'security' | 'reviewer';
   title: string;
   depends_on: string[];
+  model?: string; // PM-chosen model for this task (canonical id, e.g. claude-opus-4-8)
 }
 
 export interface RunCharter {

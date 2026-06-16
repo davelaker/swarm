@@ -4,6 +4,7 @@ import { resolveAgentPersona } from '../../data/personas';
 import { STATUS_COLOR, STATUS_LABEL } from '../../data/runScript';
 import { ActivityLog } from '../common/ActivityLog';
 import { DiffView, type StructuredDiffFile } from './DiffView';
+import { modelMeta } from '../../data/models';
 
 const TRUNCATE = 72; // chars shown before "more" toggle appears
 
@@ -183,6 +184,18 @@ function TaskCard({
         <span className="tnode-assignee">
           <span className="pdot" style={{ background: isSkipped ? 'var(--tx-3)' : p?.color }} />
           {p?.name}
+          {(() => {
+            const meta = modelMeta(t.model);
+            return meta ? (
+              <span
+                className="tnode-model"
+                style={{ color: meta.color, borderColor: meta.color }}
+                title={`Runs on ${meta.label}`}
+              >
+                {meta.label}
+              </span>
+            ) : null;
+          })()}
         </span>
         {durationMs != null && (
           <span

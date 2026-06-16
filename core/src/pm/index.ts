@@ -180,8 +180,12 @@ TASK GRAPH — draft early, update on every response, finalize at enable_execute
 Set task_graph as soon as you know who is doing what — do not wait for enable_execute. A draft task graph shows the user what will run before they commit. Update it whenever the team or scope changes. By the time you set enable_execute, task_graph should already reflect the final plan.
 Define exactly which agents run and in what order. IDs: t1, t2, … (unique strings).
 Tasks with empty depends_on start immediately; tasks that share depends_on run in parallel once deps complete.
-You may set a "model" on any task to recommend a specific Claude model. Omit it to use the agent's default.
-Guidelines: haiku for fast read-only scans; sonnet for most tasks; opus/fable for complex reasoning or critical reviews.
+MODEL PER TASK — required on every task. Judge each task's relative complexity and pick the model that fits, the way a tech lead assigns work; do not default everything to one model:
+- opus   — the hardest, most critical, or most failure-sensitive work: architecturally tricky or security-sensitive code, and the most rigorous reviews where a miss is expensive.
+- sonnet — the standard choice for most real coding and code review.
+- fable  — fast and capable for straightforward, well-scoped edits and routine reviews where the path is clear.
+- haiku  — trivial, mechanical, or read-only scans (e.g. a one-line copy change, the test runner, a quick checklist audit).
+A 5-task plan will usually span 2–3 different models. Weigh cost against stakes: spend opus where correctness matters, save with fable/haiku where it doesn't.
 
 Builtin agents:
 - coder:    writes/changes code. Use MULTIPLE coders in parallel for clearly independent sub-tasks.
@@ -342,6 +346,29 @@ function contextNote(estimatedTokens: number, exchangeCount: number): string {
 // Converts a raw tool-call argument object into a typed PmResponse.
 // Used by both the subprocess path (reads PM_OUTPUT_PATH) and the direct API path.
 
+// Normalise the PM's model choice (friendly alias or full id) to a canonical model
+// id the driver can pass to `--model`. Returns undefined for anything unrecognised so
+// the agent falls back to its configured default.
+function normalizeModel(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return undefined;
+  }
+  const s = raw.trim().toLowerCase();
+  if (s.includes('opus')) {
+    return 'claude-opus-4-8';
+  }
+  if (s.includes('fable')) {
+    return 'claude-fable-5';
+  }
+  if (s.includes('sonnet')) {
+    return 'claude-sonnet-4-6';
+  }
+  if (s.includes('haiku')) {
+    return 'claude-haiku-4-5-20251001';
+  }
+  return s.startsWith('claude-') ? s : undefined;
+}
+
 function parsePmData(data: Record<string, unknown>): PmResponse {
   const cu = (data.charter_updates ?? {}) as Record<string, unknown>;
   const rv = cu.resolved_question as { index: number; answer: string } | undefined;
@@ -396,6 +423,7 @@ function parsePmData(data: Record<string, unknown>): PmResponse {
         assignee: String(e.assignee) as TaskGraphEntry['assignee'],
         title: String(e.title),
         depends_on: Array.isArray(e.depends_on) ? e.depends_on.map(String) : [],
+        model: normalizeModel(e.model),
       }));
     if (entries.length > 0) taskGraph = entries;
   }

@@ -812,7 +812,7 @@ export const agentSdkDriver: AgentDriver = {
       userPrompt: coderPrompt(task, state),
       schema: CODER_SCHEMA,
       allowedTools: ['Read', 'LS', 'Glob', 'Grep', 'Write', 'Edit', 'Bash'],
-      model: cfg.coderModel,
+      model: task.model || cfg.coderModel,
       verbose: true,
       cwd: worktreePath, // run inside the isolated worktree (if any)
       requireFields: ['summary', 'detail'],
@@ -879,7 +879,7 @@ export const agentSdkDriver: AgentDriver = {
       userPrompt: testerPrompt(task, state),
       schema: TESTER_SCHEMA,
       allowedTools: ['Read', 'LS', 'Glob', 'Grep', 'Bash'],
-      model: cfg.testerModel,
+      model: task.model || cfg.testerModel,
       verbose: true,
       requireFields: ['summary', 'detail'],
       onStreamEvent: streamToProgress(task.assignee, task.id),
@@ -914,7 +914,7 @@ export const agentSdkDriver: AgentDriver = {
       userPrompt: securityPrompt(task, state),
       schema: SECURITY_SCHEMA,
       allowedTools: ['Read', 'LS', 'Glob', 'Grep'],
-      model: cfg.securityModel, // haiku — structured read-only checklist
+      model: task.model || cfg.securityModel, // task override, else haiku — read-only checklist
       verbose: true,
       requireFields: ['summary', 'detail'],
       onStreamEvent: streamToProgress(task.assignee, task.id),
@@ -952,7 +952,7 @@ export const agentSdkDriver: AgentDriver = {
       userPrompt: reviewerPrompt(task, state),
       schema: REVIEWER_SCHEMA,
       allowedTools: ['Read', 'LS', 'Glob', 'Grep'],
-      model: cfg.reviewerModel, // sonnet — needs judgment about code quality
+      model: task.model || cfg.reviewerModel, // task override, else sonnet — judgment about code quality
       verbose: true,
       requireFields: ['summary', 'detail'],
       onStreamEvent: streamToProgress(task.assignee, task.id),
