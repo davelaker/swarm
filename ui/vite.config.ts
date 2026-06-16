@@ -23,6 +23,7 @@ export default defineConfig({
       '/marketplace': { target: 'http://127.0.0.1:7000', changeOrigin: true },
       '/agent-prompts': { target: 'http://127.0.0.1:7000', changeOrigin: true },
       '/agent-instructions': { target: 'http://127.0.0.1:7000', changeOrigin: true },
+      '/agent-models': { target: 'http://127.0.0.1:7000', changeOrigin: true },
       '/sessions': { target: 'http://127.0.0.1:7000', changeOrigin: true },
     },
   },

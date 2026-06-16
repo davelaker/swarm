@@ -40,6 +40,7 @@ import {
 } from './findings.js';
 import { loadProjectContextBounded, getRoot, swarmDir } from '../state/repo.js';
 import { loadBuiltinInstructions } from '../state/builtin-instructions.js';
+import { loadBuiltinModels } from '../state/builtin-models.js';
 import { parseStreamMessage, createNdjsonBuffer, type StreamEvent } from './stream-parse.js';
 import { streamToProgress } from './progress.js';
 import type {
@@ -812,7 +813,7 @@ export const agentSdkDriver: AgentDriver = {
       userPrompt: coderPrompt(task, state),
       schema: CODER_SCHEMA,
       allowedTools: ['Read', 'LS', 'Glob', 'Grep', 'Write', 'Edit', 'Bash'],
-      model: task.model || cfg.coderModel,
+      model: task.model || loadBuiltinModels().coder,
       verbose: true,
       cwd: worktreePath, // run inside the isolated worktree (if any)
       requireFields: ['summary', 'detail'],
@@ -879,7 +880,7 @@ export const agentSdkDriver: AgentDriver = {
       userPrompt: testerPrompt(task, state),
       schema: TESTER_SCHEMA,
       allowedTools: ['Read', 'LS', 'Glob', 'Grep', 'Bash'],
-      model: task.model || cfg.testerModel,
+      model: task.model || loadBuiltinModels().tester,
       verbose: true,
       requireFields: ['summary', 'detail'],
       onStreamEvent: streamToProgress(task.assignee, task.id),
@@ -914,7 +915,7 @@ export const agentSdkDriver: AgentDriver = {
       userPrompt: securityPrompt(task, state),
       schema: SECURITY_SCHEMA,
       allowedTools: ['Read', 'LS', 'Glob', 'Grep'],
-      model: task.model || cfg.securityModel, // task override, else haiku — read-only checklist
+      model: task.model || loadBuiltinModels().security, // override > user default (haiku)
       verbose: true,
       requireFields: ['summary', 'detail'],
       onStreamEvent: streamToProgress(task.assignee, task.id),
@@ -952,7 +953,7 @@ export const agentSdkDriver: AgentDriver = {
       userPrompt: reviewerPrompt(task, state),
       schema: REVIEWER_SCHEMA,
       allowedTools: ['Read', 'LS', 'Glob', 'Grep'],
-      model: task.model || cfg.reviewerModel, // task override, else sonnet — judgment about code quality
+      model: task.model || loadBuiltinModels().reviewer, // override > user default (sonnet)
       verbose: true,
       requireFields: ['summary', 'detail'],
       onStreamEvent: streamToProgress(task.assignee, task.id),

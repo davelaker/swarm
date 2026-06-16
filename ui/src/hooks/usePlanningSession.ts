@@ -862,6 +862,17 @@ export function usePlanningSession(
     setState(prev => ({ ...prev, charter: { ...prev.charter, nongoals: items } }));
   }, []);
 
+  // Override the PM's model choice for a task (model='' resets to the agent default).
+  // Persists into charter.taskGraph, which is what Execute sends to the run.
+  const setTaskModel = useCallback((taskId: string, model: string) => {
+    setState(prev => ({
+      ...prev,
+      taskGraph: (prev.taskGraph ?? []).map(t =>
+        t.id === taskId ? { ...t, model: model || undefined } : t,
+      ),
+    }));
+  }, []);
+
   return {
     ...state,
     send,
@@ -873,6 +884,7 @@ export function usePlanningSession(
     setBranchName,
     setConstraints,
     setNongoals,
+    setTaskModel,
     dismissHire,
   };
 }

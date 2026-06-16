@@ -11,18 +11,89 @@ import { ReadinessPanel } from './ReadinessPanel';
 import { useReadiness } from '../../hooks/useReadiness';
 import type { ServerStatus, RunCharter, TaskGraphEntry } from '../../App';
 import { forecastFromRoles, formatForecastTime } from '../../data/forecast';
+import { modelMeta, isUpgrade, MODEL_CHOICES } from '../../data/models';
+import { useAgentDefaults } from '../../hooks/useAgentDefaults';
 import type { CharterData, SessionSnapshot } from '../../types';
+
+// The per-task model plan shown at the Execute gate: each agent's model, with the
+// PM's upgrades over the agent default flagged (more capable → costs more) and an
+// override dropdown so the user confirms or reverts before continuing.
+function ModelPlan({
+  taskGraph,
+  onSetTaskModel,
+}: {
+  taskGraph: TaskGraphEntry[];
+  onSetTaskModel?: (taskId: string, model: string) => void;
+}) {
+  const defaultModelFor = useAgentDefaults();
+  const tasks = taskGraph.filter(t => t.assignee);
+  if (tasks.length === 0) {
+    return null;
+  }
+  const upgrades = tasks.filter(t => isUpgrade(t.model, defaultModelFor(t.assignee)));
+
+  return (
+    <div className="plan-models">
+      {upgrades.length > 0 && (
+        <div className="plan-models-warn">
+          ⚠ The PM upgraded {upgrades.length} agent{upgrades.length === 1 ? '' : 's'} above{' '}
+          {upgrades.length === 1 ? 'its' : 'their'} default — more capable, higher cost. Confirm by
+          executing, or override below.
+        </div>
+      )}
+      <div className="plan-models-list">
+        {tasks.map(t => {
+          const def = defaultModelFor(t.assignee);
+          const chosen = t.model ?? def;
+          const meta = modelMeta(chosen);
+          const upgraded = isUpgrade(t.model, def);
+          const p = resolveAgentPersona(t.assignee);
+          return (
+            <div key={t.id} className={`plan-model-row${upgraded ? ' upgraded' : ''}`}>
+              <span className="plan-model-agent">
+                <span className="pdot" style={{ background: p.color }} />
+                {p.name}
+              </span>
+              {upgraded && (
+                <span className="plan-model-up" title={`Default: ${modelMeta(def)?.label ?? '—'}`}>
+                  ↑ {modelMeta(def)?.label ?? '—'} →
+                </span>
+              )}
+              <select
+                className="plan-model-select"
+                value={t.model ?? ''}
+                style={meta ? { color: meta.color } : undefined}
+                onChange={e => onSetTaskModel?.(t.id, e.target.value)}
+                disabled={!onSetTaskModel}
+                title="Override the model for this task"
+              >
+                <option value="">Default ({modelMeta(def)?.label ?? 'default'})</option>
+                {MODEL_CHOICES.map(m => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function PlanReadyCallout({
   charter,
   team,
   taskGraph,
   onExecute,
+  onSetTaskModel,
 }: {
   charter: CharterData;
   team: string[];
   taskGraph?: TaskGraphEntry[];
   onExecute?: () => void;
+  onSetTaskModel?: (taskId: string, model: string) => void;
 }) {
   const readiness = useReadiness();
   // Prefer the PM's actual task graph for the forecast; fall back to the team roster.
@@ -79,6 +150,9 @@ function PlanReadyCallout({
         checks={readiness.checks}
         loading={readiness.loading}
       />
+      {taskGraph && taskGraph.length > 0 && (
+        <ModelPlan taskGraph={taskGraph} onSetTaskModel={onSetTaskModel} />
+      )}
       <div className="plan-ready-actions">
         {canExecute && (
           <span
@@ -547,6 +621,7 @@ export function Planning({
                 team={session.team}
                 taskGraph={session.taskGraph}
                 onExecute={onExecute}
+                onSetTaskModel={session.setTaskModel}
               />
             )}
           </div>

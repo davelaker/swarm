@@ -2,8 +2,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getRoot } from './repo.js';
 
-const DEFAULT_MODEL = 'claude-sonnet-4-6';
-
 export interface BuiltinModels {
   pm: string;
   coder: string;
@@ -12,12 +10,16 @@ export interface BuiltinModels {
   security: string;
 }
 
+// Per-agent defaults — match the cost-aware defaults in config.ts (sonnet for the
+// reasoning agents, haiku for the cheap structured ones) so the dispatched model
+// equals what the UI shows as the agent's "default". The user overrides these in
+// the BuiltinDrawer model selector.
 const DEFAULT: BuiltinModels = {
-  pm: DEFAULT_MODEL,
-  coder: DEFAULT_MODEL,
-  tester: DEFAULT_MODEL,
-  reviewer: DEFAULT_MODEL,
-  security: DEFAULT_MODEL,
+  pm: 'claude-sonnet-4-6',
+  coder: 'claude-sonnet-4-6',
+  tester: 'claude-haiku-4-5-20251001',
+  reviewer: 'claude-sonnet-4-6',
+  security: 'claude-haiku-4-5-20251001',
 };
 
 function filePath(): string {
