@@ -33,19 +33,12 @@ structurally-enforced quality** — the things a parallel-agent runner (see
   Reviewer, Scout, Negotiator) has a user-set default model in the Agents-tab selector,
   with confirmation when the PM upgrades a task above the agent's default.
 
-## In progress
-
-**Live diff streaming + mid-run intervention.** Each task card shows the actual diff
-accumulating (not just "Editing war-view.tsx"), and a steering box lets you *pause →
-amend → re-dispatch* a task ("use the eyebrow class, not a new divider") so it adapts
-without a full restart. The moment it stops feeling like a black box. The cheap
-amend/re-dispatch model ships first (no SDK dependency) to validate that anyone steers
-mid-run — true token-stream steering waits for the Agent SDK migration below.
-
-## Planned next — ecosystem
-
-- **Live per-task diff accumulation.** Surface each task's diff building up on its graph
-  card during the run, reusing the Shiki DiffView — the other half of the item above.
+- **Live diff streaming + mid-run intervention.** Each task card shows the actual diff
+  accumulating live as the coder works (polls the coder's worktree via `/run/task-diff`
+  → `buildTaskDiff`, reusing the Shiki DiffView), and a steering box lets you *pause →
+  amend → re-dispatch* a task (`/run/steer`) so it adapts without a full restart. The
+  cheap amend/re-dispatch model (no SDK dependency); true token-stream steering waits for
+  the Agent SDK migration below.
 
 ## Foundational — productisation (Phase 6)
 
