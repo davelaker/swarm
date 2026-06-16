@@ -37,6 +37,13 @@ export function isGitRepo(cwd: string): boolean {
 }
 
 export function gitDirtyFiles(cwd: string): string[] {
+  // Refresh the index first so a file whose mtime changed but content did NOT (a running
+  // dev server or TS watcher touching source) isn't reported as a phantom "modified".
+  // `git status --porcelain` reports such stat-dirty entries as M even though `git diff`
+  // is empty, which would block Execute with nothing to actually commit or stash.
+  // update-index exits non-zero when real changes exist — ignored; it still refreshes
+  // the stat info for unchanged files, which is all we need.
+  git(cwd, ['update-index', '-q', '--refresh']);
   const status = git(cwd, ['status', '--porcelain']);
   if (status === null) {
     return [];

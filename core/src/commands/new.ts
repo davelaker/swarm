@@ -38,6 +38,15 @@ export function checkGitClean(cwd: string): void {
     return; // not a git repo — no fence needed
   }
 
+  // Refresh the index so a stat-dirty file (mtime touched by a dev server / watcher but
+  // content unchanged) isn't reported as a phantom modification — see gitDirtyFiles in
+  // server/preflight.ts. Best-effort: it exits non-zero when real changes exist.
+  try {
+    execSync('git update-index -q --refresh', { cwd, stdio: 'ignore' });
+  } catch {
+    /* real changes present (or no index) — stat info still refreshed; fall through */
+  }
+
   let status: string;
   try {
     status = execSync('git status --porcelain', { cwd, encoding: 'utf8' });
