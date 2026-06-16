@@ -27,8 +27,11 @@ structurally-enforced quality** — the things a parallel-agent runner (see
   (`server/diff.ts`, `server/review.ts`, `components/running/DiffView.tsx`)
 - **UX/observability layer.** Stale-server nudge, desktop finish notifications, a
   quality-gate summary strip, pre-flight readiness checks, a pre-run cost/time forecast,
-  per-task duration on the graph, inline charter editing, bulk branch delete, first-run
-  starter prompts.
+  per-task duration **and cost** on the graph, inline charter editing, bulk branch delete,
+  first-run starter prompts.
+- **All core agents are model-settable.** Every built-in (PM, Coder, Tester, Security,
+  Reviewer, Scout, Negotiator) has a user-set default model in the Agents-tab selector,
+  with confirmation when the PM upgrades a task above the agent's default.
 
 ## In progress
 
@@ -43,8 +46,6 @@ mid-run — true token-stream steering waits for the Agent SDK migration below.
 
 - **Live per-task diff accumulation.** Surface each task's diff building up on its graph
   card during the run, reusing the Shiki DiffView — the other half of the item above.
-- **Per-task cost on the graph cards.** Live duration already shows; cost flows through
-  `task.metrics` and can be surfaced per card to spot the expensive agent.
 
 ## Foundational — productisation (Phase 6)
 
