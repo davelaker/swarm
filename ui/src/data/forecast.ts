@@ -21,35 +21,83 @@ const ROLE_ESTIMATES: Record<string, RoleEstimate> = {
 };
 const DEFAULT_ESTIMATE: RoleEstimate = { usd: 0.1, sec: 30 }; // marketplace / unknown
 
+// Rough relative *cost* weight per model (output-token price is what dominates). Sonnet
+// is the 1.0 reference. A coder bumped to Opus costs several × what the flat base assumes —
+// the single biggest source of forecast error, since the base estimates above are
+// calibrated at each role's DEFAULT model (see ROLE_DEFAULT_MODEL).
+const MODEL_COST_WEIGHT: Record<string, number> = {
+  'claude-haiku-4-5-20251001': 0.3,
+  'claude-sonnet-4-6': 1,
+  'claude-opus-4-8': 4.5,
+  'claude-fable-5': 1.2,
+};
+const DEFAULT_MODEL_WEIGHT = 1; // unknown / marketplace model → treat as sonnet-equivalent
+
+// The model each role's base cost is calibrated against — must match core's builtin-models
+// DEFAULT so an un-upgraded task scales by exactly 1.0.
+const ROLE_DEFAULT_MODEL: Record<string, string> = {
+  coder: 'claude-sonnet-4-6',
+  tester: 'claude-haiku-4-5-20251001',
+  security: 'claude-haiku-4-5-20251001',
+  reviewer: 'claude-sonnet-4-6',
+  negotiator: 'claude-sonnet-4-6',
+};
+
+const weightOf = (model?: string): number =>
+  model ? (MODEL_COST_WEIGHT[model] ?? DEFAULT_MODEL_WEIGHT) : DEFAULT_MODEL_WEIGHT;
+
+// How much to scale a role's base cost given the task's actual model, relative to the model
+// the base was calibrated for. 1.0 when the task runs on the role's default (or has no model).
+function modelCostScale(role: string, model?: string): number {
+  if (!model) {
+    return 1;
+  }
+  const baseModel = ROLE_DEFAULT_MODEL[role];
+  const baseWeight = baseModel ? weightOf(baseModel) : DEFAULT_MODEL_WEIGHT;
+  return weightOf(model) / baseWeight;
+}
+
 export interface RunForecast {
   taskCount: number;
   costUsd: number;
   seconds: number;
 }
 
+interface TaskLike {
+  assignee: string;
+  model?: string;
+}
+
 // The deterministic gates the loop appends to any run that has a coder (see
 // withEnforcedGates in core). Included so the forecast matches what actually runs.
 const ENFORCED_GATES = ['checks', 'visual'];
 
-// Pure: given the assignee role of every task that will run, total the estimate. If
-// the roles include a coder but not the enforced gates, add them (the loop will).
-export function forecastFromRoles(roles: string[]): RunForecast {
-  const all = [...roles];
-  if (all.includes('coder')) {
+// Pure: total the estimate over every task that will run, scaling each task's cost by its
+// assigned model (an Opus coder costs several × a Haiku one). Time is left model-flat — model
+// choice moves cost far more than wall-clock. If the tasks include a coder but not the
+// enforced gates, add them (the loop will); gates cost $0 so their model is irrelevant.
+export function forecastFromTasks(tasks: TaskLike[]): RunForecast {
+  const all: TaskLike[] = [...tasks];
+  if (all.some(t => t.assignee === 'coder')) {
     for (const gate of ENFORCED_GATES) {
-      if (!all.includes(gate)) {
-        all.push(gate);
+      if (!all.some(t => t.assignee === gate)) {
+        all.push({ assignee: gate });
       }
     }
   }
   let costUsd = 0;
   let seconds = 0;
-  for (const role of all) {
-    const est = ROLE_ESTIMATES[role] ?? DEFAULT_ESTIMATE;
-    costUsd += est.usd;
+  for (const t of all) {
+    const est = ROLE_ESTIMATES[t.assignee] ?? DEFAULT_ESTIMATE;
+    costUsd += est.usd * modelCostScale(t.assignee, t.model);
     seconds += est.sec;
   }
   return { taskCount: all.length, costUsd, seconds };
+}
+
+// Convenience for the team-roster fallback, where only roles (no per-task model) are known.
+export function forecastFromRoles(roles: string[]): RunForecast {
+  return forecastFromTasks(roles.map(assignee => ({ assignee })));
 }
 
 // Pretty wall-clock: "~45s" or "~3m".

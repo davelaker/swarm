@@ -10,7 +10,7 @@ import { ActivityItem } from '../common/ActivityItem';
 import { ReadinessPanel } from './ReadinessPanel';
 import { useReadiness } from '../../hooks/useReadiness';
 import type { ServerStatus, RunCharter, TaskGraphEntry } from '../../App';
-import { forecastFromRoles, formatForecastTime } from '../../data/forecast';
+import { forecastFromRoles, forecastFromTasks, formatForecastTime } from '../../data/forecast';
 import { modelMeta, isUpgrade, MODEL_CHOICES } from '../../data/models';
 import { useAgentDefaults } from '../../hooks/useAgentDefaults';
 import type { CharterData, SessionSnapshot } from '../../types';
@@ -96,9 +96,10 @@ function PlanReadyCallout({
   onSetTaskModel?: (taskId: string, model: string) => void;
 }) {
   const readiness = useReadiness();
-  // Prefer the PM's actual task graph for the forecast; fall back to the team roster.
-  const roles = taskGraph && taskGraph.length ? taskGraph.map(e => e.assignee) : team;
-  const forecast = forecastFromRoles(roles);
+  // Prefer the PM's actual task graph (with per-task models) for the forecast; fall back to
+  // the team roster when there's no graph yet.
+  const forecast =
+    taskGraph && taskGraph.length ? forecastFromTasks(taskGraph) : forecastFromRoles(team);
   const openQuestions = charter.questions.filter(q => !q.resolved);
   const noTeam = team.length === 0;
   const noGoal = !charter.goal;
