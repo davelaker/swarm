@@ -40,6 +40,7 @@ import { runNew, checkGitClean } from '../commands/new.js';
 import { pauseRun, resumeRun, abortRun } from '../loop-control.js';
 import { getConfigOptional } from '../config.js';
 import { getDriverMode } from '../drivers/index.js';
+import { steerLiveSession } from '../drivers/agent-sdk.js';
 import { requestPermission, resolvePermission } from '../drivers/permission-broker.js';
 import { loadRoster, saveRoster } from '../state/roster.js';
 import { probeAvailableConnectors } from '../state/connectors.js';
@@ -1377,10 +1378,26 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
         return;
       }
       if (target.status === 'in_progress') {
+        // Live steering: if this task is a coder running on the SDK path, inject the note
+        // into its live session — picked up at the next turn boundary — instead of refusing.
+        // Falls through to 409 only when there is no live session (CLI path / non-steerable).
+        if (steerLiveSession(taskId, note.trim())) {
+          console.log(`  ▸ steer ${taskId} (live): "${note.trim()}"`);
+          fanout({
+            type: 'agent.progress',
+            agent_id: target.assignee,
+            task_id: taskId,
+            step: `steering: ${note.trim().slice(0, 80)}`,
+          });
+          res.writeHead(200);
+          res.end(JSON.stringify({ ok: true, live: true }));
+          return;
+        }
         res.writeHead(409);
         res.end(
           JSON.stringify({
-            error: 'This task is running — pause the run, then steer it once it finishes.',
+            error:
+              'This task is running and cannot be steered live — pause the run, then steer it once it finishes.',
           }),
         );
         return;

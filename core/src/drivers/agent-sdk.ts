@@ -42,7 +42,7 @@ import { loadProjectContextBounded, getRoot, swarmDir } from '../state/repo.js';
 import { loadBuiltinInstructions } from '../state/builtin-instructions.js';
 import { loadBuiltinModels } from '../state/builtin-models.js';
 import { parseStreamMessage, createNdjsonBuffer, type StreamEvent } from './stream-parse.js';
-import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
+import { query, type Options, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { streamToProgress } from './progress.js';
 import type {
   AgentDriver,
@@ -247,6 +247,7 @@ type RunClaudeOpts = {
   requireFields?: string[]; // fields the result server must see present & non-empty
   minDetail?: number; // min length for `detail` (when required) — rejects one-word details
   onStreamEvent?: (ev: StreamEvent) => void; // live thinking/tool-call events for the dashboard
+  steerKey?: string; // when set (SDK path), the run is live-steerable under this key (the task id)
 };
 
 type RunClaudeResult = { data: Record<string, unknown>; costUsd: number };
@@ -258,6 +259,23 @@ const USE_SDK = process.env.SWARM_USE_CLI !== '1';
 
 function runClaude(opts: RunClaudeOpts): Promise<RunClaudeResult> {
   return USE_SDK ? runClaudeSdk(opts) : runClaudeCli(opts);
+}
+
+// Registry of live, steerable SDK sessions keyed by task id. A coder running via the SDK
+// path registers a push() here for the duration of its run; the server's /run/steer injects
+// guidance into the live session (picked up at the next turn boundary) instead of pausing +
+// re-dispatching. Always empty on the CLI path (which can't be interrupted).
+const liveSteerSessions = new Map<string, (note: string) => void>();
+
+// Inject steering guidance into a live coder session. Returns false when no live session
+// exists for that task — the caller (server /run/steer) then falls back to re-dispatch.
+export function steerLiveSession(taskId: string, note: string): boolean {
+  const push = liveSteerSessions.get(taskId);
+  if (!push) {
+    return false;
+  }
+  push(note);
+  return true;
 }
 
 // Build the two MCP servers — result-submitter (always) and permission proxy (when a proxy
@@ -491,7 +509,54 @@ async function runClaudeSdk(opts: RunClaudeOpts): Promise<RunClaudeResult> {
     );
   }
 
+  // Prompt: a plain string (single-shot), or — when steerable — an async-iterable channel
+  // that yields the initial user message plus any steering notes injected mid-run via the
+  // registry. Streaming input still runs the agent autonomously to completion (a single
+  // terminal `result`); the channel just lets /run/steer add a user turn the agent picks up
+  // at the next turn boundary, instead of pausing + re-dispatching the whole task.
+  const mkMsg = (text: string, priority?: 'now' | 'next' | 'later'): SDKUserMessage =>
+    ({
+      type: 'user',
+      message: { role: 'user', content: text },
+      parent_tool_use_id: null,
+      ...(priority ? { priority } : {}),
+    }) as SDKUserMessage;
+
+  let closeChannel = (): void => {};
+  let prompt: string | AsyncIterable<SDKUserMessage> = opts.userPrompt;
+  if (opts.steerKey) {
+    const steerKey = opts.steerKey;
+    const queue: SDKUserMessage[] = [mkMsg(opts.userPrompt)];
+    let wake: (() => void) | null = null;
+    let done = false;
+    liveSteerSessions.set(steerKey, (note: string) => {
+      queue.push(mkMsg(`[STEERING — user guidance, apply this now] ${note}`, 'next'));
+      wake?.();
+      wake = null;
+    });
+    closeChannel = (): void => {
+      done = true;
+      wake?.();
+      wake = null;
+      liveSteerSessions.delete(steerKey);
+    };
+    prompt = (async function* () {
+      while (true) {
+        while (queue.length) {
+          yield queue.shift()!;
+        }
+        if (done) {
+          return;
+        }
+        await new Promise<void>(resolve => {
+          wake = resolve;
+        });
+      }
+    })();
+  }
+
   const cleanup = (): void => {
+    closeChannel(); // end the steerable input (idempotent) + deregister the live session
     try {
       fs.unlinkSync(resultOutputPath);
     } catch {
@@ -505,7 +570,7 @@ async function runClaudeSdk(opts: RunClaudeOpts): Promise<RunClaudeResult> {
   let sawResult = false;
 
   try {
-    for await (const msg of query({ prompt: opts.userPrompt, options })) {
+    for await (const msg of query({ prompt, options })) {
       if (msg.type === 'result') {
         sawResult = true;
         costUsd = (msg as { total_cost_usd?: number }).total_cost_usd ?? 0;
@@ -513,6 +578,7 @@ async function runClaudeSdk(opts: RunClaudeOpts): Promise<RunClaudeResult> {
         if (isError) {
           errDetail = ((msg as { errors?: string[] }).errors ?? []).join('; ') || msg.subtype;
         }
+        closeChannel(); // terminal result — close the input so the for-await loop ends
       } else if (opts.onStreamEvent) {
         // parseStreamMessage understands the same message shape the CLI emitted (assistant
         // thinking/tool_use, user tool_result), so dashboard events are identical to the CLI
@@ -944,6 +1010,7 @@ export const agentSdkDriver: AgentDriver = {
       requireFields: ['summary', 'detail'],
       minDetail: 120,
       onStreamEvent: streamToProgress(task.assignee, task.id),
+      steerKey: task.id, // make this coder live-steerable on the SDK path
     });
 
     const verdict = String(data.verdict ?? 'FAILED');
