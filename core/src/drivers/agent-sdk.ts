@@ -42,6 +42,7 @@ import { loadProjectContextBounded, getRoot, swarmDir } from '../state/repo.js';
 import { loadBuiltinInstructions } from '../state/builtin-instructions.js';
 import { loadBuiltinModels } from '../state/builtin-models.js';
 import { parseStreamMessage, createNdjsonBuffer, type StreamEvent } from './stream-parse.js';
+import { query, type Options } from '@anthropic-ai/claude-agent-sdk';
 import { streamToProgress } from './progress.js';
 import type {
   AgentDriver,
@@ -227,9 +228,13 @@ const SCRIBE_SCHEMA = JSON.stringify({
   required: ['learnings'],
 });
 
-// ─── claude -p wrapper ────────────────────────────────────────────────────────
+// ─── claude runner ───────────────────────────────────────────────────────────
+// Two interchangeable execution paths behind one signature: the default spawns the
+// `claude -p` CLI and parses its NDJSON (runClaudeCli); SWARM_USE_SDK=1 uses the Agent
+// SDK's query() (runClaudeSdk). Stage 1 of the CLI→SDK migration — kept selectable so
+// the two can be A/B'd for byte-identical behaviour before the CLI path is retired.
 
-async function runClaude(opts: {
+type RunClaudeOpts = {
   systemPrompt: string;
   userPrompt: string;
   schema: string;
@@ -242,27 +247,30 @@ async function runClaude(opts: {
   requireFields?: string[]; // fields the result server must see present & non-empty
   minDetail?: number; // min length for `detail` (when required) — rejects one-word details
   onStreamEvent?: (ev: StreamEvent) => void; // live thinking/tool-call events for the dashboard
-}): Promise<{ data: Record<string, unknown>; costUsd: number }> {
-  const cfg = getConfig();
-  const args = [
-    '--print',
-    '--output-format',
-    'stream-json', // NDJSON stream so we can surface thinking + tool calls live
-    '--verbose', // required by the CLI for stream-json under --print
-    '--system-prompt',
-    opts.systemPrompt,
-    '--no-session-persistence',
-  ];
+};
 
-  // Structured output is delivered by the `submit_result` MCP tool, not by
-  // --json-schema (which the CLI does not reliably enforce when an agent ends
-  // on a Bash/git-commit turn with a short prose message). The schema travels to
-  // the result server via the RESULT_SCHEMA env var instead.
+type RunClaudeResult = { data: Record<string, unknown>; costUsd: number };
+
+// Opt into the Agent SDK query() path. Off by default (CLI path) so the migration ships
+// dark and is validated by an A/B run before flipping.
+const USE_SDK = process.env.SWARM_USE_SDK === '1';
+
+function runClaude(opts: RunClaudeOpts): Promise<RunClaudeResult> {
+  return USE_SDK ? runClaudeSdk(opts) : runClaudeCli(opts);
+}
+
+// Build the two MCP servers — result-submitter (always) and permission proxy (when a proxy
+// is requested) — plus the temp path the result server writes structured output to. Shared
+// by both runners so the structured-output + permission wiring never diverges between paths.
+function buildMcpServers(opts: RunClaudeOpts): {
+  mcpServers: Record<string, unknown>;
+  resultOutputPath: string;
+} {
+  const cfg = getConfig();
   const resultOutputPath = path.join(
     os.tmpdir(),
     `swarm-result-${Date.now()}-${Math.random().toString(36).slice(2)}.json`,
   );
-
   const mcpServers: Record<string, unknown> = {
     result: {
       command: RESULT_SERVER_CMD,
@@ -275,10 +283,6 @@ async function runClaude(opts: {
       },
     },
   };
-
-  // When a permission proxy is requested, also start the proxy server alongside
-  // the agent. The proxy intercepts Write/Edit/Bash and gates them through the
-  // user's approval before executing.
   if (opts.permProxy) {
     mcpServers.perm = {
       command: 'node',
@@ -293,7 +297,28 @@ async function runClaude(opts: {
       },
     };
   }
+  return { mcpServers, resultOutputPath };
+}
 
+// ─── CLI path: spawn `claude -p`, parse its NDJSON stream ───────────────────────
+
+async function runClaudeCli(opts: RunClaudeOpts): Promise<RunClaudeResult> {
+  const cfg = getConfig();
+  const args = [
+    '--print',
+    '--output-format',
+    'stream-json', // NDJSON stream so we can surface thinking + tool calls live
+    '--verbose', // required by the CLI for stream-json under --print
+    '--system-prompt',
+    opts.systemPrompt,
+    '--no-session-persistence',
+  ];
+
+  // Structured output is delivered by the `submit_result` MCP tool (see buildMcpServers),
+  // not by --json-schema (which the CLI does not reliably enforce when an agent ends on a
+  // Bash/git-commit turn with a short prose message). The schema travels to the result
+  // server via the RESULT_SCHEMA env var instead.
+  const { mcpServers, resultOutputPath } = buildMcpServers(opts);
   const mcpConfigPath = path.join(
     os.tmpdir(),
     `swarm-mcp-${Date.now()}-${Math.random().toString(36).slice(2)}.json`,
@@ -433,6 +458,105 @@ async function runClaude(opts: {
       resolve({ data, costUsd });
     });
   });
+}
+
+// ─── SDK path: Agent SDK query() with typed streaming ───────────────────────────
+
+async function runClaudeSdk(opts: RunClaudeOpts): Promise<RunClaudeResult> {
+  const cfg = getConfig();
+  const { mcpServers, resultOutputPath } = buildMcpServers(opts);
+  const allowedTools = [...opts.allowedTools, 'mcp__result__submit_result'];
+  const budget = opts.maxBudgetUsd ?? cfg.hardCapUsd;
+
+  const options: Options = {
+    systemPrompt: opts.systemPrompt,
+    allowedTools,
+    mcpServers: mcpServers as unknown as Options['mcpServers'],
+    cwd: opts.cwd ?? getRoot(),
+    // 'default' auto-approves allowedTools; anything else is denied (headless — no TTY to
+    // prompt). The permission proxy (when present) does its OWN HTTP gating of its
+    // mcp__perm__* tools, which ARE in allowedTools — same division of labour as the CLI path.
+    permissionMode: 'default',
+    // Mirror the CLI's --strict-mcp-config + clean env: load NO user/project/local settings
+    // or MCP servers — only the two we pass above. Agents read CLAUDE.md themselves via Read.
+    settingSources: [],
+    ...(opts.model ? { model: opts.model } : {}),
+    ...(budget ? { maxBudgetUsd: budget } : {}),
+  };
+
+  if (opts.verbose) {
+    console.log(
+      `  [agent-sdk:query] model=${opts.model ?? 'session-default'} tools=${allowedTools.length}`,
+    );
+  }
+
+  const cleanup = (): void => {
+    try {
+      fs.unlinkSync(resultOutputPath);
+    } catch {
+      /* non-fatal */
+    }
+  };
+
+  let costUsd = 0;
+  let isError = false;
+  let errDetail = '';
+  let sawResult = false;
+
+  try {
+    for await (const msg of query({ prompt: opts.userPrompt, options })) {
+      if (msg.type === 'result') {
+        sawResult = true;
+        costUsd = (msg as { total_cost_usd?: number }).total_cost_usd ?? 0;
+        isError = msg.subtype !== 'success';
+        if (isError) {
+          errDetail = ((msg as { errors?: string[] }).errors ?? []).join('; ') || msg.subtype;
+        }
+      } else if (opts.onStreamEvent) {
+        // parseStreamMessage understands the same message shape the CLI emitted (assistant
+        // thinking/tool_use, user tool_result), so dashboard events are identical to the CLI
+        // path. The terminal 'result' event is captured above, never forwarded.
+        for (const ev of parseStreamMessage(msg)) {
+          if (ev.kind !== 'result') {
+            opts.onStreamEvent(ev);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    cleanup();
+    throw new Error(`claude SDK query failed: ${(err as Error).message}`);
+  }
+
+  if (isError) {
+    cleanup();
+    throw new Error(`claude SDK error: ${errDetail}`);
+  }
+  if (!sawResult) {
+    cleanup();
+    throw new Error('claude SDK produced no result message');
+  }
+
+  // Structured output comes from the submit_result tool (result MCP server → resultOutputPath),
+  // never from prose — identical to the CLI path. A missing submission yields empty data so a
+  // dropped finding surfaces as honestly incomplete rather than a fabricated success.
+  let data: Record<string, unknown> = {};
+  try {
+    if (fs.existsSync(resultOutputPath)) {
+      data = JSON.parse(fs.readFileSync(resultOutputPath, 'utf8')) as Record<string, unknown>;
+    } else {
+      console.warn(
+        '  [agent-sdk:query] WARNING: agent did not call submit_result — finding will be marked incomplete',
+      );
+    }
+  } catch (err) {
+    console.warn(
+      `  [agent-sdk:query] WARNING: could not read submit_result output (${err}) — finding will be marked incomplete`,
+    );
+    data = {};
+  }
+  cleanup();
+  return { data, costUsd };
 }
 
 // ─── Prompt builders ──────────────────────────────────────────────────────────
