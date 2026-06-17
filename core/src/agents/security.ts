@@ -289,7 +289,12 @@ export async function runSecurity(
         results.push({ type: 'tool_result', tool_use_id: b.id, content: result });
       }
 
-      messages.push({ role: 'assistant', content: resp.content });
+      // SDK >=0.93 widened the response's server-tool name union, so a beta response's
+      // content no longer assigns to the request param type — cast (identical at runtime).
+      messages.push({
+        role: 'assistant',
+        content: resp.content as unknown as Anthropic.MessageParam['content'],
+      });
       messages.push({ role: 'user', content: results });
       if (calledDone) break;
     }

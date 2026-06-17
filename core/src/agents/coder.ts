@@ -278,7 +278,12 @@ export async function runCoder(
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: result });
       }
 
-      messages.push({ role: 'assistant', content: response.content });
+      // SDK >=0.93 widened the response's server-tool name union, so a beta response's
+      // content no longer assigns to the request param type — cast (identical at runtime).
+      messages.push({
+        role: 'assistant',
+        content: response.content as unknown as Anthropic.MessageParam['content'],
+      });
       messages.push({ role: 'user', content: toolResults });
 
       if (calledDone) break;
