@@ -251,9 +251,10 @@ type RunClaudeOpts = {
 
 type RunClaudeResult = { data: Record<string, unknown>; costUsd: number };
 
-// Opt into the Agent SDK query() path. Off by default (CLI path) so the migration ships
-// dark and is validated by an A/B run before flipping.
-const USE_SDK = process.env.SWARM_USE_SDK === '1';
+// The Agent SDK query() path is now the DEFAULT (parity-verified: identical findings/gates/
+// diff/cost, live events, structured output, and permission-proxy gating all confirmed against
+// the legacy CLI path). Set SWARM_USE_CLI=1 to fall back to the `claude -p` spawn path instantly.
+const USE_SDK = process.env.SWARM_USE_CLI !== '1';
 
 function runClaude(opts: RunClaudeOpts): Promise<RunClaudeResult> {
   return USE_SDK ? runClaudeSdk(opts) : runClaudeCli(opts);
