@@ -372,6 +372,42 @@ function captureTaskDiff(taskId: string, worktreePath: string, base: string): vo
   }
 }
 
+// Symlink the project's installed node_modules into a fresh worktree so the coder can run
+// tsc / build / tests to self-verify its work. `git worktree add` only materialises *tracked*
+// files and node_modules is gitignored, so without this the worktree has source but no deps
+// and every npm/tsc invocation fails ("node modules aren't installed"). A symlink is instant
+// and points at the project's real, already-installed deps. Best-effort and skipped when a
+// single top-level symlink would be unsafe — pnpm's node_modules/.pnpm symlink farm or a
+// workspace monorepo, where it would resolve to the real project's packages instead of the
+// worktree's edited copies; those keep the prior (no-link) behaviour rather than risk a
+// wrong-package build.
+function linkNodeModules(worktreePath: string, root: string): void {
+  try {
+    const src = path.join(root, 'node_modules');
+    if (!fs.existsSync(src) || !fs.statSync(src).isDirectory()) {
+      return; // deps not installed — nothing to link
+    }
+    if (
+      fs.existsSync(path.join(root, 'pnpm-lock.yaml')) ||
+      fs.existsSync(path.join(root, 'pnpm-workspace.yaml')) ||
+      fs.existsSync(path.join(src, '.pnpm'))
+    ) {
+      return; // pnpm symlink farm — a top-level link can resolve to the wrong tree
+    }
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+      if (pkg.workspaces) {
+        return; // workspace monorepo — hoisted deps link local packages by real path
+      }
+    } catch {
+      /* no/invalid package.json — safe to link a plain node_modules */
+    }
+    fs.symlinkSync(src, path.join(worktreePath, 'node_modules'), 'dir');
+  } catch {
+    /* best-effort — a failed link just means the coder can't self-verify, as before */
+  }
+}
+
 // Create an isolated worktree on a fresh `swarm/<task.id>` branch off HEAD.
 function createWorktree(taskId: string): string {
   const worktreePath = path.join(os.tmpdir(), `swarm-${taskId}-${Date.now()}`);
@@ -383,6 +419,7 @@ function createWorktree(taskId: string): string {
     /* no such branch — fine */
   }
   git(['worktree', 'add', worktreePath, '-b', branch, 'HEAD']);
+  linkNodeModules(worktreePath, getRoot());
   return worktreePath;
 }
 
@@ -426,6 +463,18 @@ function mergeWorktree(taskId: string): Promise<void> {
 
 // Remove the worktree and delete its branch. Best-effort — never throws.
 function cleanupWorktree(taskId: string, worktreePath: string): void {
+  // Remove our node_modules symlink FIRST so teardown can never follow it into — and delete
+  // the contents of — the project's real node_modules. Unlinking a symlink only drops the
+  // link, never its target. (git worktree remove already unlinks rather than recurses, but
+  // this makes the guarantee explicit and independent of git's behaviour.)
+  try {
+    const link = path.join(worktreePath, 'node_modules');
+    if (fs.lstatSync(link).isSymbolicLink()) {
+      fs.unlinkSync(link);
+    }
+  } catch {
+    /* not present or not a symlink — fine */
+  }
   try {
     git(['worktree', 'remove', '--force', worktreePath]);
   } catch {
