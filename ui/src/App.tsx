@@ -90,14 +90,17 @@ export function App() {
   // so we never show a flash of the wrong project's state.
   const [projectSynced, setProjectSynced] = useState(false);
 
-  // Single server probe — retries every 3s, also reads project name when up.
+  // Single server probe — retries every 3s, also reads project name when up. Hits the
+  // lightweight /health endpoint (not /state) so this frequent poll doesn't re-read every
+  // finding file from disk each tick; /state is fetched only by the Running view, which
+  // needs the full task snapshot.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let mounted = true;
     let switchInFlight = false; // guards against overlapping /project/switch calls
 
     const probe = () => {
-      fetch('/state', { signal: AbortSignal.timeout(2000) })
+      fetch('/health', { signal: AbortSignal.timeout(2000) })
         .then(r => {
           if (!r.ok) throw new Error();
           return r.json();

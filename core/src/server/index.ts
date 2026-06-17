@@ -394,6 +394,30 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     return;
   }
 
+  if (url.pathname === '/health') {
+    // Lightweight liveness + project identity for the dashboard's 3s probe. Returns ONLY
+    // what App needs (up/down, project, root, activeRun, driver, model) from in-memory
+    // state — no state.json read and none of the per-task finding-file enrichment /state
+    // does, so a frequent poll stays cheap even after a large run leaves many findings.
+    const driver = getDriverMode();
+    const cfg = getConfigOptional();
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.end(
+      JSON.stringify({
+        project: path.basename(getRoot()),
+        root: getRoot(),
+        driver,
+        model: driver === 'agent-sdk' ? null : (cfg?.coderModel ?? null),
+        activeRun,
+        repoUrl: githubUrl,
+      }),
+    );
+    return;
+  }
+
   if (url.pathname === '/capabilities') {
     // Is the visual gate actually usable? Requires BOTH the playwright package and a
     // downloaded browser binary — package-only would advertise a capability that fails

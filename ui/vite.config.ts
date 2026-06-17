@@ -9,6 +9,7 @@ export default defineConfig({
       // The server must be running (`swarm dev` in core/).
       // If the server is down, requests 404 and the UI falls back to mock mode.
       '/state': { target: 'http://127.0.0.1:7000', changeOrigin: true },
+      '/health': { target: 'http://127.0.0.1:7000', changeOrigin: true },
       '/events': { target: 'http://127.0.0.1:7000', changeOrigin: true },
       '/pm': { target: 'http://127.0.0.1:7000', changeOrigin: true },
       '/run': { target: 'http://127.0.0.1:7000', changeOrigin: true },
