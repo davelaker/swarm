@@ -6,9 +6,12 @@ interface ModelMeta {
   color: string;
 }
 
+// Order matters — `find` takes the first match, so more specific ids come first
+// ('sonnet-5' before the generic 'sonnet').
 const MODELS: { match: string; meta: ModelMeta }[] = [
   { match: 'opus', meta: { label: 'Opus', color: '#a585f5' } },
   { match: 'fable', meta: { label: 'Fable', color: '#e8a93a' } },
+  { match: 'sonnet-5', meta: { label: 'Sonnet 5', color: '#4d8df4' } },
   { match: 'sonnet', meta: { label: 'Sonnet', color: '#4d8df4' } },
   { match: 'haiku', meta: { label: 'Haiku', color: '#34cf8a' } },
 ];
@@ -21,9 +24,15 @@ export function modelMeta(model: string | undefined): ModelMeta | null {
   return MODELS.find(m => s.includes(m.match))?.meta ?? null;
 }
 
-// Rough capability/cost ordering, used to detect when the PM picked a model MORE
-// powerful (and pricier) than an agent's default. Unknown → -1 (never an upgrade).
-const RANK = ['haiku', 'fable', 'sonnet', 'opus'];
+// Cost ordering (cheapest → priciest), used to detect when the PM picked a model that
+// costs MORE than an agent's default so the user can confirm. Ordered by price per
+// million tokens, since that is what the confirmation gate is protecting against:
+//   haiku $1/$5 · sonnet $3/$15 · opus $5/$25 · fable $10/$50
+// Fable is Anthropic's most capable AND priciest model — it must rank ABOVE opus, or an
+// upgrade to it slips through unconfirmed. Both Sonnet generations share the sonnet tier
+// (same price), so sonnet-4-6 → sonnet-5 is correctly not treated as a cost upgrade.
+// Unknown → -1 (never an upgrade).
+const RANK = ['haiku', 'sonnet', 'opus', 'fable'];
 export function modelRank(model: string | undefined): number {
   if (!model) {
     return -1;
@@ -38,10 +47,11 @@ export function isUpgrade(chosen: string | undefined, def: string | undefined): 
   return c >= 0 && c > modelRank(def);
 }
 
-// Canonical ids for the override dropdown, cheapest → most powerful.
+// Canonical ids for the override dropdown, cheapest → priciest (matching RANK).
 export const MODEL_CHOICES: { id: string; label: string }[] = [
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku' },
-  { id: 'claude-fable-5', label: 'Fable' },
   { id: 'claude-sonnet-4-6', label: 'Sonnet' },
+  { id: 'claude-sonnet-5', label: 'Sonnet 5' },
   { id: 'claude-opus-4-8', label: 'Opus' },
+  { id: 'claude-fable-5', label: 'Fable' },
 ];
