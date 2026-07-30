@@ -81,6 +81,7 @@ function buildFromPmGraph(entries: TaskGraphEntry[], cfg: ReturnType<typeof getC
     result_ref: null,
     attempts: 0,
     ...(e.model ? { model: e.model } : {}),
+    ...(e.effort ? { effort: e.effort } : {}),
   }));
 }
 

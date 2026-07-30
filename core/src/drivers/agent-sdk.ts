@@ -41,6 +41,7 @@ import {
 import { loadProjectContextBounded, getRoot, swarmDir } from '../state/repo.js';
 import { loadBuiltinInstructions } from '../state/builtin-instructions.js';
 import { loadBuiltinModels } from '../state/builtin-models.js';
+import { effortForModel } from '../agents/effort.js';
 import { parseStreamMessage, createNdjsonBuffer, type StreamEvent } from './stream-parse.js';
 import { query, type Options, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { streamToProgress } from './progress.js';
@@ -248,6 +249,7 @@ type RunClaudeOpts = {
   minDetail?: number; // min length for `detail` (when required) — rejects one-word details
   onStreamEvent?: (ev: StreamEvent) => void; // live thinking/tool-call events for the dashboard
   steerKey?: string; // when set (SDK path), the run is live-steerable under this key (the task id)
+  effort?: string; // reasoning effort for this task; omitted (model default) when unset or unsupported
 };
 
 type RunClaudeResult = { data: Record<string, unknown>; costUsd: number };
@@ -486,6 +488,7 @@ async function runClaudeSdk(opts: RunClaudeOpts): Promise<RunClaudeResult> {
   const { mcpServers, resultOutputPath } = buildMcpServers(opts);
   const allowedTools = [...opts.allowedTools, 'mcp__result__submit_result'];
   const budget = opts.maxBudgetUsd ?? cfg.hardCapUsd;
+  const effortLevel = effortForModel(opts.model, opts.effort);
 
   const options: Options = {
     systemPrompt: opts.systemPrompt,
@@ -500,6 +503,11 @@ async function runClaudeSdk(opts: RunClaudeOpts): Promise<RunClaudeResult> {
     // or MCP servers — only the two we pass above. Agents read CLAUDE.md themselves via Read.
     settingSources: [],
     ...(opts.model ? { model: opts.model } : {}),
+    // Reasoning effort, only when the resolved model actually accepts it — Haiku 4.5
+    // errors on the parameter, and xhigh is clamped on models that predate it. An
+    // unset/unsupported effort omits the field entirely, so the model's own default
+    // applies and behaviour is identical to before this feature existed.
+    ...(effortLevel ? { effort: effortLevel } : {}),
     ...(budget ? { maxBudgetUsd: budget } : {}),
   };
 
@@ -1005,6 +1013,7 @@ export const agentSdkDriver: AgentDriver = {
       schema: CODER_SCHEMA,
       allowedTools: ['Read', 'LS', 'Glob', 'Grep', 'Write', 'Edit', 'Bash'],
       model: task.model || loadBuiltinModels().coder,
+      effort: task.effort,
       verbose: true,
       cwd: worktreePath, // run inside the isolated worktree (if any)
       requireFields: ['summary', 'detail'],
@@ -1073,6 +1082,7 @@ export const agentSdkDriver: AgentDriver = {
       schema: TESTER_SCHEMA,
       allowedTools: ['Read', 'LS', 'Glob', 'Grep', 'Bash'],
       model: task.model || loadBuiltinModels().tester,
+      effort: task.effort,
       verbose: true,
       requireFields: ['summary', 'detail'],
       onStreamEvent: streamToProgress(task.assignee, task.id),
@@ -1108,6 +1118,7 @@ export const agentSdkDriver: AgentDriver = {
       schema: SECURITY_SCHEMA,
       allowedTools: ['Read', 'LS', 'Glob', 'Grep'],
       model: task.model || loadBuiltinModels().security, // override > user default (haiku)
+      effort: task.effort,
       verbose: true,
       requireFields: ['summary', 'detail'],
       onStreamEvent: streamToProgress(task.assignee, task.id),
@@ -1146,6 +1157,7 @@ export const agentSdkDriver: AgentDriver = {
       schema: REVIEWER_SCHEMA,
       allowedTools: ['Read', 'LS', 'Glob', 'Grep'],
       model: task.model || loadBuiltinModels().reviewer, // override > user default (sonnet)
+      effort: task.effort,
       verbose: true,
       requireFields: ['summary', 'detail'],
       onStreamEvent: streamToProgress(task.assignee, task.id),

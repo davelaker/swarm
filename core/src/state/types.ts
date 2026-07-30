@@ -27,6 +27,7 @@ export interface Task {
   result_ref: string | null; // path to findings file
   attempts: number;
   model?: string; // PM-recommended model override for this task
+  effort?: string; // PM-recommended reasoning effort (low|medium|high|xhigh|max)
   cost_usd?: number; // accumulated agent cost for this task (api-key driver only)
   lease?: Lease;
   skip_reason?: string; // set when status === 'skipped'; explains why the task was not run
@@ -64,6 +65,7 @@ export interface TaskGraphEntry {
   title: string;
   depends_on: string[];
   model?: string; // optional model override recommended by the PM
+  effort?: string; // optional reasoning effort recommended by the PM
 }
 
 export interface RunCharter {

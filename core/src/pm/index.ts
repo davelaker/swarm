@@ -34,6 +34,7 @@ import { formatMarketplace, CATALOG_BY_ID } from '../state/marketplace-catalog.j
 import { getDriverMode, getDriver } from '../drivers/index.js';
 import { parseStreamMessage, createNdjsonBuffer } from '../drivers/stream-parse.js';
 import type { RosterEntry } from '../state/types.js';
+import { normalizeEffort } from '../agents/effort.js';
 
 // ─── MCP server path ──────────────────────────────────────────────────────────
 // Production (__dirname is dist/pm/): run the compiled mcp-server.js with node.
@@ -72,6 +73,8 @@ export interface TaskGraphEntry {
   assignee: 'coder' | 'tester' | 'security' | 'reviewer';
   title: string;
   depends_on: string[];
+  model?: string; // canonical model id, normalised from the PM's alias
+  effort?: string; // reasoning effort, normalised from the PM's alias
 }
 
 export interface PmResponse {
@@ -186,6 +189,7 @@ MODEL PER TASK — required on every task. Judge each task's relative complexity
 - opus   ($5/$25)  — the hardest, most critical, or most failure-sensitive work: architecturally tricky or security-sensitive code, and the most rigorous reviews where a miss is expensive.
 - fable  ($10/$50) — the most capable model available, and the most expensive: roughly 2x opus and 3x sonnet. Reserve it for genuinely hard, long-horizon work where opus is not enough. It is never the cheap option — do not reach for it to move fast on routine edits.
 A 5-task plan will usually span 2–3 different models. Weigh cost against stakes: spend up the ladder where correctness matters, and save with haiku/sonnet where it does not. Most tasks should be sonnet or below; every fable task should be one you could justify at 10x the cost of haiku.
+EFFORT PER TASK — optional, omit to use the model's default. Controls how hard the model thinks before answering: 'low' (routine or mechanical), 'high' (most real coding and review), 'xhigh' (the hardest coding and agentic work), 'max' (only when correctness matters far more than cost). Prefer raising effort on a cheaper model over jumping up the model ladder — high effort on sonnet costs far less than opus or fable and is often just as good. Effort is ignored automatically on haiku, which does not support it.
 
 Builtin agents:
 - coder:    writes/changes code. Use MULTIPLE coders in parallel for clearly independent sub-tasks.
@@ -429,6 +433,7 @@ function parsePmData(data: Record<string, unknown>): PmResponse {
         title: String(e.title),
         depends_on: Array.isArray(e.depends_on) ? e.depends_on.map(String) : [],
         model: normalizeModel(e.model),
+        effort: normalizeEffort(e.effort),
       }));
     if (entries.length > 0) taskGraph = entries;
   }

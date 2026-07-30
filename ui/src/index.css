@@ -1678,6 +1678,17 @@ select {
   height: 7px;
   border-radius: 50%;
 }
+.tnode-effort {
+  font-family: var(--mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 0 4px;
+  border-radius: 4px;
+  color: var(--tx-3);
+  border: 1px solid var(--border);
+}
 .tnode-cost {
   margin-left: auto;
   font-family: var(--mono);

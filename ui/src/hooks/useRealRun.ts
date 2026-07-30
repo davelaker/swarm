@@ -23,6 +23,7 @@ interface ServerTask {
   finding_summary?: string;
   skip_reason?: string;
   model?: string; // PM-chosen model for this task
+  effort?: string; // PM-chosen reasoning effort for this task
   cost_usd?: number; // accumulated agent cost for this task
 }
 
@@ -121,6 +122,7 @@ function adaptTask(t: ServerTask, lane: number, prev?: Task): Task {
     late: prev === undefined,
     ...(t.skip_reason ? { skip_reason: t.skip_reason } : {}),
     ...(t.model ? { model: t.model } : {}),
+    ...(t.effort ? { effort: t.effort } : {}),
     ...(t.cost_usd != null ? { costUsd: t.cost_usd } : {}),
   };
 }

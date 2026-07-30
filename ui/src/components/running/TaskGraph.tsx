@@ -196,6 +196,11 @@ function TaskCard({
               </span>
             ) : null;
           })()}
+          {t.effort && (
+            <span className="tnode-effort" title={`Reasoning effort: ${t.effort}`}>
+              {t.effort}
+            </span>
+          )}
         </span>
         {t.costUsd != null && t.costUsd > 0 && (
           <span className="tnode-cost" title="task cost so far">

@@ -55,6 +55,7 @@ export interface Task {
   late?: boolean;
   skip_reason?: string;
   model?: string; // PM-chosen model for this task
+  effort?: string; // PM-chosen reasoning effort for this task
   costUsd?: number; // accumulated agent cost for this task
 }
 

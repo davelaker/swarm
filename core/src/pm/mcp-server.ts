@@ -145,6 +145,12 @@ const SUBMIT_TOOL = {
               items: { type: 'string' },
               description: 'IDs that must complete first.',
             },
+            effort: {
+              type: 'string',
+              enum: ['low', 'medium', 'high', 'xhigh', 'max'],
+              description:
+                "OPTIONAL. How hard the model should think on THIS task. Omit to use the model's own default. 'low' for routine/mechanical work, 'high' for most real work, 'xhigh' for the hardest coding and agentic tasks, 'max' only when correctness matters far more than cost. Raising effort on a cheaper model is often better value than moving up to a pricier one. Ignored automatically on haiku, which does not support it.",
+            },
             model: {
               type: 'string',
               description:
