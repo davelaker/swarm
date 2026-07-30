@@ -93,3 +93,52 @@ Three pieces make that real — know they exist before touching the gate/finding
   `negotiable:false` blocking finding is refused and the run stops for a human. `negotiable`
   is system-derived from the finding schema (`finding.ts`), never self-declared — don't add
   a way for an agent to set it.
+
+## The model ladder — get the ORDER right, it is load-bearing
+
+Model choice is spread across several files, and they must agree. Three of them were
+wrong at once (fixed 2026-07-30) and the errors compounded, so treat this as a unit.
+
+**The ladder is ordered by price, cheapest → priciest. Price per million tokens
+(input/output):**
+
+| Model | ID | Price | Context |
+|---|---|---|---|
+| Haiku 4.5 | `claude-haiku-4-5-20251001` | $1/$5 | 200K |
+| Sonnet 4.6 | `claude-sonnet-4-6` | $3/$15 | 1M |
+| Sonnet 5 | `claude-sonnet-5` | $3/$15 | 1M |
+| Opus 4.8 | `claude-opus-4-8` | $5/$25 | 1M |
+| Fable 5 | `claude-fable-5` | $10/$50 | 1M |
+
+**Fable is the MOST capable and the MOST expensive — ~2x Opus.** It is not a fast/cheap
+tier. Every place that orders models must put it at the top. The bug that motivated this
+section: `ui/src/data/models.ts` ranked it *below* sonnet, so `isUpgrade()` never fired
+for it and the priciest model bypassed the upgrade-confirmation gate; meanwhile the PM
+prompt told the PM to "save with fable/haiku", actively steering the most expensive model
+onto the cheapest work. Two independent files pointing the same wrong way.
+
+Places that encode model facts — change them together:
+
+- `ui/src/data/models.ts` — `RANK` (drives the upgrade-confirmation gate), `MODEL_CHOICES`,
+  `modelMeta` labels. **`sonnet-5` must be matched before the generic `sonnet`.**
+- `ui/src/data/forecast.ts` — `MODEL_COST_WEIGHT`, price-true relative to sonnet=1.
+- `core/src/pm/index.ts` — `normalizeModel` (same sonnet-5-before-sonnet ordering trap)
+  and the MODEL PER TASK block in `PM_SYSTEM`.
+- `core/src/pm/mcp-server.ts` — the `model` + `effort` descriptions in the task-graph schema.
+- `core/src/agents/coder.ts` — `PRICING` (api-key driver cost metering).
+- `core/src/loop.ts` — `CONTEXT_WINDOWS`. Current models are **1M**, not 200K; only
+  Haiku 4.5 is 200K. Recording 200K for Opus/Sonnet made the dashboard's context-%
+  readout over-report ~5x.
+
+## Reasoning effort (`agents/effort.ts`)
+
+Per-task `effort` (low|medium|high|xhigh|max) rides alongside `model`. Two API rules are
+enforced there, centrally, and unit-tested — do not re-implement them at call sites:
+
+- **Haiku 4.5 does not support `effort` at all** and errors if sent it. `effortForModel`
+  returns undefined for haiku so the field is omitted.
+- **`xhigh` only exists on Opus 4.7+ / Sonnet 5 / Fable 5.** Requests for it on older
+  models are clamped to `high`.
+
+Unset/unrecognised effort → undefined → field omitted → model default. Keeping that path
+untouched is what makes the feature safe to add without a live run.
