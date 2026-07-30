@@ -148,7 +148,7 @@ const SUBMIT_TOOL = {
             model: {
               type: 'string',
               description:
-                "REQUIRED. The Claude model this agent should run on, chosen by THIS task's complexity: 'opus' (hardest / most critical reasoning, security-sensitive or architecturally tricky code, the most rigorous reviews), 'sonnet' (the standard choice for most coding and review), 'fable' (fast, capable — straightforward well-scoped edits and routine reviews), or 'haiku' (trivial, mechanical, or read-only scans). Pick deliberately per task — do not default everything to one model.",
+                "REQUIRED. The Claude model this agent should run on, chosen by THIS task's complexity. The ladder runs cheapest to most expensive, in both cost and capability: 'haiku' ($1/$5 per Mtok — trivial, mechanical, or read-only scans), 'sonnet' ($3/$15 — the standard choice for most coding and review), 'opus' ($5/$25 — hardest / most critical reasoning, security-sensitive or architecturally tricky code, the most rigorous reviews), or 'fable' ($10/$50 — the most capable model AND the most expensive, ~2x opus; reserve for genuinely hard long-horizon work where opus is not enough, never as a fast/cheap option). Pick deliberately per task — do not default everything to one model.",
             },
           },
           required: ['id', 'assignee', 'title', 'depends_on', 'model'],

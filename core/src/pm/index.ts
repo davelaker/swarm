@@ -180,12 +180,12 @@ TASK GRAPH — draft early, update on every response, finalize at enable_execute
 Set task_graph as soon as you know who is doing what — do not wait for enable_execute. A draft task graph shows the user what will run before they commit. Update it whenever the team or scope changes. By the time you set enable_execute, task_graph should already reflect the final plan.
 Define exactly which agents run and in what order. IDs: t1, t2, … (unique strings).
 Tasks with empty depends_on start immediately; tasks that share depends_on run in parallel once deps complete.
-MODEL PER TASK — required on every task. Judge each task's relative complexity and pick the model that fits, the way a tech lead assigns work; do not default everything to one model:
-- opus   — the hardest, most critical, or most failure-sensitive work: architecturally tricky or security-sensitive code, and the most rigorous reviews where a miss is expensive.
-- sonnet — the standard choice for most real coding and code review.
-- fable  — fast and capable for straightforward, well-scoped edits and routine reviews where the path is clear.
-- haiku  — trivial, mechanical, or read-only scans (e.g. a one-line copy change, the test runner, a quick checklist audit).
-A 5-task plan will usually span 2–3 different models. Weigh cost against stakes: spend opus where correctness matters, save with fable/haiku where it doesn't.
+MODEL PER TASK — required on every task. Judge each task's relative complexity and pick the model that fits, the way a tech lead assigns work; do not default everything to one model. Listed cheapest to most expensive, with price per million tokens (input/output) — the ladder is strictly ordered by both capability and cost:
+- haiku  ($1/$5)   — trivial, mechanical, or read-only scans (e.g. a one-line copy change, the test runner, a quick checklist audit).
+- sonnet ($3/$15)  — the standard choice for most real coding and code review.
+- opus   ($5/$25)  — the hardest, most critical, or most failure-sensitive work: architecturally tricky or security-sensitive code, and the most rigorous reviews where a miss is expensive.
+- fable  ($10/$50) — the most capable model available, and the most expensive: roughly 2x opus and 3x sonnet. Reserve it for genuinely hard, long-horizon work where opus is not enough. It is never the cheap option — do not reach for it to move fast on routine edits.
+A 5-task plan will usually span 2–3 different models. Weigh cost against stakes: spend up the ladder where correctness matters, and save with haiku/sonnet where it does not. Most tasks should be sonnet or below; every fable task should be one you could justify at 10x the cost of haiku.
 
 Builtin agents:
 - coder:    writes/changes code. Use MULTIPLE coders in parallel for clearly independent sub-tasks.
@@ -349,7 +349,7 @@ function contextNote(estimatedTokens: number, exchangeCount: number): string {
 // Normalise the PM's model choice (friendly alias or full id) to a canonical model
 // id the driver can pass to `--model`. Returns undefined for anything unrecognised so
 // the agent falls back to its configured default.
-function normalizeModel(raw: unknown): string | undefined {
+export function normalizeModel(raw: unknown): string | undefined {
   if (typeof raw !== 'string' || !raw.trim()) {
     return undefined;
   }
@@ -359,6 +359,11 @@ function normalizeModel(raw: unknown): string | undefined {
   }
   if (s.includes('fable')) {
     return 'claude-fable-5';
+  }
+  // Sonnet 5 must be matched before the generic 'sonnet', or the full id
+  // 'claude-sonnet-5' would resolve to Sonnet 4.6.
+  if (s.includes('sonnet-5') || s.includes('sonnet 5')) {
+    return 'claude-sonnet-5';
   }
   if (s.includes('sonnet')) {
     return 'claude-sonnet-4-6';
