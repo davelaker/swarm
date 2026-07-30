@@ -318,9 +318,15 @@ async function firstNonNegotiable(taskIds: string[], state: SwarmState): Promise
 
 // ─── Context window sizes (tokens) ───────────────────────────────────────────
 
+// Current-generation models (Fable 5, Opus 4.8, Sonnet 5, Sonnet 4.6) all have a 1M
+// context window; only Haiku 4.5 is still 200K. These were previously all recorded as
+// 200K, which made the dashboard's context-% readout over-report ~5x on every
+// Opus/Sonnet task. Legacy 4.5-era ids keep their real 200K window.
 const CONTEXT_WINDOWS: Record<string, number> = {
-  'claude-opus-4-8': 200_000,
-  'claude-sonnet-4-6': 200_000,
+  'claude-fable-5': 1_000_000,
+  'claude-opus-4-8': 1_000_000,
+  'claude-sonnet-5': 1_000_000,
+  'claude-sonnet-4-6': 1_000_000,
   'claude-haiku-4-5-20251001': 200_000,
   'claude-opus-4-5-20251101': 200_000,
   'claude-sonnet-4-5-20251101': 200_000,

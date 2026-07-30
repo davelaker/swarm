@@ -17,9 +17,11 @@ import type { Task, SwarmState } from '../state/types.js';
 // ─── Cost metering ────────────────────────────────────────────────────────────
 // Pricing per million tokens. Update when model pricing changes.
 const PRICING: Record<string, { input: number; output: number }> = {
-  'claude-opus-4-8': { input: 15, output: 75 },
+  'claude-fable-5': { input: 10, output: 50 },
+  'claude-opus-4-8': { input: 5, output: 25 },
+  'claude-sonnet-5': { input: 3, output: 15 },
   'claude-sonnet-4-6': { input: 3, output: 15 },
-  'claude-haiku-4-5-20251001': { input: 0.8, output: 4 },
+  'claude-haiku-4-5-20251001': { input: 1, output: 5 },
   // Legacy model IDs kept for compatibility
   'claude-opus-4-5-20251101': { input: 15, output: 75 },
   'claude-sonnet-4-5-20251101': { input: 3, output: 15 },

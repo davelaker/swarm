@@ -21,15 +21,21 @@ const ROLE_ESTIMATES: Record<string, RoleEstimate> = {
 };
 const DEFAULT_ESTIMATE: RoleEstimate = { usd: 0.1, sec: 30 }; // marketplace / unknown
 
-// Rough relative *cost* weight per model (output-token price is what dominates). Sonnet
-// is the 1.0 reference. A coder bumped to Opus costs several × what the flat base assumes —
-// the single biggest source of forecast error, since the base estimates above are
-// calibrated at each role's DEFAULT model (see ROLE_DEFAULT_MODEL).
+// Relative *cost* weight per model, taken straight from published per-million-token
+// pricing with Sonnet as the 1.0 reference (input and output ratios agree, so one
+// weight covers both):
+//   haiku $1/$5 = 0.33 · sonnet $3/$15 = 1 · opus $5/$25 = 1.67 · fable $10/$50 = 3.33
+// These are price-true rather than hand-tuned, so they can be checked against the
+// pricing table. Caveat: they model PRICE only, not token VOLUME — a higher-tier model
+// also tends to think longer for the same task, so these under-state a big upgrade
+// somewhat. Once enough runs have recorded per-task cost_usd alongside a model, derive
+// these empirically from that data instead (today's history is too thin to fit).
 const MODEL_COST_WEIGHT: Record<string, number> = {
-  'claude-haiku-4-5-20251001': 0.3,
+  'claude-haiku-4-5-20251001': 0.33,
   'claude-sonnet-4-6': 1,
-  'claude-opus-4-8': 4.5,
-  'claude-fable-5': 1.2,
+  'claude-sonnet-5': 1,
+  'claude-opus-4-8': 1.67,
+  'claude-fable-5': 3.33,
 };
 const DEFAULT_MODEL_WEIGHT = 1; // unknown / marketplace model → treat as sonnet-equivalent
 
