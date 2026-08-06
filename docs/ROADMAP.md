@@ -68,21 +68,13 @@ inter-agent trust boundaries · read AGENTS.md alongside CLAUDE.md · WIP-limit 
 
 ## Foundational — productisation (Phase 6)
 
-**Migrate the agent driver from `claude -p` one-shot to the Agent SDK `query()` session
-model.** Today `drivers/agent-sdk.ts` spawns `claude -p` fire-and-forget and parses CLI
-NDJSON. Moving to the TypeScript Agent SDK `query()` is a foundational investment:
-
-- **Typed streaming** — structured `SDKMessage` objects instead of hand-parsing
-  `--output-format stream-json` NDJSON (replaces `drivers/stream-parse.ts`).
-- **Native `interrupt()` + session lifecycle** — proper start/steer/stop instead of
-  spawn-and-await.
-
-The payoff for mid-run intervention rides along: the SDK's async-generator input lets you
-inject a steering message into a *live* session, picked up at the **next turn boundary**
-(true mid-token injection is not, and should not be, possible). But steering is the
-*consequence*, not the *reason* — do this only after the cheaper pause → amend →
-re-dispatch model has validated that anyone steers mid-run, and once the SDK has matured
-the documented CLI streaming input and native `query()` interrupt.
+**Agent SDK migration: SHIPPED (June 2026).** The driver now runs on the TypeScript Agent
+SDK `query()` by default (typed `SDKMessage` streaming, streaming-input steering injected
+at turn boundaries, the perm/result MCP servers reused byte-identically); `SWARM_USE_CLI=1`
+falls back to the legacy `claude -p` spawn path. Live mid-run steering rides on it —
+`/run/steer` injects into the live coder session. Remaining Phase 6 cleanup, low priority:
+retire the CLI path's NDJSON buffer + temp `--mcp-config` writing once the fallback is no
+longer wanted.
 
 ## Security debt — before any non-localhost deployment
 
