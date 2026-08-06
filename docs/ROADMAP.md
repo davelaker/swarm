@@ -40,6 +40,32 @@ structurally-enforced quality** — the things a parallel-agent runner (see
   cheap amend/re-dispatch model (no SDK dependency); true token-stream steering waits for
   the Agent SDK migration below.
 
+## Planned next — from the July 2026 landscape research
+
+Grounded in the competitive/UX sweep recorded in `COMPETITORS.md` → "Landscape snapshot —
+July 2026". Ordered; each is independently shippable.
+
+1. **Agent Inbox.** A "needs you now" queue — pending permission approvals, blocked runs,
+   deadlock escalations — separated from the FYI findings feed, with typed actions
+   (approve/deny/steer) on each item. The most-cited agent-UX pattern of 2025–26;
+   over-notification (mixing FYI with action-required) is the top documented trust-killer.
+2. **Issue-tracker intake.** Seed the charter from a GitHub issue (`gh` is already a
+   dependency): import title/body as the PM's brief, link the run back to the issue.
+   Ticket-as-unit-of-work is table stakes across Factory, Charlie, and Agent HQ.
+3. **Best-of-N with gate-scored selection.** For a hard coder task, dispatch N candidates
+   in N worktrees; the deterministic gates + reviewer score them and the winner merges.
+   Codex and Cursor ship best-of-N; nobody combines it with deterministic gate scoring —
+   pairs with the (now price-true) cost forecast and a confirmation, since it costs N×.
+4. **Per-task checkpoint/rewind.** Git-native rollback of a single task's changes —
+   worktrees and captured per-task diffs already exist, so this is mostly surface. The
+   trust feature that lets users supervise less.
+
+Then: per-task hard budget caps with pre-dispatch estimates (Devin parity) · Playbooks
+(reusable task templates beside the scribe's memory) · deeper scorecards
+(cost-per-merged-task, gate pass-rate) · daemon mode (ambient CI/error watching) ·
+inter-agent trust boundaries · read AGENTS.md alongside CLAUDE.md · WIP-limit warning
+(>5 parallel agents exceeds human review capacity).
+
 ## Foundational — productisation (Phase 6)
 
 **Migrate the agent driver from `claude -p` one-shot to the Agent SDK `query()` session
