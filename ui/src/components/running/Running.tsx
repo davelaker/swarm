@@ -9,6 +9,7 @@ import { AgentsPanel } from './AgentsPanel';
 import { FindingsFeed } from './FindingsFeed';
 import { ChangesPanel } from './ChangesPanel';
 import { PermissionGate } from './PermissionGate';
+import { InboxPanel } from './InboxPanel';
 import { Message } from '../planning/Message';
 import { IconSend } from '../common/icons';
 import type {
@@ -19,6 +20,7 @@ import type {
   ActivityEntry,
   Finding,
   ChatMessage,
+  PermissionRequest,
 } from '../../types';
 
 // ─── Drag-to-resize ──────────────────────────────────────────────────────────
@@ -102,6 +104,7 @@ interface RunViewProps {
   // review-fix run (which briefly wipes the task list).
   showChanges: boolean;
   onToggleShowChanges: () => void;
+  pendingPermission?: PermissionRequest | null;
 }
 
 // ─── Run summary strip ────────────────────────────────────────────────────────
@@ -858,6 +861,7 @@ function RunView({
   onPrCreated,
   showChanges,
   onToggleShowChanges,
+  pendingPermission = null,
 }: RunViewProps) {
   // ── Hover-to-highlight ────────────────────────────────────────────────────
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
@@ -998,6 +1002,11 @@ function RunView({
       ) : (
         <>
           <div className="run-right">
+            <InboxPanel
+              tasks={tasks}
+              pendingPermission={pendingPermission}
+              onFocusTask={setHoveredTaskId}
+            />
             <AgentsPanel
               agents={agents}
               status={status}
@@ -1466,6 +1475,7 @@ export function Running({
         onPrCreated={onPrCreated}
         showChanges={showChanges}
         onToggleShowChanges={toggleShowChanges}
+        pendingPermission={state.pendingPermission}
       />
       {state.pendingPermission && (
         <PermissionGate request={state.pendingPermission} onResolve={resolvePermission} />
