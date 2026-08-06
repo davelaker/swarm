@@ -31,6 +31,7 @@ import {
 } from '../state/repo.js';
 import { serverFreshness } from './freshness.js';
 import { runPreflight, uniqueSwarmBranch } from './preflight.js';
+import { rewindTask } from './rewind.js';
 import { buildStructuredDiff, buildTaskDiff } from './diff.js';
 import { worktreeInfo } from '../loop.js';
 import { buildScorecards } from './scorecards.js';
@@ -1395,6 +1396,29 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
           res.writeHead(500);
           res.end(JSON.stringify({ error: (err as Error).message }));
         });
+      return;
+    }
+    if (route === '/run/rewind') {
+      // Git-native session-level undo: revert a completed task's merge commit as a
+      // NEW commit (history preserved, revert-able itself). Refused mid-run — the
+      // loop owns the tree then — and on dirty trees/conflicts (rewind.ts).
+      if (activeRun) {
+        res.writeHead(409);
+        res.end(JSON.stringify({ error: 'Cannot rewind while a run is in progress' }));
+        return;
+      }
+      const { taskId: rewindTaskId } = payload as { taskId?: string };
+      if (!rewindTaskId?.trim()) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: 'taskId required' }));
+        return;
+      }
+      const result = rewindTask(getRoot(), rewindTaskId.trim());
+      if (result.ok) {
+        console.log(`  ▸ rewind ${rewindTaskId}: reverted ${result.reverted.slice(0, 8)} as ${result.revertCommit.slice(0, 8)}`);
+      }
+      res.writeHead(result.ok ? 200 : 422);
+      res.end(JSON.stringify(result));
       return;
     }
     if (route === '/run/steer') {

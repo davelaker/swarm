@@ -216,6 +216,29 @@ function TaskCard({
             {fmtDuration(durationMs)}
           </span>
         )}
+        {isCoderTask && t.status === 'done' && !runActive && (
+          <button
+            className="tnode-steer-btn"
+            onClick={() => {
+              if (!window.confirm(`Rewind ${t.id}? Its merged changes are reverted as a new commit (history is preserved; the revert can itself be reverted).`)) {
+                return;
+              }
+              fetch('/run/rewind', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ taskId: t.id }),
+              })
+                .then(async r => {
+                  const d = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+                  window.alert(d.ok ? `Rewound ${t.id} — changes reverted as a new commit.` : `Rewind failed: ${d.error ?? `HTTP ${r.status}`}`);
+                })
+                .catch(e => window.alert(`Rewind failed: ${(e as Error).message}`));
+            }}
+            title="Revert this task's merged changes as a new commit"
+          >
+            ⎌ rewind
+          </button>
+        )}
         {canSteer && !steering && (
           <button
             className="tnode-steer-btn"
