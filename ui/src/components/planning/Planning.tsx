@@ -208,6 +208,84 @@ const STARTER_PROMPTS: { label: string; template: string }[] = [
   },
 ];
 
+interface GhIssue {
+  number: number;
+  title: string;
+}
+
+// Compose a PM brief from a GitHub issue. Pure so it is trivially testable.
+export function issueToBrief(issue: { number: number; title: string; body?: string; url?: string }): string {
+  const body = (issue.body ?? '').trim();
+  const parts = [`GitHub issue #${issue.number}: ${issue.title}`];
+  if (body) {
+    parts.push('', body);
+  }
+  if (issue.url) {
+    parts.push('', `(${issue.url})`);
+  }
+  return parts.join('\n');
+}
+
+// Ticket-as-unit-of-work intake: list the target repo's open GitHub issues (via the
+// backend's gh-CLI endpoint) and seed the composer from one. The user still reviews
+// and sends the brief themselves — import fills the composer, it never auto-sends.
+function IssueImport({ onPick }: { onPick: (text: string) => void }) {
+  const [issues, setIssues] = useState<GhIssue[] | null>(null); // null = not fetched
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const toggle = () => {
+    setOpen(o => !o);
+    if (issues === null) {
+      fetch('/issues', { signal: AbortSignal.timeout(8000) })
+        .then(r => (r.ok ? r.json() : []))
+        .then((list: GhIssue[]) => setIssues(Array.isArray(list) ? list : []))
+        .catch(() => setIssues([]));
+    }
+  };
+
+  const pick = (n: number) => {
+    setBusy(true);
+    fetch(`/issues/view?number=${n}`, { signal: AbortSignal.timeout(8000) })
+      .then(r => (r.ok ? r.json() : null))
+      .then((issue: { number: number; title: string; body?: string; url?: string } | null) => {
+        if (issue) {
+          onPick(issueToBrief(issue));
+          setOpen(false);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <span className="issue-import">
+      <button className="starter-chip" onClick={toggle}>
+        ⬇ Import GitHub issue{open ? ' ▴' : ''}
+      </button>
+      {open && (
+        <div className="issue-import-list">
+          {issues === null && <div className="issue-import-empty">Loading…</div>}
+          {issues !== null && issues.length === 0 && (
+            <div className="issue-import-empty">No open issues (or gh not connected)</div>
+          )}
+          {(issues ?? []).map(i => (
+            <button
+              key={i.number}
+              className="issue-import-row"
+              disabled={busy}
+              onClick={() => pick(i.number)}
+            >
+              <span className="issue-import-num">#{i.number}</span>
+              <span className="issue-import-title">{i.title}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
 function StarterPrompts({ onPick }: { onPick: (text: string) => void }) {
   return (
     <div className="starter-prompts anim-in">
@@ -218,6 +296,7 @@ function StarterPrompts({ onPick }: { onPick: (text: string) => void }) {
             {s.label}
           </button>
         ))}
+        <IssueImport onPick={onPick} />
       </div>
     </div>
   );

@@ -1545,6 +1545,59 @@ select {
   min-height: 0;
   overflow: hidden;
 }
+.issue-import {
+  position: relative;
+  display: inline-block;
+}
+.issue-import-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  min-width: 280px;
+  max-width: 380px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  padding: 4px;
+}
+.issue-import-empty {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--tx-3);
+  padding: 10px 12px;
+}
+.issue-import-row {
+  all: unset;
+  cursor: pointer;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--tx-1);
+}
+.issue-import-row:hover {
+  background: var(--bg-2);
+}
+.issue-import-num {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--tx-3);
+  flex-shrink: 0;
+}
+.issue-import-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .run-inbox {
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--amber) 4%, transparent);

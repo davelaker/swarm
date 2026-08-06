@@ -395,6 +395,49 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     return;
   }
 
+  if (url.pathname === '/issues') {
+    // Open GitHub issues for the TARGET repo, via the gh CLI (its auth is independent
+    // of the claude login). Ticket-as-unit-of-work intake: the UI lists these in
+    // Planning and seeds the PM's brief from one. Degrades to [] when gh is missing,
+    // unauthenticated, or the repo has no GitHub remote — intake is optional, never
+    // an error the dashboard has to handle.
+    execFileAsync(
+      'gh',
+      ['issue', 'list', '--json', 'number,title,updatedAt', '--limit', '30'],
+      { cwd: getRoot() },
+    )
+      .then(r => {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(r.stdout || '[]');
+      })
+      .catch(() => {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end('[]');
+      });
+    return;
+  }
+
+  if (url.pathname === '/issues/view') {
+    const number = url.searchParams.get('number');
+    if (!number || !/^\d+$/.test(number)) {
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: 'numeric issue number required' }));
+      return;
+    }
+    execFileAsync('gh', ['issue', 'view', number, '--json', 'number,title,body,url'], {
+      cwd: getRoot(),
+    })
+      .then(r => {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(r.stdout);
+      })
+      .catch((err: Error) => {
+        res.writeHead(404);
+        res.end(JSON.stringify({ error: err.message.slice(0, 200) }));
+      });
+    return;
+  }
+
   if (url.pathname === '/health') {
     // Lightweight liveness + project identity for the dashboard's 3s probe. Returns ONLY
     // what App needs (up/down, project, root, activeRun, driver, model) from in-memory
