@@ -266,7 +266,12 @@ type RunClaudeOpts = {
   maxBudgetUsd?: number;
   verbose?: boolean;
   cwd?: string; // working dir for the spawned claude process; defaults to getRoot()
-  permProxy?: { agentId: string; sqlPolicy?: Record<string, 'allow' | 'ask' | 'deny'> }; // when set, spawn the permission proxy MCP server
+  permProxy?: {
+    agentId: string;
+    sqlPolicy?: Record<string, 'allow' | 'ask' | 'deny'>;
+    writeScope?: string[]; // path globs bounding proxied write_file/edit_file
+    bashScope?: string[]; // Bash(pattern)-style prefixes bounding proxied bash
+  }; // when set, spawn the permission proxy MCP server
   requireFields?: string[]; // fields the result server must see present & non-empty
   minDetail?: number; // min length for `detail` (when required) — rejects one-word details
   onStreamEvent?: (ev: StreamEvent) => void; // live thinking/tool-call events for the dashboard
@@ -336,6 +341,12 @@ function buildMcpServers(opts: RunClaudeOpts): {
         SWARM_PROJECT_ROOT: getRoot(),
         ...(opts.permProxy.sqlPolicy
           ? { SWARM_SQL_POLICY: JSON.stringify(opts.permProxy.sqlPolicy) }
+          : {}),
+        ...(opts.permProxy.writeScope?.length
+          ? { SWARM_WRITE_SCOPE: opts.permProxy.writeScope.join(',') }
+          : {}),
+        ...(opts.permProxy.bashScope?.length
+          ? { SWARM_BASH_SCOPE: opts.permProxy.bashScope.join(',') }
           : {}),
       },
     };
@@ -934,6 +945,8 @@ function assembleSpecialistTools(
   allowedTools: string[];
   needsProxy: boolean;
   sqlPolicyMap: Record<string, 'allow' | 'ask' | 'deny'>;
+  writeScope: string[]; // path globs from scoped ask-mode write grants (proxy-enforced)
+  bashScope: string[]; // command patterns from scoped ask-mode shell grants (proxy-enforced)
 } {
   // Map granted tool sens values to the Claude tool names the agent may call.
   const SENS_TO_TOOLS: Record<string, string[]> = {
@@ -945,6 +958,8 @@ function assembleSpecialistTools(
   const ALL_SQL_CATEGORIES = ['read', 'write', 'delete', 'destructive'] as const;
 
   const toolSet = new Set<string>();
+  const writeScope: string[] = [];
+  const bashScope: string[] = [];
   let needsProxy = false;
   const sqlPolicyMap: Record<string, 'allow' | 'ask' | 'deny'> = {};
 
@@ -979,9 +994,28 @@ function assembleSpecialistTools(
       needsProxy = true;
       if (t.sens === 'shell') {
         toolSet.add('mcp__perm__bash');
+        // Carry the grant's scope into the proxy — ask mode must be strictly
+        // tighter than allow mode, where Bash(pattern) enforces it natively.
+        if (t.scope) {
+          bashScope.push(
+            ...t.scope
+              .split(',')
+              .map(s => s.trim())
+              .filter(Boolean),
+          );
+        }
       } else if (t.sens === 'write') {
         toolSet.add('mcp__perm__write_file');
         toolSet.add('mcp__perm__edit_file');
+        // Same for path globs — Write(glob)/Edit(glob) equivalent, proxy-side.
+        if (t.scope) {
+          writeScope.push(
+            ...t.scope
+              .split(',')
+              .map(s => s.trim())
+              .filter(Boolean),
+          );
+        }
       } else if (t.sens === 'read') {
         // ask mode on read — route through proxy's read_file tool
         toolSet.add('mcp__perm__read_file');
@@ -1037,7 +1071,7 @@ function assembleSpecialistTools(
     allowedTools.push(mcpToolId(connector.serverId, grant.tool));
   }
 
-  return { allowedTools, needsProxy, sqlPolicyMap };
+  return { allowedTools, needsProxy, sqlPolicyMap, writeScope, bashScope };
 }
 
 // ─── Driver ───────────────────────────────────────────────────────────────────
@@ -1273,9 +1307,10 @@ export const agentSdkDriver: AgentDriver = {
     // Translate the agent's granted tools + connectors into the concrete tool
     // list, proxy flag, and SQL policy. readOnly: false reproduces the original
     // inline assembly exactly (full grants as configured).
-    const { allowedTools, needsProxy, sqlPolicyMap } = assembleSpecialistTools(agent, {
-      readOnly: false,
-    });
+    const { allowedTools, needsProxy, sqlPolicyMap, writeScope, bashScope } =
+      assembleSpecialistTools(agent, {
+        readOnly: false,
+      });
     const hasSqlTools = agent.grantedTools.some(t => t.sqlCategory);
 
     // Prefer task-level model override (PM recommendation), fall back to agent's stored model.
@@ -1291,7 +1326,12 @@ export const agentSdkDriver: AgentDriver = {
       requireFields: ['summary', 'detail'],
       onStreamEvent: streamToProgress(task.assignee, task.id),
       permProxy: needsProxy
-        ? { agentId: task.id, ...(hasSqlTools ? { sqlPolicy: sqlPolicyMap } : {}) }
+        ? {
+            agentId: task.id,
+            ...(hasSqlTools ? { sqlPolicy: sqlPolicyMap } : {}),
+            ...(writeScope.length ? { writeScope } : {}),
+            ...(bashScope.length ? { bashScope } : {}),
+          }
         : undefined,
     });
 

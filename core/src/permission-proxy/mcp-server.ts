@@ -27,6 +27,7 @@ import * as path from 'node:path';
 import * as readline from 'node:readline';
 import { execSync, execFileSync } from 'node:child_process';
 import { classifySql, extractSql, analyzeDbCommand, policyFor } from './sql-guard.js';
+import { matchesPathScope, matchesCommandScope, parseScopeList } from './scope-guard.js';
 
 const serverUrl = process.env.SWARM_SERVER_URL ?? 'http://127.0.0.1:7000';
 const agentId = process.env.SWARM_AGENT_ID ?? 'unknown';
@@ -41,6 +42,13 @@ const sqlPolicy: Record<string, 'allow' | 'ask' | 'deny'> = (() => {
     return {};
   }
 })();
+
+// Grant scopes (set by agent-sdk from the roster's scoped ask-mode grants).
+// When present, they bound what this proxy will even ASK about: ask mode must
+// be strictly tighter than allow mode, where Claude's native Write(glob) /
+// Bash(pattern) rules enforce the same scopes. Empty = whole-project (legacy).
+const writeScope = parseScopeList(process.env.SWARM_WRITE_SCOPE);
+const bashScope = parseScopeList(process.env.SWARM_BASH_SCOPE);
 
 // ─── SQL classification ───────────────────────────────────────────────────────
 // Pure logic lives in sql-guard.ts (unit-tested). This file only wires it to
@@ -254,11 +262,36 @@ rl.on('line', (line: string) => {
   err(id, -32601, `Method not found: ${method}`);
 });
 
+// Returns an out-of-scope refusal message, or null when the call is in scope.
+function scopeViolation(name: string, input: Record<string, unknown>): string | null {
+  if ((name === 'write_file' || name === 'edit_file') && writeScope.length) {
+    const rel = String(input.file_path ?? input.path ?? '');
+    if (!matchesPathScope(rel, writeScope)) {
+      return `Out of scope: your write access is confined to ${writeScope.join(', ')} — cannot touch ${rel}.`;
+    }
+  }
+  if (name === 'bash' && bashScope.length) {
+    const command = String(input.command ?? '');
+    // Provable DB commands are governed by the SQL policy, not the bash scope.
+    if (!analyzeDbCommand(command) && !matchesCommandScope(command, bashScope)) {
+      return `Out of scope: your shell access is confined to ${bashScope.join(', ')}.`;
+    }
+  }
+  return null;
+}
+
 async function handleToolCall(
   id: unknown,
   name: string,
   input: Record<string, unknown>,
 ): Promise<void> {
+  // Scope check FIRST — an out-of-scope request is refused outright, never
+  // escalated to the human (the grant already answered it).
+  const violation = scopeViolation(name, input);
+  if (violation) {
+    ok(id, { content: [{ type: 'text', text: violation }], isError: true });
+    return;
+  }
   // For bash commands with an SQL policy, try the strict auto path first.
   // AUTO-ALLOW requires proof: the command must parse as a single DB-client
   // invocation with no shell-active syntax, and it then runs as an argv via
