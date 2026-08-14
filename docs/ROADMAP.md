@@ -39,32 +39,45 @@ structurally-enforced quality** — the things a parallel-agent runner (see
   amend → re-dispatch* a task (`/run/steer`) so it adapts without a full restart. The
   cheap amend/re-dispatch model (no SDK dependency); true token-stream steering waits for
   the Agent SDK migration below.
+- **Agent Inbox.** A "needs you now" queue — pending permission approvals, blocked runs,
+  failed tasks — split from the FYI findings feed by a pure `deriveInboxItems()`; renders
+  nothing when healthy. (`components/running/InboxPanel.tsx`)
+- **GitHub issue intake.** Seed the charter from a GitHub issue via `gh`: import
+  title/body as the PM's brief. (`server /issues`, `Planning.tsx IssueImport`)
+- **Per-task checkpoint/rewind.** Git-native rollback of a single merged task via
+  `git revert -m 1` on its merge commit — never a reset, so the rewind is itself
+  revertible. Refuses in-place fix tasks and dirty trees in v1. (`server/rewind.ts`)
 
-## Planned next — from the July 2026 landscape research
+## Planned next
 
-Grounded in the competitive/UX sweep recorded in `COMPETITORS.md` → "Landscape snapshot —
-July 2026". Ordered; each is independently shippable.
+Grounded in the competitive/UX sweeps recorded in `COMPETITORS.md` (July 2026 snapshot +
+August 2026 Xirp section). Ordered; each is independently shippable.
 
-1. **Agent Inbox.** A "needs you now" queue — pending permission approvals, blocked runs,
-   deadlock escalations — separated from the FYI findings feed, with typed actions
-   (approve/deny/steer) on each item. The most-cited agent-UX pattern of 2025–26;
-   over-notification (mixing FYI with action-required) is the top documented trust-killer.
-2. **Issue-tracker intake.** Seed the charter from a GitHub issue (`gh` is already a
-   dependency): import title/body as the PM's brief, link the run back to the issue.
-   Ticket-as-unit-of-work is table stakes across Factory, Charlie, and Agent HQ.
-3. **Best-of-N with gate-scored selection.** For a hard coder task, dispatch N candidates
+1. **Best-of-N with gate-scored selection.** For a hard coder task, dispatch N candidates
    in N worktrees; the deterministic gates + reviewer score them and the winner merges.
    Codex and Cursor ship best-of-N; nobody combines it with deterministic gate scoring —
    pairs with the (now price-true) cost forecast and a confirmation, since it costs N×.
-4. **Per-task checkpoint/rewind.** Git-native rollback of a single task's changes —
-   worktrees and captured per-task diffs already exist, so this is mostly surface. The
-   trust feature that lets users supervise less.
+2. **Living documentation from sessions** (Xirp's most novel feature, and the cheapest to
+   match). Extend the scribe beyond `CLAUDE.md` learnings: after a run merges, update the
+   affected README/architecture sections and record in the session snapshot what was
+   touched. Slots directly into `distillMemory`.
+3. **Session recall at intake** (Xirp "institutional memory", local-first version).
+   `.swarm/sessions/` snapshots become a recall system, not an archive: at PM intake,
+   index prior session summaries and auto-surface the relevant ones ("this auth flow was
+   touched in a July run; here's what was decided and why").
+4. **Connector-fed intake context.** Seed the PM from connected services, not just the
+   repo: open Sentry issues, linked Linear tickets (covers the remaining Linear-intake
+   gap), recent deploy status from Vercel. The connector grants in `state/connectors.ts`
+   already exist — this is wiring, not new infrastructure.
 
 Then: per-task hard budget caps with pre-dispatch estimates (Devin parity) · Playbooks
 (reusable task templates beside the scribe's memory) · deeper scorecards
 (cost-per-merged-task, gate pass-rate) · daemon mode (ambient CI/error watching) ·
 inter-agent trust boundaries · read AGENTS.md alongside CLAUDE.md · WIP-limit warning
-(>5 parallel agents exceeds human review capacity).
+(>5 parallel agents exceeds human review capacity) · multi-harness driver (Codex/Gemini
+CLI behind the existing `AgentDriver` seam — both support MCP so the perm/result servers
+carry over; only if vendor neutrality becomes a real adoption blocker, since it's Xirp's
+whole product and orchestration depth is ours).
 
 ## Foundational — productisation (Phase 6)
 

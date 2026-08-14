@@ -58,7 +58,7 @@ review-and-merge loop bolted on.
 |---|---|---|
 | Parallel agents in isolated git worktrees | ✅ Core, shipping | ✅ Built (worktree flows through dispatch) |
 | Multi-model backend | ✅ Claude Code, Codex, Cursor; switch per workspace | ⚠️ Claude-only, but per-task model selection (haiku→fable) + per-task effort, PM-assigned with a cost-confirmation gate |
-| Review / merge diffs, open PRs, archive | ✅ Polished, central to UX | ⚠️ Shiki diff review + inline comments + fix loop built; push built; PR creation still manual |
+| Review / merge diffs, open PRs, archive | ✅ Polished, central to UX | ✅ Shiki diff review + inline comments + fix loop built; push built; automatic PR creation built (`/run/pr`) |
 | Per-project setup/run/archive scripts (`.conductor/settings.toml`) | ✅ Shipping | ❌ No env/run-script config equivalent |
 | Live "what's each agent doing" dashboard | ✅ Shipping (native Mac) | ✅ Live SSE dashboard: task graph, live transcripts, live per-task diffs, mid-run steering, per-task cost |
 | Free app, BYO Claude subscription | ✅ Same billing model we rely on | ✅ Same Max-plan model (validated) |
@@ -78,8 +78,9 @@ review-and-merge loop bolted on.
    local single-user. (The June-2026 caveats here — SSE unwired, mock planning, no
    Negotiator — are resolved; see the July 2026 snapshot below.)
 2. **Multi-model.** Codex + Cursor + Claude, switchable per workspace. We're Claude-only.
-3. **The merge/PR/archive last mile is complete and central** — ours now has diff review,
-   inline comments with a fix loop, and push; automatic PR creation is the remaining gap.
+3. **The merge/PR/archive last mile is complete and central** — since closed on our side:
+   diff review, inline comments with a fix loop, push, and automatic PR creation
+   (`/run/pr`) all ship.
 4. **Project scripts** make the worktree workflow usable on real repos. We have no
    equivalent yet.
 
@@ -180,17 +181,16 @@ schemas). Their review product auto-fixes from findings, as ours does.
 Ordered by leverage; UX research (agent-inbox patterns, approval-fatigue literature)
 backs the first item as the single most-cited pattern in 2025–26 agent-UX writing.
 
-1. **Agent Inbox** — a "needs you now" queue (permission asks, blocked runs, review
-   waits) separated from the FYI findings feed; over-notification is the top documented
-   trust-killer.
-2. **Issue-tracker intake** — pull a GitHub/Linear issue as the charter seed; post the
-   result back. Ticket-as-unit-of-work is table stakes (Factory, Charlie, Agent HQ).
+1. **Agent Inbox** — ✅ shipped (August 2026): `InboxPanel` splits action-required items
+   (pending permissions, blocked, failed) from the FYI findings feed.
+2. **Issue-tracker intake** — ✅ shipped for GitHub (August 2026): charter seeded from an
+   issue via `gh`. Linear intake still open.
 3. **Best-of-N with gate-scored selection** — dispatch N coders on one hard task in N
    worktrees; let deterministic gates + reviewer score candidates and auto-select.
    Codex/Cursor ship best-of-N; **nobody combines it with deterministic gate scoring** —
    that combination is ours to take.
-4. **Per-task checkpoint/rewind** — git-native rollback of a task; rare locally, and the
-   fear of irreversibility is what makes users over-supervise.
+4. **Per-task checkpoint/rewind** — ✅ shipped (August 2026): git-native rollback of a
+   task's merge commit (`git revert -m 1`, itself revertible).
 5. Per-task hard budget caps with pre-dispatch estimates (Devin parity) · Playbooks
    (procedural memory beside the scribe's declarative memory) · daemon mode (Charlie's
    ambient-maintenance framing) · inter-agent trust boundaries (Agent Teams' model).
@@ -206,3 +206,87 @@ UX patterns: langchain agent-inbox, smashingmagazine.com (Feb 2026 agentic-UX pa
 antigravity.google/docs/artifacts, code.claude.com/docs/en/checkpointing. Secondary-source
 claims (Cursor parallel limits, Managed Agents pricing) are marked in the research notes
 and should be re-verified before citing externally.
+
+---
+
+## Competitor — Xirp (Spotify)
+
+> Researched August 2026. Public beta launched 2026-08-10 (free tier, macOS-only desktop
+> app + Portal plugin). Grew out of internal use: thousands of Spotify engineers, 36,000+
+> sessions. Sources at the end of this section.
+
+### One-line identity
+
+Spotify's **vendor-neutral agentic development environment** — a desktop app for running
+many concurrent coding-agent sessions (Claude Code, Codex, Gemini CLI) in isolated git
+worktrees, with an optional Portal/Backstage layer that injects organizational context
+into sessions and captures their output as shared "institutional memory."
+
+### Orchestration model
+
+**Human-orchestrated.** Same family as Conductor: the engineer creates each session,
+decides what it works on, and reviews the output by hand. No planner, no task graph, no
+gates, no automated review/remediation, no documented cost governance — the public beta's
+workflows are explicitly manual.
+
+What *is* new is not orchestration but the **context layer**. Sessions initialize with
+organizational knowledge pulled from the software catalog via MCP (component architecture,
+dependency graphs, service ownership, prior architectural decisions), and transcripts +
+metadata flow back into Portal afterwards — so a *different engineer's* later session can
+resume with context an earlier session established. Their pitch names the failure mode
+precisely: agents that make "technically correct but operationally wrong" decisions for
+lack of system context.
+
+### Feature comparison
+
+| Capability | Xirp | This product |
+|---|---|---|
+| Parallel agents in isolated git worktrees | ✅ Core; 50+ concurrent claimed | ✅ Built |
+| Multi-vendor harnesses, **mid-task handoff** | ✅ Core thesis — full working state carries across a Claude→Codex→Gemini switch; price-performance routing | ❌ Claude-only (per-task model + effort within Claude) |
+| Org-context injection at session start | ✅ Catalog/ownership/dependencies/decisions via Portal MCP | ⚠️ Repo digest + GitHub-issue seeding only |
+| Cross-session institutional memory | ✅ Transcripts flow back; later sessions (any engineer) resume prior context | ⚠️ Scribe distils learnings into `CLAUDE.md`; session snapshots exist but are not recalled at intake |
+| Living documentation generated from sessions | ✅ Auto-generated, stays current, feeds future sessions | ❌ |
+| Skills/rules/plugins/MCP marketplace | ✅ Cross-team curated (via Portal) | ✅ Specialist roster + connector grants (single-user scale) |
+| Unified control UI (terminals, git, files, rules, layouts) | ✅ Native macOS app | ⚠️ Local web; task-graph surface rather than terminal multiplexer |
+| **Planner / charter / task graph** | ❌ | ✅ Built end-to-end |
+| **Quality gates + remediation + Negotiator** | ❌ | ✅ Built |
+| **Review→fix loop, automatic PR creation** | ❌ Manual review | ✅ Built |
+| **Permission gating, spend caps, scorecards, rewind** | ❌ Not documented | ✅ Built |
+
+### Where they're ahead
+
+1. **The context layer.** Institutional memory — org-grounded session starts plus
+   transcripts flowing back for later resumption — is the first genuinely new positioning
+   move in this space since Charlie's daemons, and no surveyed competitor has it.
+2. **Living documentation.** Docs auto-generated from coding sessions that stay current
+   and feed back into future sessions. Nobody else ships this.
+3. **Vendor neutrality at proven scale.** Mid-task harness switching with context
+   carryover is a stronger multi-vendor story than Conductor's per-workspace choice or
+   Agent HQ's side-by-side vendors.
+4. **Scale proof.** 36k+ sessions across thousands of engineers validates the
+   worktree-isolation pattern (our pattern too) at organizational scale.
+
+### Where we're differentiated
+
+Everything downstream of "session created": Xirp ships no planner, no gates, no
+remediation, no arbitration, no cost governance, no review loop. The whitespace is the
+same as against Conductor, unchanged — and Xirp's bet (context/memory) is orthogonal to
+ours (enforced orchestration), which makes their best ideas copyable without ceding
+position. Scribe-maintained living docs and session-recall-at-intake both slot into
+machinery we already have (`loop.ts distillMemory`, `.swarm/sessions/` snapshots) —
+see the roadmap.
+
+### Positioning takeaway
+
+- Xirp = **"run any vendor's agents, grounded in your org's knowledge."** Us = **"an AI
+  team that plans, builds, tests, and reviews itself."**
+- Their enterprise gravity is Backstage/Portal; a local-first single-tenant tool doesn't
+  compete for that buyer. The threat is narrower: they normalize "context layer" as a
+  category expectation, so our memory story (scribe + snapshots) needs to become a
+  recall system, not just an archive.
+
+### Sources
+
+- [portal.spotify.com/blog/introducing-xirp](https://portal.spotify.com/blog/introducing-xirp)
+- [backstage.spotify.com/docs/xirp](https://backstage.spotify.com/docs/xirp)
+- [xirp.spotify.com](https://xirp.spotify.com)

@@ -5,10 +5,10 @@ single-tenant multi-agent coding system** — a swarm of role-specialised AI age
 coordinated by a Project Manager agent through a shared blackboard, with a path to becoming
 a hosted product.
 
-> Status: **Phase 2 complete / Phase 3 in progress.** The engine works end-to-end.
-> Phases 0–2 are built; the dashboard frontend is built; SSE wiring and planning-mode
-> Claude integration are pending. This corpus is the durable design record — read it for
-> the *why*, not just the *what*.
+> Status: **Phases 0–4 complete; Phase 6's Agent SDK migration shipped (June 2026).**
+> The engine, live SSE dashboard, and real Claude planning conversation all work
+> end-to-end; see [`ROADMAP.md`](ROADMAP.md) for what's shipped vs planned. This corpus
+> is the durable design record — read it for the *why*, not just the *what*.
 
 ## The lifecycle this design covers
 
@@ -39,13 +39,15 @@ launch  →  brainstorm (Planning)  →  Charter + approval gate  →  execute (
 | **0** Scaffolding | ✅ Complete | `core/src/` has state repo, config boundary, dispatch boundary, event bus. `swarm init` and `swarm check` work. |
 | **1** Walking skeleton | ✅ Complete | Real PM loop, Coder agent via Anthropic SDK, `swarm new "<goal>"` works end-to-end, eval harness with 2 test cases. |
 | **2** Quality gates | ✅ Complete | Tier classifier, Tester, Security Reviewer, C2 gate validation, S2 sensitive-path escalation, remediation spawning. Eval harness extended to 3 cases including a deliberate SQL injection that must be caught. |
-| **3** Dashboard | 🔄 In progress | Frontend UI complete (`ui/` — React + TypeScript + Vite). Backend SSE wiring to the UI not yet done — server runs but doesn't watch `state.json` for changes yet. |
-| **4** Planning mode | 🔄 In progress | Interactive PM conversation built in the UI (keyword-matching mock). Claude API integration for the planning PM not yet done. |
-| **4.5–6** | ⬜ Not started | — |
+| **3** Dashboard | ✅ Complete | Live SSE dashboard (`/events`): task graph, live transcripts, live per-task diffs, inbox, per-task cost. |
+| **4** Planning mode | ✅ Complete | Real Claude PM conversation (`core/src/pm/`) with structured charter output via a dedicated MCP tool, Scout research rounds, GitHub-issue seeding. |
+| **4.5–6** | 🔄 Partial | Phase 6's Agent SDK migration shipped (June 2026); remaining productisation and security debt tracked in [`ROADMAP.md`](ROADMAP.md). |
 
-A **dual-driver abstraction layer** was added in `core/src/drivers/` between Phases 2 and 3.
-It provides two implementations behind the `AgentDriver` interface: `api-key` (direct
-Anthropic SDK) and `agent-sdk` (`claude -p` CLI). See `DESIGN.md` §8 Principle 2 for details.
+A **dual-driver abstraction layer** was added in `core/src/drivers/` between Phases 2 and 3,
+behind the `AgentDriver` interface: `agent-sdk` (the default — TypeScript Agent SDK
+`query()` with typed message streaming) and `api-key` (direct Anthropic SDK);
+`SWARM_USE_CLI=1` falls back to the legacy `claude -p` spawn path. See `DESIGN.md` §8
+Principle 2 for details.
 
 ---
 
