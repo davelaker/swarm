@@ -47,6 +47,11 @@ structurally-enforced quality** — the things a parallel-agent runner (see
 - **Per-task checkpoint/rewind.** Git-native rollback of a single merged task via
   `git revert -m 1` on its merge commit — never a reset, so the rewind is itself
   revertible. Refuses in-place fix tasks and dirty trees in v1. (`server/rewind.ts`)
+- **Living documentation.** A second post-run scribe keeps human-facing docs
+  (README, docs/**) true when a run changes externally observable behaviour —
+  delineated from CLAUDE.md agent memory in `docs/MEMORY.md`, with the doc-only
+  boundary code-enforced: the loop reverts any non-doc path the scribe touches
+  before committing. (`agents/living-docs.ts`, `loop.ts updateLivingDocs`)
 
 ## Planned next
 

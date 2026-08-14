@@ -21,6 +21,12 @@ import {
 } from './state/repo.js';
 import { dispatch } from './dispatch/index.js';
 import { validateFinding, hasSensitivePaths } from './agents/finding.js';
+import {
+  parsePorcelain,
+  newlyChanged,
+  partitionDocPaths,
+  listLivingDocFiles,
+} from './agents/living-docs.js';
 import { getConfig } from './config.js';
 import { getDriver } from './drivers/index.js';
 import { bus } from './state/events.js';
@@ -254,7 +260,12 @@ async function readFindingMeta(
 // After a successful run, the read-only scribe distils durable, non-obvious facts
 // the team learned into the project's CLAUDE.md so the next run starts smarter.
 // Best-effort: never block or fail a finished run on this.
-async function distillMemory(state: SwarmState): Promise<void> {
+
+// Finding metadata + changed files for the two post-run scribes (shared input).
+async function collectRunOutcome(state: SwarmState): Promise<{
+  findings: Array<{ task: string; agent: string; verdict: string; summary: string }>;
+  filesChanged: string[];
+}> {
   const findings = await Promise.all(
     state.tasks
       .filter(t => t.result_ref)
@@ -266,6 +277,11 @@ async function distillMemory(state: SwarmState): Promise<void> {
   const filesChanged = [
     ...new Set(state.tasks.filter(t => t.assignee === 'coder').flatMap(t => t.artifacts ?? [])),
   ];
+  return { findings, filesChanged };
+}
+
+async function distillMemory(state: SwarmState): Promise<void> {
+  const { findings, filesChanged } = await collectRunOutcome(state);
   const before = readProjectMemory();
   const { learnings } = await getDriver().runScribe({
     goal: state.goal ?? '',
@@ -288,6 +304,62 @@ async function distillMemory(state: SwarmState): Promise<void> {
     }
     appendLog('pm', '✓ Updated project memory (CLAUDE.md) with what we learned this run.');
   }
+}
+
+// ─── Living documentation ────────────────────────────────────────────────────
+// After a successful run that changed files, the docs scribe updates the HUMAN-
+// facing docs (README, docs/**) if externally observable behaviour changed —
+// see docs/MEMORY.md for the delineation vs CLAUDE.md learnings. The doc-only
+// boundary is enforced HERE, not just in the prompt: any path the scribe touched
+// that living-docs.ts does not permit is reverted before anything is committed.
+// Best-effort: never block or fail a finished run on this.
+async function updateLivingDocs(state: SwarmState): Promise<void> {
+  const { findings, filesChanged } = await collectRunOutcome(state);
+  if (!filesChanged.length) {
+    return; // nothing merged — this run cannot have made the docs stale
+  }
+
+  const before = parsePorcelain(git(['status', '--porcelain']));
+  const { summary } = await getDriver().runDocsScribe({
+    goal: state.goal ?? '',
+    tier: state.tier,
+    findings,
+    filesChanged,
+    docFiles: listLivingDocFiles(getRoot()),
+  });
+
+  // The working tree, not the scribe's self-report, is the authority on what
+  // changed. Revert anything outside the living-doc rules, keep the rest.
+  const after = parsePorcelain(git(['status', '--porcelain']));
+  const { docs, forbidden } = partitionDocPaths(newlyChanged(before, after));
+
+  for (const entry of forbidden) {
+    console.warn(`  ⚠ docs-scribe touched a non-doc path — reverting: ${entry.path}`);
+    try {
+      if (entry.untracked) {
+        fs.rmSync(path.join(getRoot(), entry.path));
+      } else {
+        git(['checkout', '--', entry.path]);
+      }
+    } catch (err) {
+      console.warn(`  ⚠ could not revert ${entry.path}: ${(err as Error).message}`);
+    }
+  }
+
+  if (!docs.length) {
+    return; // docs already accurate (or everything was reverted) — nothing to commit
+  }
+  const docPaths = docs.map(e => e.path);
+  try {
+    git(['add', ...docPaths]);
+    git(['commit', '-m', 'docs(swarm): update living documentation']);
+  } catch {
+    /* nothing staged / no git / hooks — non-fatal, the writes still landed */
+  }
+  appendLog(
+    'pm',
+    `✓ Updated living documentation (${docPaths.join(', ')})${summary ? ` — ${summary}` : ''}`,
+  );
 }
 
 // ─── Negotiator safety guardrail (NEGOTIATOR.md §2) ──────────────────────────
@@ -588,6 +660,10 @@ export async function runLoop(): Promise<LoopResult> {
       // Self-building memory — distil durable learnings into CLAUDE.md (best-effort).
       await distillMemory(state).catch(err =>
         console.warn(`  [scribe] memory distillation skipped: ${(err as Error).message}`),
+      );
+      // Living documentation — keep human docs true to the merged behaviour (best-effort).
+      await updateLivingDocs(state).catch(err =>
+        console.warn(`  [docs-scribe] living-docs update skipped: ${(err as Error).message}`),
       );
       console.log('\n  ✓ all tasks done\n');
       return {

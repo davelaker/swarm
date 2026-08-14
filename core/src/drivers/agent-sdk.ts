@@ -30,6 +30,8 @@ import {
   NEGOTIATOR_SYSTEM,
   SCOUT_SYSTEM,
   SCRIBE_SYSTEM,
+  DOCS_SCRIBE_SYSTEM,
+  LIVE_CONTEXT_SYSTEM,
 } from '../agents/prompts.js';
 import {
   coderFinding,
@@ -55,6 +57,8 @@ import type {
   ScoutResult,
   ScribeContext,
   ScribeResult,
+  DocsScribeContext,
+  DocsScribeResult,
 } from './types.js';
 import type { Task, SwarmState, RosterEntry } from '../state/types.js';
 import { CONNECTOR_BY_ID, mcpToolId } from '../state/connectors.js';
@@ -227,6 +231,23 @@ const SCRIBE_SCHEMA = JSON.stringify({
     },
   },
   required: ['learnings'],
+});
+
+const DOCS_SCRIBE_SCHEMA = JSON.stringify({
+  type: 'object',
+  properties: {
+    updated_files: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'Repo-relative paths of the documentation files you edited. Empty array if the docs were already accurate.',
+    },
+    summary: {
+      type: 'string',
+      description: 'One line: what you changed in the docs, or why nothing needed changing.',
+    },
+  },
+  required: ['updated_files', 'summary'],
 });
 
 // ─── claude runner ───────────────────────────────────────────────────────────
@@ -851,6 +872,28 @@ function scribePrompt(ctx: ScribeContext): string {
     .join('\n');
 }
 
+function docsScribePrompt(ctx: DocsScribeContext): string {
+  const findings = ctx.findings.length
+    ? ctx.findings.map(f => `- [${f.agent} · ${f.verdict}] ${f.summary}`).join('\n')
+    : '(no findings recorded)';
+  return [
+    `A ${ctx.tier} run just completed and merged. Goal: ${ctx.goal}`,
+    '',
+    'Agent findings from the run:',
+    findings,
+    '',
+    `Files changed by the run: ${ctx.filesChanged.join(', ')}`,
+    '',
+    ctx.docFiles.length
+      ? `Existing documentation files:\n${ctx.docFiles.map(f => `- ${f}`).join('\n')}`
+      : 'This project has NO documentation files yet — if the run produced user-visible behaviour, create a minimal README.md; otherwise change nothing.',
+    '',
+    'Read the changed files and the current docs, decide whether externally observable behaviour changed, make the smallest edits that keep the docs true, then submit updated_files and summary.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 function specialistResearchPrompt(agent: RosterEntry, question: string): string {
   const role =
     agent.prompt
@@ -1345,6 +1388,55 @@ export const agentSdkDriver: AgentDriver = {
       console.log(`  [scribe] cost: $${costUsd.toFixed(4)}`);
     }
     return { learnings, costUsd };
+  },
+
+  // Documentation scribe — updates human-facing docs after a run that changed
+  // behaviour. Unlike the learnings scribe it may Write/Edit, but only markdown
+  // docs: the prompt states the boundary and loop.ts ENFORCES it by reverting
+  // any non-doc change afterwards (living-docs.ts rules, MEMORY.md design).
+  async runDocsScribe(ctx: DocsScribeContext): Promise<DocsScribeResult> {
+    const cfg = getConfig();
+    const { data, costUsd } = await runClaude({
+      systemPrompt: DOCS_SCRIBE_SYSTEM,
+      userPrompt: docsScribePrompt(ctx),
+      schema: DOCS_SCRIBE_SCHEMA,
+      allowedTools: ['Read', 'LS', 'Glob', 'Grep', 'Write', 'Edit'],
+      model: cfg.scoutModel,
+      requireFields: ['summary'],
+      verbose: true,
+    });
+    const updatedFiles = Array.isArray(data.updated_files)
+      ? (data.updated_files as unknown[]).map(String)
+      : [];
+    const summary = String(data.summary ?? '');
+    console.log(`  [docs-scribe] ${summary || '(no summary)'}`);
+    if (costUsd) {
+      console.log(`  [docs-scribe] cost: $${costUsd.toFixed(4)}`);
+    }
+    return { updatedFiles, summary, costUsd };
+  },
+
+  // Live service context for PM intake — read-only connector tools only, no file
+  // access. The tool list arrives pre-computed from roster grants
+  // (pm/live-context.ts); this method never adds to it.
+  async runLiveContextScout(brief: string, allowedTools: string[]): Promise<ScoutResult> {
+    const cfg = getConfig();
+    const { data, costUsd } = await runClaude({
+      systemPrompt: LIVE_CONTEXT_SYSTEM,
+      userPrompt: brief,
+      schema: SCOUT_SCHEMA,
+      allowedTools,
+      model: cfg.scoutModel,
+      requireFields: ['digest'],
+      verbose: true,
+    });
+    const summary = String(data.summary ?? '');
+    const digest = String(data.digest ?? '');
+    console.log(`  [live-context] ${summary || '(no summary)'}`);
+    if (costUsd) {
+      console.log(`  [live-context] cost: $${costUsd.toFixed(4)}`);
+    }
+    return { summary, digest, relevantFiles: [], costUsd };
   },
 
   // Read-only research by a HIRED specialist during PM planning. Like runScout,

@@ -14,6 +14,8 @@ import type {
   NegotiatorDecision,
   DeadlockContext,
   ScoutResult,
+  DocsScribeContext,
+  DocsScribeResult,
   ScribeContext,
   ScribeResult,
 } from './types.js';
@@ -130,5 +132,21 @@ export const apiKeyDriver: AgentDriver = {
   // project memory unchanged (empty learnings = the loop writes nothing).
   async runScribe(_ctx: ScribeContext): Promise<ScribeResult> {
     return { learnings: '' };
+  },
+
+  // The docs scribe edits files autonomously via the agent-sdk path; the api-key
+  // path has no tool-using agent, so leave the documentation untouched.
+  async runDocsScribe(_ctx: DocsScribeContext): Promise<DocsScribeResult> {
+    return { updatedFiles: [], summary: 'Docs scribe unavailable on the api-key path.' };
+  },
+
+  // Live context needs MCP connector tools, which only exist on the agent-sdk/Max
+  // driver. Graceful, non-throwing stub.
+  async runLiveContextScout(_brief: string, _allowedTools: string[]): Promise<ScoutResult> {
+    return {
+      summary: 'Live service context unavailable on the api-key path.',
+      digest: '',
+      relevantFiles: [],
+    };
   },
 };

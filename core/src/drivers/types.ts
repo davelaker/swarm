@@ -79,6 +79,18 @@ export interface AgentDriver {
   // learned (conventions, gotchas, constraints) into the project's memory. Invoked
   // directly from the loop on completion — NOT dispatched, NOT in a worktree.
   runScribe(ctx: ScribeContext): Promise<ScribeResult>;
+  // Documentation scribe: after a run that changed files, update the project's
+  // HUMAN-facing docs (README, docs/**) if externally observable behaviour changed.
+  // May edit markdown; loop.ts enforces the doc-only boundary afterwards by
+  // reverting anything outside living-docs.ts rules (MEMORY.md). Invoked directly
+  // from the loop on completion — NOT dispatched, NOT in a worktree.
+  runDocsScribe(ctx: DocsScribeContext): Promise<DocsScribeResult>;
+  // Live service context gatherer for PM intake: queries the given read-only
+  // connector tools (Sentry issues, deploy status, tickets…) and returns a bounded
+  // digest of the project's live surroundings. Tool list is computed from roster
+  // grants by pm/live-context.ts — this method never widens it. Invoked in the
+  // background from the PM flow — NOT dispatched, NOT in a worktree.
+  runLiveContextScout(brief: string, allowedTools: string[]): Promise<ScoutResult>;
 }
 
 export interface ScoutResult {
@@ -99,6 +111,20 @@ export interface ScribeContext {
 
 export interface ScribeResult {
   learnings: string; // full merged memory body as markdown bullets (empty = nothing to record)
+  costUsd?: number;
+}
+
+export interface DocsScribeContext {
+  goal: string;
+  tier: string;
+  findings: Array<{ task: string; agent: string; verdict: string; summary: string }>;
+  filesChanged: string[];
+  docFiles: string[]; // existing documentation files (repo-relative) the scribe may update
+}
+
+export interface DocsScribeResult {
+  updatedFiles: string[]; // repo-relative doc paths the scribe says it edited (loop verifies via git)
+  summary: string; // one line: what changed in the docs, or why nothing needed changing
   costUsd?: number;
 }
 
