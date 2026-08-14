@@ -28,6 +28,7 @@ launch  →  brainstorm (Planning)  →  Charter + approval gate  →  execute (
 | [`MARKETPLACE.md`](MARKETPLACE.md) | Installable, customisable agent templates; per-owner teams; trust & safety for third-party templates. |
 | [`CATALOG.md`](CATALOG.md) | Routing contracts for the default team + the first ten hireable specialists. |
 | [`NEGOTIATOR.md`](NEGOTIATOR.md) | The conflict-resolution agent and its hard safety guardrail. |
+| [`MEMORY.md`](MEMORY.md) | The memory layer: living docs vs `CLAUDE.md` learnings (the delineation), session recall at intake, live service context. |
 | [`BUILD.md`](BUILD.md) | The phased implementation roadmap (risk-ordered), and where the four seams go in. |
 | [`THREATS.md`](THREATS.md) | Adversarial review: trust model, attack surfaces, and a finding register with severities — read alongside the docs it corrects. |
 | [`CONTROLS.md`](CONTROLS.md) | The designed security controls that close the threat findings: **C1** untrusted-content & egress, **C2** gate fail-closed, **C3** in-loop approval, **C4** spend control. (Architectural fixes for A1/A3/A5 live inline in the docs they correct.) |
