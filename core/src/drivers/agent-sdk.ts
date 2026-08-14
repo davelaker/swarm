@@ -62,6 +62,7 @@ import type {
 } from './types.js';
 import type { Task, SwarmState, RosterEntry } from '../state/types.js';
 import { CONNECTOR_BY_ID, mcpToolId } from '../state/connectors.js';
+import { sanitizeArtifactPaths } from '../state/paths.js';
 
 // Compiled permission proxy MCP server (built alongside this file).
 const PERM_PROXY_SERVER = new URL('../../dist/permission-proxy/mcp-server.js', import.meta.url)
@@ -1241,6 +1242,12 @@ export const agentSdkDriver: AgentDriver = {
         summary: { type: 'string', description: 'One-line overall assessment.' },
         detail: { type: 'string', description: '2-3 sentences of context.' },
         findings: { type: 'array', items: { type: 'object' } },
+        files_changed: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Repo-relative paths of every file you wrote or edited. Empty array if you changed nothing.',
+        },
       },
       required: ['verdict', 'summary', 'detail'],
     });
@@ -1250,7 +1257,7 @@ export const agentSdkDriver: AgentDriver = {
       : agent.prompt;
     // Marketplace prompts are user-authored and may not mention the result tool.
     // Append a universal submit instruction so they finish via submit_result.
-    const systemPrompt = `${baseSystemPrompt}\n\n## Submitting your result\nCall the submit_result tool exactly once with: verdict, summary, detail, and findings (array, may be empty). This is the ONLY way to finish — any other text is discarded.`;
+    const systemPrompt = `${baseSystemPrompt}\n\n## Submitting your result\nCall the submit_result tool exactly once with: verdict, summary, detail, findings (array, may be empty), and files_changed (repo-relative paths of every file you wrote or edited; empty array if none). This is the ONLY way to finish — any other text is discarded.`;
 
     const coderTask = state.tasks.find(t => t.assignee === 'coder' && t.status === 'done');
     const userPrompt = [
@@ -1292,6 +1299,10 @@ export const agentSdkDriver: AgentDriver = {
     const summary = String(data.summary ?? 'No summary');
     const detail = String(data.detail ?? '');
     const findings = (data.findings as Record<string, unknown>[] | undefined) ?? [];
+    // Honor the specialist's reported writes (validated repo-relative paths) so
+    // they reach the task's artifacts — previously hardcoded [], which made
+    // write-capable specialists' output invisible to the orchestrator.
+    const filesChanged = sanitizeArtifactPaths(data.files_changed);
 
     const icon = ['APPROVED', 'COMPLETE', 'ADVISORY'].includes(verdict) ? '✓' : '⚠';
     console.log(`  [${agent.id}] ${icon} ${verdict}: ${summary}`);
@@ -1300,7 +1311,7 @@ export const agentSdkDriver: AgentDriver = {
     return {
       verdict,
       summary,
-      filesChanged: [],
+      filesChanged,
       securityFindings: [],
       reviewerFindings: [],
       findingMarkdown: marketplaceFinding(

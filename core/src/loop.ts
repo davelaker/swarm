@@ -191,6 +191,20 @@ function ensureSecurityTask(
 // Everything else — builtin reviewers and marketplace specialists — can block.
 const PRODUCER_AGENTS = new Set(['coder', 'pm', 'negotiator']);
 
+// Every non-marketplace assignee the loop can dispatch. Anything NOT in this
+// set is a hired specialist — the loop commits their main-tree writes itself
+// (coders commit in their worktrees; the rest are read-only by design).
+const BUILTIN_ASSIGNEES = new Set([
+  'coder',
+  'tester',
+  'security',
+  'reviewer',
+  'checks',
+  'visual',
+  'pm',
+  'negotiator',
+]);
+
 // A hired specialist whose output feeds a downstream coder is a research/data
 // PROVIDER, not a gate — its findings are advisory input, never blocking. We
 // detect this structurally: some coder task depends_on this task. Builtin gates
@@ -909,6 +923,25 @@ export async function runLoop(): Promise<LoopResult> {
       if (task.assignee === 'coder' && result.artifacts?.length) {
         const sensitive = await checkSensitivePaths(task, result.artifacts);
         if (sensitive) ensureSecurityTask(getState(), task.id, cfg);
+      }
+
+      // Marketplace specialists run in the MAIN tree with no worktree and no
+      // merge-back — commit their reported writes so the work is preserved and
+      // the next run's clean-tree check doesn't block on a dirty tree. Under
+      // the tree lock so it can never interleave with a coder merge.
+      if (!BUILTIN_ASSIGNEES.has(task.assignee) && result.artifacts?.length) {
+        await withMainTreeLock(async () => {
+          try {
+            git(['add', '--', ...result.artifacts!]);
+            git(['commit', '-m', `chore(swarm): ${task.assignee} output for ${task.id}`]);
+            console.log(`  ▸ committed ${task.assignee} writes: ${result.artifacts!.join(', ')}`);
+          } catch (err) {
+            // Nothing staged (agent over-reported), or hooks — non-fatal, but say so.
+            console.warn(
+              `  ⚠ could not commit ${task.assignee} writes: ${(err as Error).message.slice(0, 200)}`,
+            );
+          }
+        });
       }
 
       updateTask(task.id, {
