@@ -71,7 +71,16 @@ async function checkSensitivePaths(task: Task, artifacts: string[]): Promise<boo
     artifacts.map(async f => {
       try {
         return await fsp.readFile(path.resolve(process.cwd(), f), 'utf8');
-      } catch {
+      } catch (err) {
+        // A missing artifact is normal (the change deleted the file). Anything
+        // else is a silent fail-OPEN on a security escalation — say so loudly
+        // instead of quietly skipping the S2 check for this file.
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+          console.warn(
+            `  ⚠ S2: could not read artifact ${f} for ${task.id} — ` +
+              `sensitive-path check skipped for this file: ${(err as Error).message}`,
+          );
+        }
         return '';
       }
     }),
@@ -930,7 +939,11 @@ export async function runLoop(): Promise<LoopResult> {
           input_tokens: result.inputTokens ?? null,
           output_tokens: result.outputTokens ?? null,
           cost_usd: result.costUsd,
-          context_pct: result.inputTokens ? contextPct(cfg.coderModel, result.inputTokens) : null,
+          // Use THIS task's model — a haiku task (200K window) measured against
+          // the global coder model's 1M window under-reported context use ~5x.
+          context_pct: result.inputTokens
+            ? contextPct(task.model ?? cfg.coderModel, result.inputTokens)
+            : null,
         });
 
         emitCost(totalCost, cfg.hardCapUsd);

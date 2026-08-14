@@ -552,8 +552,22 @@ const SUBMIT_PM_TOOL: Anthropic.Tool = {
             assignee: { type: 'string' },
             title: { type: 'string' },
             depends_on: { type: 'array', items: { type: 'string' } },
+            // Keep model/effort in lockstep with pm/mcp-server.ts SUBMIT_TOOL —
+            // this copy silently lacked both, so on the api-key driver the PM
+            // could never assign per-task models or reasoning effort at all.
+            effort: {
+              type: 'string',
+              enum: ['low', 'medium', 'high', 'xhigh', 'max'],
+              description:
+                "OPTIONAL. How hard the model should think on THIS task. Omit to use the model's own default. 'low' for routine/mechanical work, 'high' for most real work, 'xhigh' for the hardest coding and agentic tasks, 'max' only when correctness matters far more than cost. Raising effort on a cheaper model is often better value than moving up to a pricier one. Ignored automatically on haiku, which does not support it.",
+            },
+            model: {
+              type: 'string',
+              description:
+                "REQUIRED. The Claude model this agent should run on, chosen by THIS task's complexity. The ladder runs cheapest to most expensive, in both cost and capability: 'haiku' ($1/$5 per Mtok — trivial, mechanical, or read-only scans), 'sonnet' ($3/$15 — the standard choice for most coding and review), 'opus' ($5/$25 — hardest / most critical reasoning, security-sensitive or architecturally tricky code, the most rigorous reviews), or 'fable' ($10/$50 — the most capable model AND the most expensive, ~2x opus; reserve for genuinely hard long-horizon work where opus is not enough, never as a fast/cheap option). Pick deliberately per task — do not default everything to one model.",
+            },
           },
-          required: ['id', 'assignee', 'title', 'depends_on'],
+          required: ['id', 'assignee', 'title', 'depends_on', 'model'],
         },
       },
       suggest_compact: { type: 'boolean' },
