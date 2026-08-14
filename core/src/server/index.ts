@@ -30,6 +30,8 @@ import {
   appendLog,
 } from '../state/repo.js';
 import { serverFreshness } from './freshness.js';
+import { checkRequest } from './request-guard.js';
+import { validateRosterPayload, validateCharterGraph } from './validate.js';
 import { runPreflight, uniqueSwarmBranch } from './preflight.js';
 import { rewindTask } from './rewind.js';
 import { buildStructuredDiff, buildTaskDiff } from './diff.js';
@@ -334,7 +336,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(
         JSON.stringify({
@@ -354,7 +355,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       const driver = getDriverMode();
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(
         JSON.stringify({
@@ -379,7 +379,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     // the dirty-tree / wrong-repo footguns before a run instead of as a raw 400.
     res.writeHead(200, {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
     });
     res.end(JSON.stringify(runPreflight(getRoot())));
     return;
@@ -390,7 +389,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     // the dashboard can nudge for a restart (tsx loads source once at startup).
     res.writeHead(200, {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
     });
     res.end(JSON.stringify(serverFreshness()));
     return;
@@ -402,17 +400,15 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     // Planning and seeds the PM's brief from one. Degrades to [] when gh is missing,
     // unauthenticated, or the repo has no GitHub remote — intake is optional, never
     // an error the dashboard has to handle.
-    execFileAsync(
-      'gh',
-      ['issue', 'list', '--json', 'number,title,updatedAt', '--limit', '30'],
-      { cwd: getRoot() },
-    )
+    execFileAsync('gh', ['issue', 'list', '--json', 'number,title,updatedAt', '--limit', '30'], {
+      cwd: getRoot(),
+    })
       .then(r => {
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(r.stdout || '[]');
       })
       .catch(() => {
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end('[]');
       });
     return;
@@ -429,7 +425,7 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       cwd: getRoot(),
     })
       .then(r => {
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(r.stdout);
       })
       .catch((err: Error) => {
@@ -448,7 +444,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     const cfg = getConfigOptional();
     res.writeHead(200, {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
     });
     res.end(
       JSON.stringify({
@@ -480,7 +475,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       }
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(JSON.stringify({ playwright }));
     })();
@@ -543,7 +537,7 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       ? { relPath: 'CLAUDE.md', content: fs.readFileSync(pcf, 'utf8') }
       : null;
 
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ projectMd, contextFiles }));
     return;
   }
@@ -552,7 +546,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     // The persisted review draft (comments left on the diff).
     res.writeHead(200, {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
     });
     res.end(JSON.stringify({ comments: readReview() }));
     return;
@@ -571,14 +564,12 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       .then(structured => {
         res.writeHead(200, {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
         });
         res.end(JSON.stringify(structured));
       })
       .catch((err: Error) => {
         res.writeHead(500, {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
         });
         res.end(JSON.stringify({ error: err.message, source: 'error', files: [] }));
       });
@@ -592,14 +583,12 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       .then(structured => {
         res.writeHead(200, {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
         });
         res.end(JSON.stringify(structured));
       })
       .catch((err: Error) => {
         res.writeHead(500, {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
         });
         res.end(JSON.stringify({ error: err.message, source: 'error', files: [] }));
       });
@@ -646,7 +635,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
         if (combined.trim()) {
           res.writeHead(200, {
             'Content-Type': 'text/plain; charset=utf-8',
-            'Access-Control-Allow-Origin': '*',
           });
           res.end(combined);
           return;
@@ -664,7 +652,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
             if (stdout.trim()) {
               res.writeHead(200, {
                 'Content-Type': 'text/plain; charset=utf-8',
-                'Access-Control-Allow-Origin': '*',
               });
               res.end(stdout);
               return;
@@ -677,14 +664,12 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
         // Genuinely nothing to show
         res.writeHead(200, {
           'Content-Type': 'text/plain; charset=utf-8',
-          'Access-Control-Allow-Origin': '*',
         });
         res.end('');
       })
       .catch(() => {
         res.writeHead(200, {
           'Content-Type': 'text/plain; charset=utf-8',
-          'Access-Control-Allow-Origin': '*',
         });
         res.end('');
       });
@@ -780,7 +765,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(JSON.stringify({ branches, defaultBranch, repoUrl: githubUrl }));
     })().catch(err => {
@@ -819,7 +803,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(JSON.stringify({ commits }));
     })().catch(err => {
@@ -843,7 +826,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       if (!branchName) {
         res.writeHead(200, {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
         });
         res.end(JSON.stringify({ pushed: false, alreadyInMain: false, pr: null }));
         return;
@@ -911,7 +893,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
 
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(JSON.stringify({ pushed, alreadyInMain, pr }));
     })().catch(err => {
@@ -926,7 +907,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     if (!fs.existsSync(dir)) {
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(JSON.stringify({ sessions: [] }));
       return;
@@ -973,7 +953,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
         .sort((a, b) => b!.savedAt.localeCompare(a!.savedAt));
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(JSON.stringify({ sessions }));
     } catch (err) {
@@ -1000,7 +979,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       const snap = fs.readFileSync(indexPath, 'utf8');
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(snap);
     } catch (err) {
@@ -1047,7 +1025,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       res.writeHead(200, {
         'Content-Type': mime,
         'Cache-Control': 'no-cache',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(bytes);
     } catch {
@@ -1075,7 +1052,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       const content = fs.readFileSync(abs, 'utf8');
       res.writeHead(200, {
         'Content-Type': 'text/plain; charset=utf-8',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(content);
     } catch {
@@ -1102,13 +1078,11 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       const parent = path.dirname(target) !== target ? path.dirname(target) : null;
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(JSON.stringify({ path: target, parent, entries: dirs }));
     } catch {
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       });
       res.end(
         JSON.stringify({ path: target, parent: null, entries: [], error: 'Cannot read directory' }),
@@ -1119,13 +1093,13 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
 
   if (url.pathname === '/marketplace/scorecards') {
     // Per-agent track records aggregated across all saved runs.
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ scorecards: buildScorecards() }));
     return;
   }
 
   if (url.pathname === '/marketplace/roster') {
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(loadRoster()));
     return;
   }
@@ -1135,14 +1109,12 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       .then(available => {
         res.writeHead(200, {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
         });
         res.end(JSON.stringify({ available: [...available] }));
       })
       .catch(() => {
         res.writeHead(200, {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
         });
         res.end(JSON.stringify({ available: [] }));
       });
@@ -1150,7 +1122,7 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   }
 
   if (url.pathname === '/agent-prompts') {
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(
       JSON.stringify({
         pm: PM_SYSTEM,
@@ -1166,13 +1138,13 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   }
 
   if (url.pathname === '/agent-instructions') {
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(loadBuiltinInstructions()));
     return;
   }
 
   if (url.pathname === '/agent-models') {
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(loadBuiltinModels()));
     return;
   }
@@ -1182,7 +1154,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
     });
     res.write(':ok\n\n'); // initial ping so the client knows it's connected
 
@@ -1194,8 +1165,26 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   // Serve the built UI from ui/dist if it exists, otherwise 404.
   const uiDist = path.resolve(import.meta.dirname, '../../..', 'ui', 'dist');
   if (fs.existsSync(uiDist)) {
+    // Contain explicitly (URL parsing normalizes ../, but don't rely on it) and
+    // fall back to index.html for anything that isn't a real file — including
+    // directories, which would otherwise EISDIR on a listener-less stream and
+    // take down the whole process (a stale /assets bookmark could kill a run).
+    const isFile = (p: string): boolean => {
+      try {
+        return fs.statSync(p).isFile();
+      } catch {
+        return false;
+      }
+    };
     let filePath = path.join(uiDist, url.pathname === '/' ? 'index.html' : url.pathname);
-    if (!fs.existsSync(filePath)) filePath = path.join(uiDist, 'index.html'); // SPA fallback
+    if (!filePath.startsWith(uiDist + path.sep) || !isFile(filePath)) {
+      filePath = path.join(uiDist, 'index.html'); // SPA fallback
+    }
+    if (!isFile(filePath)) {
+      res.writeHead(404);
+      res.end('Not found');
+      return;
+    }
     const ext = path.extname(filePath);
     const mime: Record<string, string> = {
       '.html': 'text/html',
@@ -1206,7 +1195,12 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       '.png': 'image/png',
     };
     res.writeHead(200, { 'Content-Type': mime[ext] ?? 'application/octet-stream' });
-    fs.createReadStream(filePath).pipe(res);
+    const stream = fs.createReadStream(filePath);
+    stream.on('error', err => {
+      console.warn(`  ⚠ static file read failed: ${(err as Error).message}`);
+      res.destroy();
+    });
+    stream.pipe(res);
     return;
   }
 
@@ -1214,24 +1208,72 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   res.end('Not found');
 }
 
+// A hostile or buggy client must never be able to kill the orchestrator with a
+// single request: cap the body size, refuse malformed JSON with a 400, and keep
+// any handler throw inside this request instead of letting an unhandled
+// rejection take down the process (Node exits on those by default).
+const MAX_BODY_BYTES = 5 * 1024 * 1024;
+
 function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
-  // Actions from the UI — Phase 3 wires these to real orchestrator state.
-  // Stubs that acknowledge and return 200 so the UI doesn't error.
-  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Content-Type', 'application/json');
 
   let body = '';
+  let tooLarge = false;
   req.on('data', d => {
     body += d;
+    if (body.length > MAX_BODY_BYTES && !tooLarge) {
+      tooLarge = true;
+      res.writeHead(413);
+      res.end(JSON.stringify({ error: 'request body too large' }));
+      req.destroy();
+    }
   });
   req.on('end', async () => {
-    const payload = body ? JSON.parse(body) : {};
+    if (tooLarge) {
+      return;
+    }
+    let payload: unknown;
+    try {
+      payload = body ? JSON.parse(body) : {};
+    } catch {
+      res.writeHead(400);
+      res.end(JSON.stringify({ error: 'invalid JSON body' }));
+      return;
+    }
+    try {
+      await routePost(req, res, url, payload);
+    } catch (err) {
+      console.error(`  ✗ ${url.pathname} handler error:`, err);
+      if (!res.headersSent) {
+        res.writeHead(500);
+      }
+      if (!res.writableEnded) {
+        res.end(JSON.stringify({ error: (err as Error).message }));
+      }
+    }
+  });
+}
+
+// Actions from the UI — routes below assume a parsed, size-capped JSON payload.
+async function routePost(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  url: URL,
+  rawPayload: unknown,
+): Promise<void> {
+  const payload = rawPayload as Record<string, unknown>;
+  {
     const route = url.pathname;
 
     if (route === '/marketplace/roster') {
+      const valid = validateRosterPayload(rawPayload);
+      if (!valid.ok) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: valid.error }));
+        return;
+      }
       try {
-        const roster = Array.isArray(payload) ? payload : [];
-        saveRoster(roster);
+        saveRoster(valid.value);
         res.writeHead(200);
         res.end(JSON.stringify({ ok: true }));
       } catch (err) {
@@ -1302,7 +1344,6 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
       });
 
       const sendPmEvent = (data: unknown) => {
@@ -1415,7 +1456,9 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
       }
       const result = rewindTask(getRoot(), rewindTaskId.trim());
       if (result.ok) {
-        console.log(`  ▸ rewind ${rewindTaskId}: reverted ${result.reverted.slice(0, 8)} as ${result.revertCommit.slice(0, 8)}`);
+        console.log(
+          `  ▸ rewind ${rewindTaskId}: reverted ${result.reverted.slice(0, 8)} as ${result.revertCommit.slice(0, 8)}`,
+        );
       }
       res.writeHead(result.ok ? 200 : 422);
       res.end(JSON.stringify(result));
@@ -1716,6 +1759,14 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
         res.end(JSON.stringify({ error: 'goal required' }));
         return;
       }
+      // Task ids flow into branch names, worktree paths, and diff file paths —
+      // reject malformed graphs (bad ids, dangling deps, cycles) before dispatch.
+      const graphCheck = validateCharterGraph(charter);
+      if (!graphCheck.ok) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: graphCheck.error }));
+        return;
+      }
 
       // ── Git safety check (synchronous, before 200) ───────────────────────────
       // Must run here — not inside the async runNew() — so we can return a 4xx
@@ -1980,7 +2031,7 @@ function handlePost(req: http.IncomingMessage, res: http.ServerResponse, url: UR
 
     res.writeHead(404);
     res.end(JSON.stringify({ error: 'unknown route' }));
-  });
+  }
 }
 
 export function startServer(port: number): http.Server {
@@ -1991,12 +2042,21 @@ export function startServer(port: number): http.Server {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://127.0.0.1:${port}`);
 
+    // Browser boundary (THREATS.md S3): reject foreign Origin (drive-by pages)
+    // and foreign Host (DNS rebinding) before touching any route. The UI is
+    // same-origin in prod and dev, so no CORS headers exist anywhere — a foreign
+    // page's requests fail both preflight-less fetch reads and EventSource.
+    const guard = checkRequest(req.headers.host, req.headers.origin, port);
+    if (!guard.ok) {
+      console.warn(`  ⚠ blocked request: ${guard.reason} (${req.method} ${url.pathname})`);
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'forbidden' }));
+      return;
+    }
+
     if (req.method === 'OPTIONS') {
-      res.writeHead(204, {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type',
-      });
+      // Same-origin app: no CORS preflights are expected or granted.
+      res.writeHead(204);
       res.end();
       return;
     }
