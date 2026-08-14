@@ -87,6 +87,29 @@ Three pieces make that real — know they exist before touching the gate/finding
   empty). It MERGES (returns the full body) and must not write a changelog of the run.
   Best-effort — never fail a finished run on it. api-key driver returns empty (no-op).
 
+- **Docs scribe / living documentation** (`drivers/*.runDocsScribe`, `loop.ts`
+  `updateLivingDocs`, `agents/living-docs.ts`). A SECOND post-run scribe that updates
+  HUMAN-facing docs (README, docs/**) when a run changed externally observable
+  behaviour — the delineation vs `## Swarm Learnings` is specified in `docs/MEMORY.md`;
+  keep the two scribes' scopes separate. Unlike the learnings scribe it may Write/Edit,
+  and the doc-only boundary is **code-enforced in the loop, not trusted to the prompt**:
+  `git status --porcelain` is snapshotted before/after and any newly changed path that
+  fails `isLivingDocPath` (markdown only; never CLAUDE.md/CONTEXT.md/AGENTS.md or
+  `.swarm/`) is reverted before doc changes are committed. Don't weaken that revert
+  path; extend `living-docs.ts` (pure, unit-tested) if the rules need to change.
+
+- **PM intake memory** (`state/session-recall.ts`, `pm/live-context.ts`). Planning
+  prompts are enriched with (a) episodic recall of prior `.swarm/sessions/` snapshots
+  (pure scoring: goal/file token overlap, file hits ×2) and (b) a live service digest
+  (Sentry/Linear/GitHub/Vercel/Datadog) gathered in the BACKGROUND and cached in
+  `.swarm/live-context.md` with a 10-min TTL — both follow the repo-digest pattern:
+  kicked only after the turn's PM call finishes so they never contend with it. Live
+  context uses ONLY read-only connector tools already granted to a hired specialist,
+  intersected with the curated `INTAKE_SOURCES` set — grants are the permission
+  boundary; never widen the tool list inside the driver. Injected third-party content
+  is data-not-instructions (C1) — the trust rule lives in both the gather prompt and
+  PM_SYSTEM.
+
 - **Negotiator guardrail** (`loop.ts` `firstNonNegotiable`). The Negotiator is fully wired
   (SPAWN_FIX/DOWNGRADE/ABORT on deadlock). The §2 promise — *it can never rule away a
   correctness/safety finding* — is **code-enforced**: a DOWNGRADE targeting a

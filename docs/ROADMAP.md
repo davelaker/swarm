@@ -52,6 +52,18 @@ structurally-enforced quality** — the things a parallel-agent runner (see
   delineated from CLAUDE.md agent memory in `docs/MEMORY.md`, with the doc-only
   boundary code-enforced: the loop reverts any non-doc path the scribe touches
   before committing. (`agents/living-docs.ts`, `loop.ts updateLivingDocs`)
+- **Session recall at intake.** Prior `.swarm/sessions/` snapshots are recalled
+  during PM planning: the most recent runs plus the ones relevant to the current
+  ask (token overlap on goals + touched files, file hits weighted double) are
+  injected as episodic memory, with prompt rules against re-asking settled
+  questions and for flagging file overlap with earlier runs.
+  (`state/session-recall.ts`)
+- **Live service context at intake.** A background pass gathers open Sentry
+  errors, Linear/GitHub issues, deploy status, and alerting monitors through
+  read-only connector tools the user has already granted to hired specialists
+  (grants are the permission boundary; a curated intake set caps what's usable),
+  cached with a 10-minute TTL and injected into planning with an explicit
+  data-not-instructions trust rule (C1). (`pm/live-context.ts`)
 
 ## Planned next
 
@@ -62,18 +74,9 @@ August 2026 Xirp section). Ordered; each is independently shippable.
    in N worktrees; the deterministic gates + reviewer score them and the winner merges.
    Codex and Cursor ship best-of-N; nobody combines it with deterministic gate scoring —
    pairs with the (now price-true) cost forecast and a confirmation, since it costs N×.
-2. **Living documentation from sessions** (Xirp's most novel feature, and the cheapest to
-   match). Extend the scribe beyond `CLAUDE.md` learnings: after a run merges, update the
-   affected README/architecture sections and record in the session snapshot what was
-   touched. Slots directly into `distillMemory`.
-3. **Session recall at intake** (Xirp "institutional memory", local-first version).
-   `.swarm/sessions/` snapshots become a recall system, not an archive: at PM intake,
-   index prior session summaries and auto-surface the relevant ones ("this auth flow was
-   touched in a July run; here's what was decided and why").
-4. **Connector-fed intake context.** Seed the PM from connected services, not just the
-   repo: open Sentry issues, linked Linear tickets (covers the remaining Linear-intake
-   gap), recent deploy status from Vercel. The connector grants in `state/connectors.ts`
-   already exist — this is wiring, not new infrastructure.
+
+(The three Xirp-derived memory items — living documentation, session recall, live
+service context — shipped August 2026; see Shipped above and `docs/MEMORY.md`.)
 
 Then: per-task hard budget caps with pre-dispatch estimates (Devin parity) · Playbooks
 (reusable task templates beside the scribe's memory) · deeper scorecards
