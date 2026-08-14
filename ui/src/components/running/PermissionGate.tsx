@@ -137,7 +137,7 @@ export function PermissionGate({
         left: '50%',
         transform: 'translateX(-50%)',
         zIndex: 2000,
-        width: 'min(640px, calc(100vw - 48px)',
+        width: 'min(640px, calc(100vw - 48px))',
         background: 'var(--bg-1)',
         border: '1px solid var(--border)',
         borderRadius: 12,

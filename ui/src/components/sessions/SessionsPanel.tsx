@@ -78,7 +78,7 @@ function SessionRow({
         padding: '10px 14px',
         background: active ? 'var(--bg-2)' : 'transparent',
         border: 'none',
-        borderBottom: '1px solid var(--br)',
+        borderBottom: '1px solid var(--border)',
         cursor: 'pointer',
         transition: 'background 0.1s',
       }}
@@ -167,7 +167,7 @@ export function SessionsPanel({ onSelectSession, activeSessionId }: SessionsPane
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '12px 16px',
-          borderBottom: '1px solid var(--br)',
+          borderBottom: '1px solid var(--border)',
           flexShrink: 0,
         }}
       >
@@ -204,7 +204,7 @@ export function SessionsPanel({ onSelectSession, activeSessionId }: SessionsPane
             fontSize: 12,
             color: 'var(--red)',
             fontFamily: 'var(--mono)',
-            borderBottom: '1px solid var(--br)',
+            borderBottom: '1px solid var(--border)',
           }}
         >
           {error ?? loadErr}
@@ -281,7 +281,7 @@ export function SessionsPanel({ onSelectSession, activeSessionId }: SessionsPane
         )}
       </div>
 
-      <div style={{ padding: '10px 16px', borderTop: '1px solid var(--br)', flexShrink: 0 }}>
+      <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
         <p style={{ margin: 0, fontSize: 11, color: 'var(--tx-3)', lineHeight: 1.5 }}>
           Click a session to view it in Running and Planning tabs.
         </p>

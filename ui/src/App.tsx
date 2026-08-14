@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { Surface, SessionSnapshot } from './types';
 import { Planning } from './components/planning/Planning';
 import { Running } from './components/running/Running';
@@ -7,6 +7,9 @@ import { Marketplace } from './components/marketplace/Marketplace';
 import { SessionsPanel } from './components/sessions/SessionsPanel';
 import { ProjectSwitcher } from './components/common/ProjectSwitcher';
 import { StaleServerBanner } from './components/common/StaleServerBanner';
+import { PermissionGate } from './components/running/PermissionGate';
+import { useRealRun } from './hooks/useRealRun';
+import { useRunNotifications } from './hooks/useRunNotifications';
 import { IconGitHub, IconFolder } from './components/common/icons';
 
 export type ServerStatus = 'probing' | 'up' | 'down';
@@ -89,6 +92,15 @@ export function App() {
   // completed). The Running tab waits behind a loading screen until this is set
   // so we never show a flash of the wrong project's state.
   const [projectSynced, setProjectSynced] = useState(false);
+  // Last activeRun seen by the probe — the running-tab snap fires on the
+  // false→true transition only (see the probe below).
+  const prevActiveRun = useRef(false);
+
+  // The live run connection lives HERE, above the surface switch: switching
+  // tabs must never close the SSE stream, wipe live transcripts/spend, or —
+  // worst of all — hide a pending permission request until it auto-denies.
+  const run = useRealRun(projectRoot);
+  useRunNotifications(run.state?.status ?? 'running', run.state?.pendingPermission != null);
 
   // Single server probe — retries every 3s, also reads project name when up. Hits the
   // lightweight /health endpoint (not /state) so this frequent poll doesn't re-read every
@@ -174,10 +186,12 @@ export function App() {
               setProjectSynced(true);
             }
 
-            // If the server says a run is active, snap to the Running tab regardless
-            // of what localStorage says — guards against the page being closed and
-            // reopened mid-run without localStorage being set.
-            if (s.activeRun) setSurface('running');
+            // If a run has just STARTED (or the page was reopened mid-run), snap to
+            // the Running tab. Transition-guarded: only fires when activeRun flips
+            // false→true, never on every 3s probe — the un-guarded version yanked
+            // the user back from Branches/Agents/History for the whole run.
+            if (s.activeRun && !prevActiveRun.current) setSurface('running');
+            prevActiveRun.current = !!s.activeRun;
             // driver: 'agent-sdk' → Max plan credit pool; 'api-key' → show model name
             if (s.driver === 'agent-sdk') {
               setModelLabel('Max plan');
@@ -601,6 +615,7 @@ export function App() {
           ) : (
             <Running
               key={projectRoot ?? 'init'}
+              run={run}
               onPrCreated={onPrCreated}
               onRunDone={() => setRunDone(true)}
               isInitiating={isInitiating}
@@ -627,6 +642,13 @@ export function App() {
           />
         )}
       </div>
+
+      {/* Above the surface switch: an agent blocked on approval must be visible
+          (and answerable) from EVERY tab, not just Running — before this hoist
+          the request silently auto-denied if you happened to be elsewhere. */}
+      {run.state?.pendingPermission && (
+        <PermissionGate request={run.state.pendingPermission} onResolve={run.resolvePermission} />
+      )}
     </div>
   );
 }

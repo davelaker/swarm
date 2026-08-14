@@ -176,11 +176,16 @@ export interface RealRunState {
 
 export type ServerStatus = 'probing' | 'down' | 'up';
 
-export function useRealRun(): {
+export interface RealRun {
   serverStatus: ServerStatus;
   state: RealRunState | null;
   resolvePermission: (requestId: string, decision: 'allow' | 'deny') => void;
-} {
+}
+
+// Lives at App level (above the surface switch) so tab switches never drop the
+// SSE stream or the live-only state. `resetKey` (the project root) is the one
+// thing that SHOULD reset everything — switching projects reconnects fresh.
+export function useRealRun(resetKey?: string | null): RealRun {
   const [serverStatus, setServerStatus] = useState<ServerStatus>('probing');
   const [state, setState] = useState<RealRunState | null>(null);
   const esRef = useRef<EventSource | null>(null);
@@ -282,24 +287,28 @@ export function useRealRun(): {
 
         retryCount.current = 0; // successful connect — reset back-off
         setServerStatus('up');
-        setState({
+        // MERGE over any previous state rather than replacing it: the snapshot
+        // doesn't carry the live-only fields (per-task transcripts, timings,
+        // spend, a pending permission), so wiping them on every refetch reset
+        // the spend readout to $0 and destroyed the activity log mid-run.
+        setState(prev => ({
           project: snap.project,
           tier: snap.tier,
           tasks,
           agents,
-          taskActivity: {},
-          taskTimings: {},
+          taskActivity: prev?.taskActivity ?? {},
+          taskTimings: prev?.taskTimings ?? {},
           findings,
           pmMsgs,
           status: allDone ? 'done' : 'running',
           connected: true,
-          spend: 0,
-          spendCap: 2,
+          spend: prev?.spend ?? 0,
+          spendCap: prev?.spendCap ?? 2,
           pushed,
           branchName: snap.branchName,
           elapsedMs,
-          pendingPermission: null,
-        });
+          pendingPermission: prev?.pendingPermission ?? null,
+        }));
       })
       .catch(() => {
         if (!mounted.current) return;
@@ -351,6 +360,12 @@ export function useRealRun(): {
 
   useEffect(() => {
     const mounted = { current: true };
+    // A project switch is a genuinely different run — drop everything and
+    // reconnect from scratch. (Tab switches no longer reach this: the hook
+    // lives at App level and only resetKey changes re-run the effect.)
+    setState(null);
+    setServerStatus('probing');
+    retryCount.current = 0;
     connect(mounted);
     return () => {
       mounted.current = false;
@@ -358,7 +373,8 @@ export function useRealRun(): {
       esRef.current = null;
       if (retryRef.current) clearTimeout(retryRef.current);
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey]);
 
   const resolvePermission = useCallback((requestId: string, decision: 'allow' | 'deny') => {
     fetch(`/run/permission/${requestId}`, {

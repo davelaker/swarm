@@ -1,14 +1,12 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import type React from 'react';
 import { useRunSimulation } from '../../hooks/useRunSimulation';
-import { useRealRun } from '../../hooks/useRealRun';
-import { useRunNotifications } from '../../hooks/useRunNotifications';
+import type { RealRun } from '../../hooks/useRealRun';
 import { NotifyToggle } from './NotifyToggle';
 import { TaskGraph } from './TaskGraph';
 import { AgentsPanel } from './AgentsPanel';
 import { FindingsFeed } from './FindingsFeed';
 import { ChangesPanel } from './ChangesPanel';
-import { PermissionGate } from './PermissionGate';
 import { InboxPanel } from './InboxPanel';
 import { Message } from '../planning/Message';
 import { IconSend } from '../common/icons';
@@ -976,6 +974,10 @@ function RunView({
       {!connected && (
         <div
           style={{
+            // .run is a 5-column grid — without explicit placement this
+            // auto-flowed into the 340px first column and rendered as a
+            // cramped corner strip instead of a full-width banner.
+            gridColumn: '1 / -1',
             display: 'flex',
             alignItems: 'center',
             gap: 8,
@@ -1316,27 +1318,28 @@ function HistoricalRunView({ session }: { session: SessionSnapshot }) {
 // ─── Running: real backend or server-down screen ──────────────────────────────
 
 export function Running({
+  run,
   onPrCreated,
   onRunDone,
   isInitiating,
   noActiveRun,
   historicalSession,
 }: {
+  // Owned by App (above the surface switch) so tab switches never close the
+  // SSE stream, drop live transcripts, or hide the permission gate.
+  run: RealRun;
   onPrCreated?: (url: string) => void;
   onRunDone?: () => void;
   isInitiating?: boolean;
   noActiveRun?: boolean;
   historicalSession?: SessionSnapshot;
 }) {
-  const { serverStatus, state, resolvePermission } = useRealRun();
+  const { serverStatus, state } = run;
 
   // Owned here (not in RunView) so the diff stays open across a review-fix run, which
   // briefly empties the task list and would otherwise remount RunView and close it.
   const [showChanges, setShowChanges] = useState(false);
   const toggleShowChanges = useCallback(() => setShowChanges(v => !v), []);
-
-  // Desktop notification + chime on finish / stop / needs-approval (opt-in via the bell).
-  useRunNotifications(state?.status ?? 'running', state?.pendingPermission != null);
 
   // Notify parent once when the run transitions to done.
   // Reset the flag when a new run starts so it fires again on subsequent runs.
@@ -1477,9 +1480,6 @@ export function Running({
         onToggleShowChanges={toggleShowChanges}
         pendingPermission={state.pendingPermission}
       />
-      {state.pendingPermission && (
-        <PermissionGate request={state.pendingPermission} onResolve={resolvePermission} />
-      )}
     </>
   );
 }
