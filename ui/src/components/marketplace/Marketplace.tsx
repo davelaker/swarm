@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { MarketAgent, HiredAgent } from '../../types';
-import { MARKET_AGENTS, AGENT_BY_ID, BUILTINS, UX_UPGRADE } from '../../data/marketAgents';
+import { MARKET_AGENTS, AGENT_BY_ID, BUILTINS } from '../../data/marketAgents';
 import { AgentCard } from './AgentCard';
 import { useScorecards } from '../../hooks/useScorecards';
 import { AgentPage } from './AgentPage';
 import { BuiltinDrawer } from './BuiltinDrawer';
 import { MyTeam } from './MyTeam';
-import { UpgradeModal } from './UpgradeModal';
 import { SearchBar } from './shared';
 
 // ─── Roster persistence ───────────────────────────────────────────────────────
@@ -61,7 +60,6 @@ export function Marketplace({
   const [roleF, setRoleF] = useState('All');
   const [query, setQuery] = useState('');
   const [drawer, setDrawer] = useState<MarketAgent | null>(null);
-  const [upgrading, setUpgrading] = useState(false);
   const [team, setTeam] = useState<HiredAgent[]>([]);
   const [viewingBuiltin, setViewingBuiltin] = useState<string | null>(null);
   const scorecards = useScorecards();
@@ -107,24 +105,6 @@ export function Marketplace({
     setTab('team');
   };
 
-  const applyUpgrade = () => {
-    const next = team.map(h =>
-      h.id === 'ux'
-        ? {
-            ...h,
-            version: UX_UPGRADE.to,
-            upgradeAvailable: false,
-            grantedTools: [
-              ...h.grantedTools,
-              { name: UX_UPGRADE.newTool.name, sens: UX_UPGRADE.newTool.sens },
-            ],
-          }
-        : h,
-    );
-    saveTeam(next);
-    setUpgrading(false);
-  };
-
   // Route clicks on team rows to the right drawer.
   const handleViewAgent = (id: string) => {
     if (BUILTIN_IDS.has(id)) {
@@ -159,7 +139,6 @@ export function Marketplace({
               saveTeam(team.map(h => (h.id === id ? { ...h, enabled: !h.enabled } : h)))
             }
             onRemove={id => saveTeam(team.filter(h => h.id !== id))}
-            onUpgrade={() => setUpgrading(true)}
             onViewAgent={handleViewAgent}
             onBrowse={() => setTab('browse')}
           />
@@ -217,7 +196,6 @@ export function Marketplace({
           onConfirm={doHire}
         />
       )}
-      {upgrading && <UpgradeModal onClose={() => setUpgrading(false)} onApply={applyUpgrade} />}
       {viewingBuiltin && (
         <BuiltinDrawer agentId={viewingBuiltin} onClose={() => setViewingBuiltin(null)} />
       )}

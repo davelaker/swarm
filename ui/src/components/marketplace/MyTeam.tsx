@@ -1,6 +1,6 @@
 import type { HiredAgent } from '../../types';
 import { PERSONAS } from '../../data/personas';
-import { AGENT_BY_ID, BUILTINS, UX_UPGRADE } from '../../data/marketAgents';
+import { AGENT_BY_ID, BUILTINS } from '../../data/marketAgents';
 import { AgentIcon, RoleChip, LockBadge, rgba } from './shared';
 import { ScorecardInline } from './Scorecard';
 import type { Scorecard } from '../../hooks/useScorecards';
@@ -16,7 +16,6 @@ interface MyTeamProps {
   scorecards: Record<string, Scorecard>;
   onToggle: (id: string) => void;
   onRemove: (id: string) => void;
-  onUpgrade: (id: string) => void;
   onViewAgent: (id: string) => void;
   onBrowse: () => void;
 }
@@ -27,7 +26,6 @@ export function MyTeam({
   scorecards,
   onToggle,
   onRemove,
-  onUpgrade,
   onViewAgent,
   onBrowse,
 }: MyTeamProps) {
@@ -154,17 +152,6 @@ export function MyTeam({
                 <div className="trow-name">
                   {a.name}
                   <LockBadge>v{h.version}</LockBadge>
-                  {h.upgradeAvailable && (
-                    <span
-                      className="upgrade-badge"
-                      onClick={e => {
-                        e.stopPropagation();
-                        onUpgrade(h.id);
-                      }}
-                    >
-                      ↑ Upgrade to {UX_UPGRADE.to}
-                    </span>
-                  )}
                 </div>
                 <div className="trow-sub">
                   <RoleChip role={a.role} />

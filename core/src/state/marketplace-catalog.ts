@@ -66,7 +66,7 @@ export const MARKETPLACE_CATALOG: CatalogAgent[] = [
     id: 'docs',
     name: 'Documentation Writer',
     role: 'Docs',
-    desc: 'Writes and updates docs from the diff and the charter, in your voice.',
+    desc: 'Commissioned documentation — guides, changelogs, API references. (The built-in scribe handles routine post-run doc truth-keeping.)',
   },
   {
     id: 'refactor',
