@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { MarketAgent, HiredAgent } from '../../types';
 import { MARKET_AGENTS, AGENT_BY_ID, BUILTINS } from '../../data/marketAgents';
+import { assessStaleness, syncRoster } from '../../data/rosterSync';
 import { AgentCard } from './AgentCard';
 import { useScorecards } from '../../hooks/useScorecards';
 import { AgentPage } from './AgentPage';
@@ -139,6 +140,10 @@ export function Marketplace({
               saveTeam(team.map(h => (h.id === id ? { ...h, enabled: !h.enabled } : h)))
             }
             onRemove={id => saveTeam(team.filter(h => h.id !== id))}
+            staleness={Object.fromEntries(
+              team.map(h => [h.id, assessStaleness(h, AGENT_BY_ID[h.id])]),
+            )}
+            onSyncRoster={() => saveTeam(syncRoster(team, AGENT_BY_ID))}
             onViewAgent={handleViewAgent}
             onBrowse={() => setTab('browse')}
           />

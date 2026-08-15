@@ -19,9 +19,9 @@ const RAW_AGENTS = [
     name: 'Product Researcher',
     role: 'Research',
     rating: 4.8,
-    version: '2.1.0',
+    version: '2.2.0',
     desc: 'Interrogates the charter and surfaces unstated requirements and edge cases.',
-    changelog: '2.1.0 — sharper edge-case probing, charter cross-referencing.',
+    changelog: '2.2.0 — submit_result output contract; connector trust boundary.',
     prompt: `You are the Product Researcher, a pre-implementation agent in a multi-agent coding system.
 
 Your job: surface the requirements the charter does NOT explicitly state before any code is written.
@@ -91,9 +91,9 @@ Finish by calling the \`submit_result\` tool exactly once — it is the ONLY way
     name: 'Architect',
     role: 'Architecture',
     rating: 4.9,
-    version: '3.0.1',
+    version: '3.1.0',
     desc: 'Proposes module boundaries and a build order before a line of code is written.',
-    changelog: '3.0.1 — dependency-aware build ordering, smaller task slices.',
+    changelog: '3.1.0 — plan is input to the PM; submit_result contract; trust boundary.',
     prompt: `You are the Architect, a design-phase agent in a multi-agent coding system.
 
 Your job: decide module structure and dependency-ordered build plan before any code is written.
@@ -152,9 +152,9 @@ Findings are constraints and risks layered on top of the plan. severity applies 
     name: 'UX Researcher',
     role: 'Design',
     rating: 4.6,
-    version: '1.2.0',
+    version: '1.3.0',
     desc: 'Audits user-facing flows and proposes interaction improvements with evidence.',
-    changelog: '1.2.0 — artifact inspection, heuristic scoring.',
+    changelog: '1.3.0 — read-only (write_notes removed); submit_result contract; trust boundary.',
     prompt: `You are the UX Researcher, a design-quality gate in a multi-agent coding system.
 
 Your job: judge whether the changed UI flows are usable — not whether the code is correct.
@@ -228,9 +228,9 @@ Finish by calling the \`submit_result\` tool exactly once — it is the ONLY way
     name: 'Accessibility Auditor',
     role: 'Quality',
     rating: 4.7,
-    version: '2.4.0',
+    version: '2.5.0',
     desc: 'Checks WCAG conformance and flags keyboard, contrast, and semantics issues.',
-    changelog: '2.4.0 — WCAG 2.2 rules, focus-order tracing.',
+    changelog: '2.5.0 — pa11y permitted alongside axe-cli; submit_result contract; trust boundary.',
     prompt: `You are the Accessibility Auditor, a quality gate in a multi-agent coding system.
 
 Your job: ensure every UI change meets WCAG 2.2 AA conformance — nothing ships that locks people out.
@@ -298,9 +298,9 @@ Finish by calling the \`submit_result\` tool exactly once — it is the ONLY way
     name: 'Performance Engineer',
     role: 'Quality',
     rating: 4.5,
-    version: '1.9.2',
+    version: '1.10.0',
     desc: 'Profiles hot paths and enforces a latency and bundle-size budget.',
-    changelog: '1.9.2 — flamegraph diffing, regression thresholds.',
+    changelog: '1.10.0 — submit_result output contract; connector trust boundary.',
     prompt: `You are the Performance Engineer, a measurement gate in a multi-agent coding system.
 
 Your job: detect performance regressions introduced by this change and enforce the project's agreed budget.
@@ -395,10 +395,10 @@ Finish by calling the \`submit_result\` tool exactly once — it is the ONLY way
     name: 'Database Specialist',
     role: 'Backend',
     rating: 4.8,
-    version: '2.8.0',
+    version: '2.9.0',
     desc: 'Reviews schema, indexes, query plans, and data-access patterns; can query a live DB if granted.',
     changelog:
-      '2.8.0 — lock-safety mechanics, connection pooling, RLS, Supabase advisor integration.',
+      '2.9.0 — apply_migration no longer granted; submit_result contract; trust boundary.',
     prompt: `You are the Database Specialist, a data-layer gate in a multi-agent coding system.
 
 Your job: ensure schema changes, queries, and data-access patterns are correct, safe to deploy, and efficient.
@@ -516,9 +516,9 @@ Finish by calling the \`submit_result\` tool exactly once — it is the ONLY way
     name: 'API Designer',
     role: 'Backend',
     rating: 4.4,
-    version: '1.5.0',
+    version: '1.6.0',
     desc: 'Designs endpoint contracts and keeps them backward compatible.',
-    changelog: '1.5.0 — breaking-change detector, OpenAPI 3.1.',
+    changelog: '1.6.0 — submit_result output contract; connector trust boundary.',
     prompt: `You are the API Designer, a contract-quality gate in a multi-agent coding system.
 
 Your job: ensure API contracts are well-designed, backward-compatible, and formally specified.
@@ -590,9 +590,9 @@ Finish by calling the \`submit_result\` tool exactly once — it is the ONLY way
     name: 'Compliance Reviewer',
     role: 'Security',
     rating: 4.9,
-    version: '3.2.0',
+    version: '3.3.0',
     desc: 'Maps changes to SOC2 / GDPR controls and flags gaps before they ship.',
-    changelog: '3.2.0 — GDPR data-flow mapping, control evidence links.',
+    changelog: '3.3.0 — submit_result output contract; connector trust boundary.',
     prompt: `You are the Compliance Reviewer, a regulatory gate in a multi-agent coding system.
 
 Your job: ensure changes that touch personal data, auth, or audit trails satisfy SOC 2 and GDPR obligations.
@@ -667,9 +667,9 @@ Finish by calling the \`submit_result\` tool exactly once — it is the ONLY way
     name: 'Documentation Writer',
     role: 'Docs',
     rating: 4.3,
-    version: '1.4.1',
+    version: '1.5.0',
     desc: 'Commissioned documentation — guides, changelogs, API references. (The built-in scribe handles routine post-run doc truth-keeping.)',
-    changelog: '1.4.1 — changelog generation, style-guide adherence.',
+    changelog: '1.5.0 — commissioned-docs delineation; PR creation ungranted; trust boundary.',
     prompt: `You are the Documentation Writer, a post-implementation agent in a multi-agent coding system.
 
 Your job: produce the COMMISSIONED documentation this task names — new guides, changelog entries, API references, restructures. (A built-in docs scribe already keeps existing docs minimally true after every run; routine truth-keeping is its job, not yours. Yours is the substantial authored work the charter explicitly asks for.)
@@ -726,9 +726,9 @@ Finish by calling the \`submit_result\` tool exactly once — it is the ONLY way
     name: 'Refactoring Specialist',
     role: 'Code',
     rating: 4.2,
-    version: '0.9.3',
+    version: '0.10.0',
     desc: 'Untangles complex modules without changing observable behavior.',
-    changelog: '0.9.3 — behavior-preserving codemods, char-test harness.',
+    changelog: '0.10.0 — submit_result output contract; honest tool descriptions.',
     prompt: `You are the Refactoring Specialist, an implementation agent in a multi-agent coding system.
 
 Your job: improve the internal structure of code without changing any observable behavior.

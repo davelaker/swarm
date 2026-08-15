@@ -1,4 +1,5 @@
 import type { HiredAgent } from '../../types';
+import type { RosterStaleness } from '../../data/rosterSync';
 import { PERSONAS } from '../../data/personas';
 import { AGENT_BY_ID, BUILTINS } from '../../data/marketAgents';
 import { AgentIcon, RoleChip, LockBadge, rgba } from './shared';
@@ -14,6 +15,8 @@ interface MyTeamProps {
   team: HiredAgent[];
   projectName?: string;
   scorecards: Record<string, Scorecard>;
+  staleness: Record<string, RosterStaleness>;
+  onSyncRoster: () => void;
   onToggle: (id: string) => void;
   onRemove: (id: string) => void;
   onViewAgent: (id: string) => void;
@@ -24,13 +27,38 @@ export function MyTeam({
   team,
   projectName,
   scorecards,
+  staleness,
+  onSyncRoster,
   onToggle,
   onRemove,
   onViewAgent,
   onBrowse,
 }: MyTeamProps) {
+  const staleEntries = team.filter(h => staleness[h.id]?.stale);
   return (
     <div className="team-wrap">
+      {/* Catalog-sync banner: hired prompts/grants are copies frozen at hire
+          time — offer a one-click refresh when the catalog has moved on.
+          Sync only narrows permissions; new tools still need a manual grant. */}
+      {staleEntries.length > 0 && (
+        <div className="roster-sync-banner">
+          <span>
+            Catalog updated — {staleEntries.length} hired specialist
+            {staleEntries.length > 1 ? 's are' : ' is'} running{' '}
+            {staleEntries.length > 1 ? 'outdated copies' : 'an outdated copy'}:{' '}
+            {staleEntries.map(h => `${AGENT_BY_ID[h.id]?.name ?? h.id} (v${h.version})`).join(', ')}
+          </span>
+          <button
+            className="btn primary"
+            onClick={onSyncRoster}
+            title={staleEntries
+              .flatMap(h => (staleness[h.id]?.reasons ?? []).map(r => `${h.id}: ${r}`))
+              .join('\n')}
+          >
+            ↻ Sync to catalog
+          </button>
+        </div>
+      )}
       {/* Built-ins */}
       <div className="team-group">
         <div className="team-group-h">
