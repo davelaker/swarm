@@ -118,12 +118,39 @@ not combine parallel tasks that edit the same files.
 - **Depends on:** MP-04
 - **Files/context:** `core/src/drivers/types.ts`, the new runner, result and
   progress interfaces, driver tests.
-- **Change:** implement `codexDriver` for coder, tester, security, reviewer,
-  Scout, negotiator, specialist research, scribe, document scribe, and live
-  context. Convert structured outputs into the existing `AgentDriver` result
-  contract.
-- **Done when:** contract tests pass for each method, JSON/schema failures are
-  actionable, and the driver never widens write or connector permissions.
+- **Change:** implement `codexDriver` using the approved broker-mediated patch
+  boundary. Codex runs read-only for all work; mutating coder work returns a
+  structured patch proposal which Swarm validates and applies through its
+  permission broker. Implement coder, tester, security, reviewer, Scout,
+  negotiator, specialist research, scribe, document scribe, and live context.
+  Convert structured outputs into the existing `AgentDriver` result contract.
+- **Done when:** contract tests pass for each method, patch scope/base-revision
+  validation rejects unsafe changes, JSON/schema failures are actionable, and
+  the driver never widens write or connector permissions.
+- **Agent context limit:** driver boundary, runner, result/progress types.
+
+#### MP-05a — Broker-mediated patch proposal and application
+
+- **Depends on:** MP-04
+- **Files/context:** Codex runner, permission broker, worktree/path guards, and
+  new focused patch-proposal tests.
+- **Change:** define a schema-constrained unified-patch proposal with base
+  revision and declared changed paths. Validate the base revision and write
+  scope, then apply only validated patches through Swarm-owned code.
+- **Done when:** malformed, out-of-scope, stale-base, binary, and unsafe-path
+  proposals are rejected; a valid fixture patch is applied exactly once.
+- **Agent context limit:** patch validator/applier plus existing path guards.
+
+#### MP-05b — Read-only Codex driver methods
+
+- **Depends on:** MP-05a
+- **Files/context:** `AgentDriver`, Codex runner, result/progress interfaces,
+  and driver contract tests.
+- **Change:** implement Codex methods using read-only execution; coder returns
+  a validated patch proposal to MP-05a, while non-coder roles return structured
+  findings or research.
+- **Done when:** all driver methods satisfy the existing contract without
+  granting Codex native repository write permission.
 - **Agent context limit:** driver boundary, runner, result/progress types.
 
 ### MP-06 — Make PM execution driver-neutral
@@ -243,6 +270,7 @@ interfaces.
 | 2026-08-21 | Route models per task, not per run. | A swarm needs heterogeneous agents and independent review. |
 | 2026-08-21 | Use a deterministic router with transparent rationale. | Keeps cost, safety, and policy under user control. |
 | 2026-08-21 | Add Codex CLI before an OpenAI API driver. | Reuses the user's existing local Codex authentication and preserves local-agent semantics. |
+| 2026-08-21 | Keep strict broker enforcement; approve a read-only Codex patch-proposal boundary. | Codex receives no native repository write permission. Swarm validates and applies structured patches through its broker, which is stronger than post-run diff inspection while remaining practical for small GPT execution tasks. Native Codex writes remain deferred until an OS-enforced, path-restricted container/VM boundary is proven. |
 
 ## Living status
 
@@ -254,7 +282,7 @@ and result, and any changed assumptions.
 | MP-01 | Complete | `d94b799`; TypeScript typecheck and 4 focused driver/config tests pass | Baseline selection behaviour is now pinned by pure selection tests. |
 | MP-02 | Complete | `5ea9f05`; `npm run typecheck`, focused catalog tests, and 104-test suite pass | Provider-neutral Claude and OpenAI/Codex capability metadata established. |
 | MP-03 | Complete | `825fa4c`; TypeScript typecheck and 109-test suite pass | Safe Claude/Codex capability discovery and provider configuration added; Codex selection intentionally fails closed pending its driver. |
-| MP-04 | Blocked (safety stop) | `0a89601`; typecheck, 112-test suite, and two real Codex fixture smokes pass | Transport is proven, but native Codex mutating tools cannot yet be forced through Swarm's task-level permission broker. See `CODEX_RUNNER_SPIKE.md`; MP-05 must not start until an equivalent enforcement boundary is approved and proven. |
+| MP-04 | Complete (native write rejected) | `0a89601`; typecheck, 112-test suite, and two real Codex fixture smokes pass | Transport is proven; native Codex write mode is rejected. The approved read-only patch-proposal boundary unblocks MP-05. See `CODEX_RUNNER_SPIKE.md`. |
 | MP-05 | Not started | — | — |
 | MP-06 | Not started | — | — |
 | MP-07 | Not started | — | — |
