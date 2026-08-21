@@ -1,9 +1,12 @@
 export {
   getProviderModel,
   listProviderModels,
+  listProviderModelsForTransport,
   PROVIDER_MODELS,
+  supportsExecutionTransport,
   validateProviderModel,
   validateReasoningEffort,
+  validateSupportedReasoningEffort,
 } from './catalog.js';
 
 export {
@@ -21,9 +24,11 @@ export type {
 
 export type {
   AuthMode,
+  ExecutionTransport,
   ModelCapability,
   ModelTier,
   ProviderId,
   ProviderModel,
   ReasoningEffort,
+  SupportedReasoningEffort,
 } from './catalog.js';
