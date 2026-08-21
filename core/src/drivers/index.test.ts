@@ -19,6 +19,15 @@ test('explicit driver selection wins over detected authentication', () => {
     }),
     'api-key',
   );
+  assert.equal(
+    resolveDriverMode({
+      explicitDriver: 'codex',
+      hasAnthropicApiKey: true,
+      hasClaudeCli: true,
+      hasCodexCli: true,
+    }),
+    'codex',
+  );
 });
 
 test('automatic selection preserves API key precedence over Claude CLI', () => {

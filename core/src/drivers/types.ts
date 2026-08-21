@@ -8,12 +8,13 @@ import type { Task, SwarmState, RosterEntry } from '../state/types.js';
 // Driver selection is intentionally provider-neutral at this boundary. New
 // drivers must extend this union and the factory without leaking credentials
 // into callers. The current modes describe the existing Claude integrations.
-export type DriverMode = 'agent-sdk' | 'api-key';
+export type DriverMode = 'agent-sdk' | 'api-key' | 'codex';
 
 export interface DriverSelectionInput {
   explicitDriver?: string;
   hasAnthropicApiKey: boolean;
   hasClaudeCli: boolean;
+  hasCodexCli?: boolean;
 }
 
 /**
@@ -31,6 +32,9 @@ export function resolveDriverMode(input: DriverSelectionInput): DriverMode {
   }
   if (explicit === 'api-key') {
     return 'api-key';
+  }
+  if (explicit === 'codex') {
+    return 'codex';
   }
   if (input.hasAnthropicApiKey) {
     return 'api-key';

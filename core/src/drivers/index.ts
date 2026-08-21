@@ -3,15 +3,18 @@
 
 import { agentSdkDriver } from './agent-sdk.js';
 import { apiKeyDriver } from './api-key.js';
+import { codexDriver } from './codex.js';
 import { resolveDriverMode, type AgentDriver, type DriverMode } from './types.js';
 import { getProviderSelection } from '../providers/index.js';
 
 function detect(): DriverMode {
   const selection = getProviderSelection();
-  if (selection.defaultProvider !== 'anthropic') {
-    throw new Error(
-      'OpenAI is selected, but the Codex driver is not installed yet. Select Anthropic or complete the Codex driver setup.',
-    );
+  if (selection.defaultProvider === 'openai') {
+    const openai = selection.availability.find((provider) => provider.provider === 'openai')!;
+    if (!openai.cliAvailable) {
+      throw new Error('OpenAI is selected, but the read-only Codex driver requires the local Codex CLI.');
+    }
+    return 'codex';
   }
   const anthropic = selection.availability.find((provider) => provider.provider === 'anthropic')!;
   return resolveDriverMode({
@@ -27,6 +30,9 @@ export function getDriver(): AgentDriver {
   if (_driver) return _driver;
   const mode = detect();
   _driver = mode === 'agent-sdk' ? agentSdkDriver : apiKeyDriver;
+  if (mode === 'codex') {
+    _driver = codexDriver;
+  }
   return _driver;
 }
 
@@ -39,6 +45,9 @@ export function driverBanner(): string {
   const mode = detect();
   if (mode === 'agent-sdk') {
     return '  ▸ driver     → Claude Agent SDK (Max plan · $200/month credit)';
+  }
+  if (mode === 'codex') {
+    return '  ▸ driver     → Codex CLI (read-only patch proposals)';
   }
   return '  ▸ driver     → Anthropic API key configured';
 }
