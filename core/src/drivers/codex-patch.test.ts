@@ -52,9 +52,11 @@ test('applies a valid in-scope patch exactly once after broker approval', async 
     assert.deepEqual(result.changedPaths, ['allowed.ts']);
     assert.equal(approvals, 1);
     assert.equal(fs.readFileSync(path.join(f.root, 'allowed.ts'), 'utf8'), 'export const value = 2;\n');
+    assert.notEqual(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: f.root, encoding: 'utf8' }).trim(), f.base);
+    assert.equal(execFileSync('git', ['log', '-1', '--pretty=%s'], { cwd: f.root, encoding: 'utf8' }).trim(), 'coder: apply approved patch');
     await assert.rejects(
       applyCodexPatchProposal({ agentId: 'coder', worktreePath: f.root, writeScope: ['allowed.ts'], proposal, requestApproval: async () => 'allow' }),
-      /patch does not apply|corrupt patch|failed/i,
+      /stale/i,
     );
   } finally {
     f.cleanup();

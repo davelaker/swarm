@@ -161,6 +161,11 @@ async function assertBaseRevision(worktreePath: string, expected: string): Promi
   }
 }
 
+async function commitApprovedPatch(worktreePath: string, agentId: string, paths: string[]): Promise<void> {
+  await git(['add', '--', ...paths], worktreePath);
+  await git(['commit', '-m', `${agentId}: apply approved patch`, '--', ...paths], worktreePath);
+}
+
 export async function applyCodexPatchProposal(opts: ApplyCodexPatchOptions): Promise<{ changedPaths: string[] }> {
   const proposal = parseCodexPatchProposal(opts.proposal);
   const paths = patchPaths(proposal.patch);
@@ -188,5 +193,6 @@ export async function applyCodexPatchProposal(opts: ApplyCodexPatchOptions): Pro
   await assertBaseRevision(opts.worktreePath, proposal.base_revision);
   await git(['apply', '--check', '--recount', '--whitespace=error'], opts.worktreePath, proposal.patch);
   await git(['apply', '--recount', '--whitespace=error'], opts.worktreePath, proposal.patch);
+  await commitApprovedPatch(opts.worktreePath, opts.agentId, paths);
   return { changedPaths: paths };
 }
