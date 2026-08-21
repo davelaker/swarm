@@ -78,6 +78,35 @@ export interface AvailableProvider {
   models: AvailableModel[];
 }
 
+// The local Swarm OpenAI driver invokes `codex exec`. Models that are available
+// only through the Responses API must not appear as override choices merely
+// because the server's provider catalog knows about them.
+const CODEX_CLI_MODEL_IDS = new Set(['gpt-5.3-codex']);
+
+function hasExecutableTransport(provider: AvailableProvider, model: AvailableModel): boolean {
+  if (provider.provider !== 'openai') {
+    return true;
+  }
+  return provider.availableAuthModes.includes('subscription') && CODEX_CLI_MODEL_IDS.has(model.id);
+}
+
+export function reasoningEffortTradeoff(effort: ReasoningEffort | undefined): string {
+  switch (effort) {
+    case 'low':
+      return 'fastest response and lowest quota use for contained work';
+    case 'medium':
+      return 'balanced reasoning depth and quota use';
+    case 'high':
+      return 'deeper reasoning for multi-step or higher-risk work';
+    case 'xhigh':
+      return 'maximum practical scrutiny for critical or highly interdependent work';
+    case 'max':
+      return 'the provider’s highest available reasoning investment';
+    default:
+      return 'not configurable for this model on the active transport';
+  }
+}
+
 export function taskCapability(assignee: string): RoutingCapability {
   return assignee === 'tester' || assignee === 'security' || assignee === 'reviewer'
     ? 'review'
@@ -92,7 +121,7 @@ export function selectableModels(
   return providers.flatMap(provider =>
     provider.available
       ? provider.models
-          .filter(model => model.capabilities.includes(capability))
+          .filter(model => model.capabilities.includes(capability) && hasExecutableTransport(provider, model))
           .map(model => ({ ...model, provider: provider.provider }))
       : [],
   );

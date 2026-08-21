@@ -13,6 +13,7 @@ import type { ServerStatus, RunCharter, TaskGraphEntry } from '../../App';
 import { forecastFromRoles, forecastFromTasks, formatForecastTime } from '../../data/forecast';
 import {
   modelMeta,
+  reasoningEffortTradeoff,
   isUpgrade,
   selectableModels,
   type AvailableProvider,
@@ -155,7 +156,7 @@ function ModelPlan({
                       })
                     }
                     disabled={!onSetTaskRoute || routeUnavailable}
-                    title="Reasoning effort"
+                    title="Reasoning effort: higher levels spend more model reasoning/quota for more difficult work"
                   >
                     {chosenModel.reasoningEfforts.map(level => (
                       <option key={level} value={level}>
@@ -174,6 +175,9 @@ function ModelPlan({
                       {fallback.reasoningEffort ? ` / ${fallback.reasoningEffort}` : ''}
                     </span>
                   )}
+                  <span>
+                    Reasoning effort: {effort ?? 'provider default'} — {reasoningEffortTradeoff(effort)}
+                  </span>
                   {costClass && <span>Cost class: {costClass}</span>}
                   {t.route.requiresConfirmation && (
                     <span className="plan-route-confirm">Cost confirmation required</span>

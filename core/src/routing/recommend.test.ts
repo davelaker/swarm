@@ -97,3 +97,53 @@ test('risk, dependencies, budget, and review diversity influence deterministic d
   assert.equal(review.route.provider, 'openai');
   assert.match(review.route.rationale, /independent review/);
 });
+
+test('effort is selected from provider-native levels with budget and critical-risk rules explained', () => {
+  const critical = recommendRoute(input({
+    intent: 'coding', scope: 'large', risk: 'critical', dependencyCount: 6, budgetClass: 'economy',
+  }));
+  if (critical.kind !== 'model') {
+    throw new Error('Expected a model route.');
+  }
+  assert.equal(critical.route.model, 'claude-opus-4-8');
+  assert.equal(critical.route.reasoningEffort, 'xhigh');
+  assert.equal(critical.route.requiresConfirmation, true);
+  assert.match(critical.route.rationale, /complexity, risk, dependency depth, and budget guardrail/);
+
+  const economical = recommendRoute(input({
+    intent: 'coding', scope: 'large', risk: 'high', dependencyCount: 3, budgetClass: 'economy',
+  }));
+  if (economical.kind !== 'model') {
+    throw new Error('Expected a model route.');
+  }
+  assert.equal(economical.route.reasoningEffort, 'high');
+  assert.match(economical.route.rationale, /high reasoning effort/);
+
+  const premium = recommendRoute(input({
+    intent: 'coding', scope: 'large', risk: 'high', dependencyCount: 3, budgetClass: 'premium',
+  }));
+  if (premium.kind !== 'model') {
+    throw new Error('Expected a model route.');
+  }
+  assert.equal(premium.route.reasoningEffort, 'xhigh');
+});
+
+test('Codex subscription routes never select Responses-API-only OpenAI models', () => {
+  const openaiSubscriptionOnly: readonly ProviderAvailability[] = [
+    { ...bothProviders[0], enabled: false, availableAuthModes: [] },
+    bothProviders[1],
+  ];
+  const smallTask = recommendRoute(input({
+    intent: 'execution', scope: 'small', providerAvailability: openaiSubscriptionOnly,
+  }));
+  if (smallTask.kind !== 'model') {
+    throw new Error('Expected a model route.');
+  }
+  assert.equal(smallTask.route.model, 'gpt-5.3-codex');
+  assert.notEqual(smallTask.route.reasoningEffort, 'none');
+
+  assert.throws(
+    () => recommendRoute(input({ intent: 'planning', scope: 'large', providerAvailability: openaiSubscriptionOnly })),
+    /No available provider model supports planning work/,
+  );
+});

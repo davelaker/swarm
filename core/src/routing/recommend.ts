@@ -1,4 +1,10 @@
-import { listProviderModels, type ModelCapability, type ProviderModel, type ReasoningEffort } from '../providers/index.js';
+import {
+  listProviderModels,
+  type ExecutionTransport,
+  type ModelCapability,
+  type ProviderModel,
+  type ReasoningEffort,
+} from '../providers/index.js';
 import type { TaskRoute } from '../state/types.js';
 import type { BudgetClass, RouteCandidate, RouteRecommendation, RouteRecommendationInput, TaskIntent } from './types.js';
 
@@ -30,13 +36,20 @@ function policyRole(input: RouteRecommendationInput): 'large-planning' | 'large-
 }
 
 function desiredEffort(input: RouteRecommendationInput): ReasoningEffort {
-  if (input.scope === 'large' || input.risk === 'high' || input.risk === 'critical' || input.dependencyCount >= 3) {
-    return 'high';
+  const complexity = input.scope === 'large' ? 2 : input.scope === 'medium' ? 1 : 0;
+  const risk = input.risk === 'critical' ? 3 : input.risk === 'high' ? 2 : input.risk === 'medium' ? 1 : 0;
+  const dependencies = input.dependencyCount >= 6 ? 2 : input.dependencyCount >= 3 ? 1 : 0;
+  const demand = complexity + risk + dependencies;
+  const unconstrained = demand >= 5 ? 'xhigh' : demand >= 2 ? 'high' : demand >= 1 ? 'medium' : 'low';
+
+  // Budget is a quota/cost guardrail, not a reason to weaken critical work.
+  // Confirmation remains required when the selected tier exceeds the budget.
+  if (input.risk !== 'critical') {
+    if (input.budgetClass !== 'premium' && EFFORT_RANK[unconstrained] > EFFORT_RANK.high) {
+      return 'high';
+    }
   }
-  if (input.scope === 'small' && input.risk === 'low' && input.dependencyCount === 0) {
-    return 'low';
-  }
-  return 'medium';
+  return unconstrained;
 }
 
 function supportedEffort(model: ProviderModel, desired: ReasoningEffort): ReasoningEffort | undefined {
@@ -53,7 +66,36 @@ function isAvailable(model: ProviderModel, input: RouteRecommendationInput): boo
   if (!provider?.enabled || provider.availableAuthModes.length === 0) {
     return false;
   }
-  return !input.availableModelIds || input.availableModelIds.includes(model.id);
+  if (input.availableModelIds && !input.availableModelIds.includes(model.id)) {
+    return false;
+  }
+  return executionTransports(provider).some((transport) => model.executionTransports.includes(transport));
+}
+
+/**
+ * Availability is not enough: a model is selectable only if Swarm has an
+ * implementation for the concrete transport that would execute it. In
+ * particular, a Codex subscription must never select Responses-API-only GPT
+ * models merely because they share the OpenAI provider.
+ */
+function executionTransports(provider: RouteRecommendationInput['providerAvailability'][number]): readonly ExecutionTransport[] {
+  if (provider.provider === 'anthropic') {
+    const transports: ExecutionTransport[] = [];
+    if (provider.cliAvailable && provider.availableAuthModes.includes('subscription')) {
+      transports.push('claude-agent-sdk');
+    }
+    if (provider.apiKeyConfigured && provider.availableAuthModes.includes('api-key')) {
+      transports.push('anthropic-api');
+    }
+    return transports;
+  }
+
+  // Swarm currently implements only the local Codex CLI transport. Do not
+  // expose Responses API models until an OpenAI API driver exists.
+  if (provider.cliAvailable && provider.availableAuthModes.includes('subscription')) {
+    return ['codex-cli'];
+  }
+  return [];
 }
 
 function scoreCandidate(model: ProviderModel, input: RouteRecommendationInput): number {
@@ -108,11 +150,19 @@ function rationale(input: RouteRecommendationInput, selected: RouteCandidate, fa
   } else {
     reason.push(`Selected an available model with ${requiredCapability(input.intent)} capability.`);
   }
+  reason.push(`${selected.model.label} is a ${selected.model.tier} ${selected.model.provider === 'openai' ? 'OpenAI' : 'Anthropic'} model available through Swarm's configured execution transport.`);
+  if (selected.effort) {
+    const desired = desiredEffort(input);
+    if (selected.effort === desired) {
+      reason.push(`${selected.effort} reasoning effort matches the task's complexity, risk, dependency depth, and budget guardrail.`);
+    } else {
+      reason.push(`${selected.effort} reasoning effort is the closest supported level to the ${desired} effort this task calls for.`);
+    }
+  } else {
+    reason.push('This model has no configurable reasoning-effort control on its current transport.');
+  }
   if (input.intent === 'review' && input.reviewerDiversity?.requireDifferentProvider && input.reviewerDiversity.implementationProvider !== selected.model.provider) {
     reason.push('It differs from the implementation provider for independent review.');
-  }
-  if (input.risk === 'high' || input.risk === 'critical' || input.dependencyCount >= 3) {
-    reason.push('Higher risk or dependency depth uses high reasoning effort.');
   }
   if (input.writeAccess === 'brokered') {
     reason.push('Any repository mutation remains broker-mediated.');

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { selectableModels, type AvailableProvider } from './models';
+import { reasoningEffortTradeoff, selectableModels, type AvailableProvider } from './models';
 
 const providers: AvailableProvider[] = [
   {
@@ -55,5 +55,31 @@ describe('selectableModels', () => {
       },
     ];
     expect(selectableModels(codingOnly, 'reviewer')).toEqual([]);
+  });
+
+  it('does not show Responses-API-only GPT models for a local Codex subscription', () => {
+    const openaiSubscription: AvailableProvider[] = [{
+      provider: 'openai',
+      available: true,
+      availableAuthModes: ['subscription'],
+      models: [
+        {
+          id: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', tier: 'standard',
+          capabilities: ['coding', 'review'], reasoningEfforts: ['low', 'medium', 'high'],
+        },
+        {
+          id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', tier: 'frontier',
+          capabilities: ['coding', 'planning', 'review'], reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        },
+      ],
+    }];
+
+    expect(selectableModels(openaiSubscription, 'coder').map(model => model.id)).toEqual(['gpt-5.3-codex']);
+  });
+
+  it('explains the quota and quality trade-off for each selectable effort', () => {
+    expect(reasoningEffortTradeoff('low')).toMatch(/lowest quota use/);
+    expect(reasoningEffortTradeoff('high')).toMatch(/higher-risk work/);
+    expect(reasoningEffortTradeoff(undefined)).toMatch(/not configurable/);
   });
 });
