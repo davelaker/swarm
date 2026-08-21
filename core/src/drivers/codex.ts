@@ -231,6 +231,8 @@ export function createCodexDriver(deps: CodexDriverDependencies = {}): AgentDriv
         'You are Swarm\'s coder. You have read-only repository access.',
         'Do not attempt to write files, use shell redirection, commit, or alter configuration.',
         'Inspect the code, then return the exact unified diff needed in patch_proposal.',
+        'The patch field must be a standard Git unified diff starting with "diff --git a/<path> b/<path>", followed by "--- a/<path>", "+++ b/<path>", and one or more "@@" hunks.',
+        'Never use "*** Begin Patch" markers or include prose inside the patch field.',
         'The patch must modify only the declared task paths. Swarm—not you—will validate, approve, and apply it.',
         `Declared writable paths: ${codexWriteScope(task).join(', ') || '(none; return a patch only if this is corrected)'}.`,
         taskContext(task, state),
