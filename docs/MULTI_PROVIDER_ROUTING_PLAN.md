@@ -289,6 +289,6 @@ and result, and any changed assumptions.
 | MP-08 | Complete | `dfbd22d`; focused routing tests plus restored full 138-test suite and typecheck pass | Pure deterministic policy recommends model/provider, rationale, fallback, confirmation, and reviewer diversity. |
 | MP-09 | Complete | `a6fee06`; typecheck and 148-test suite pass | PM intent/preferences now feed the deterministic router; every LLM task receives a validated route and Codex-compatible write scope. |
 | MP-10 | Complete | `6160d0d`; focused scheduler tests and restored full 138-test suite/typecheck pass | Disjoint declared write scopes may run concurrently across providers; unknown or conflicting writer scopes serialize. |
-| MP-11 | Not started | — | — |
+| MP-11 | Complete | `8092225`; UI typecheck/build, focused UI tests, core typecheck, and server validation tests pass | Planning UX displays availability and transparent recommendations; compatible overrides are selectable before execution and routes lock after start. |
 | MP-12 | Complete | `d29e30a`; typecheck and 144-test suite pass | Safe allow-listed route/outcome telemetry and synthetic routing evaluations added; no prompts, credentials, raw logs, or findings are persisted. |
 | MP-13 | Not started | — | — |
