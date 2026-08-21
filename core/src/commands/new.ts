@@ -17,6 +17,7 @@ import { resetControl } from '../loop-control.js';
 import { getConfig } from '../config.js';
 import { bus } from '../state/events.js';
 import type { Task, Tier, RunCharter, TaskGraphEntry } from '../state/types.js';
+import type { QuickTaskRunDefinition } from '../quick-task/compiler.js';
 
 function pmProgress(step: string): void {
   bus.emit('swarm', { type: 'agent.progress', agent_id: 'pm', step });
@@ -255,6 +256,66 @@ function buildTaskGraph(
 }
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
+
+export async function runCompiledRun(definition: QuickTaskRunDefinition): Promise<void> {
+  const cfg = getConfig();
+
+  bus.emit('swarm', { type: 'agent.started', agent_id: 'pm' });
+  pmProgress('bootstrapping quick task…');
+
+  if (!fs.existsSync(stateFile())) {
+    const project = path.basename(getRoot());
+    pmProgress('initialising workspace…');
+    initWorkspace(project, definition.goal);
+    console.log(`  ✓ .swarm/ initialised for "${project}"\n`);
+  }
+
+  resetControl();
+
+  const initialState = {
+    ...getState(),
+    goal: definition.goal,
+    tier: definition.tier,
+    charter: definition.charter,
+    executionShape: definition.executionShape,
+    tasks: [],
+    log: [],
+  };
+  const tmp = stateFile() + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(initialState, null, 2), 'utf8');
+  fs.renameSync(tmp, stateFile());
+
+  const tasks = withEnforcedGates(buildFromPmGraph(definition.taskGraph, cfg), cfg);
+  for (const task of tasks) addTask(task);
+
+  pmProgress(
+    `quick task ready · ${tasks.length} task${tasks.length === 1 ? '' : 's'} · starting agents…`,
+  );
+
+  console.log(`  project: ${getState().project}`);
+  console.log(`  goal:    ${definition.goal}`);
+  console.log(`  shape:   ${definition.executionShape}`);
+  console.log(`  scope:   ${definition.taskGraph[0]?.route?.writeScope.join(', ') ?? '(none)'}`);
+  console.log(`  graph:   ${tasks.map(t => t.id + ':' + t.assignee).join(' → ')}\n`);
+
+  const result = await runLoop();
+
+  const icon = result.status === 'done' ? '✓' : '✗';
+  console.log(`  ${icon} ${result.status.toUpperCase()} — ${result.message}`);
+  if (result.totalCostUsd > 0) {
+    console.log(`  total cost: $${result.totalCostUsd.toFixed(4)}`);
+  }
+
+  const finalState = getState();
+  const findings = finalState.tasks
+    .filter(t => t.result_ref)
+    .map(t => `  · ${t.id}: .swarm/${t.result_ref}`);
+  if (findings.length) {
+    console.log('\n  Findings:');
+    findings.forEach(f => console.log(f));
+  }
+  console.log('');
+}
 
 export async function runNew(
   goal: string,

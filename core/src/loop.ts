@@ -778,14 +778,17 @@ export async function runLoop(): Promise<LoopResult> {
         );
       }
       bus.emit('swarm', { type: 'agent.finished', agent_id: 'pm' });
-      // Self-building memory — distil durable learnings into CLAUDE.md (best-effort).
-      await distillMemory(state).catch(err =>
-        console.warn(`  [scribe] memory distillation skipped: ${(err as Error).message}`),
-      );
-      // Living documentation — keep human docs true to the merged behaviour (best-effort).
-      await updateLivingDocs(state).catch(err =>
-        console.warn(`  [docs-scribe] living-docs update skipped: ${(err as Error).message}`),
-      );
+      const executionShape = (state as SwarmState & { executionShape?: string }).executionShape;
+      if (executionShape !== 'quick_task') {
+        // Self-building memory — distil durable learnings into CLAUDE.md (best-effort).
+        await distillMemory(state).catch(err =>
+          console.warn(`  [scribe] memory distillation skipped: ${(err as Error).message}`),
+        );
+        // Living documentation — keep human docs true to the merged behaviour (best-effort).
+        await updateLivingDocs(state).catch(err =>
+          console.warn(`  [docs-scribe] living-docs update skipped: ${(err as Error).message}`),
+        );
+      }
       console.log('\n  ✓ all tasks done\n');
       return {
         status: 'done',

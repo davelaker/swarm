@@ -1,5 +1,6 @@
 import { classifyIntakeInput, type ExecutionShape, type IntakeDecision } from '../intake/index.js';
 import type { PmResponse } from '../pm/index.js';
+import type { QuickTaskRunResult } from '../quick-task/index.js';
 
 export interface IntakeCommand {
   command: 'ask' | 'do' | 'plan' | 'swarm' | 'auto';
@@ -19,6 +20,7 @@ interface PmReplyRequest {
 export interface IntakeRuntimeDeps {
   classifyInput?: typeof classifyIntakeInput;
   runNew?: (goal: string) => Promise<void>;
+  runQuickTask?: (goal: string) => Promise<QuickTaskRunResult>;
   runPmReply?: (request: PmReplyRequest) => Promise<PmResponse>;
   writeStdout?: (line: string) => void;
   writeStderr?: (line: string) => void;
@@ -29,6 +31,10 @@ const DEFAULT_DEPS: Required<IntakeRuntimeDeps> = {
   runNew: async goal => {
     const { runNew } = await import('./new.js');
     await runNew(goal);
+  },
+  runQuickTask: async goal => {
+    const { runQuickTask } = await import('../quick-task/index.js');
+    return runQuickTask(goal);
   },
   runPmReply: runLightweightPmReply,
   writeStdout: line => console.log(line),
@@ -77,7 +83,18 @@ export async function runIntakeCommand(
       );
       return { exitCode: 1, exitProcess: false };
     }
-    await resolved.runNew(command.instruction);
+    const quickTask = await resolved.runQuickTask(command.instruction);
+    if (quickTask.status === 'escalated') {
+      writeRecommendation(resolved.writeStdout, decision);
+      resolved.writeStdout(`Quick task paused: ${quickTask.reason}`);
+      if (quickTask.riskSignals.length) {
+        resolved.writeStdout(`Signals: ${quickTask.riskSignals.join(', ')}`);
+      }
+      resolved.writeStdout(
+        `Use \`swarm swarm "${command.instruction}"\` to run the full reviewed workflow.`,
+      );
+      return { exitCode: 1, exitProcess: false };
+    }
     return { exitCode: 0, exitProcess: true };
   }
 

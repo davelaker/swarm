@@ -20,6 +20,7 @@ function createHarness() {
   const stderr: string[] = [];
   const pmCalls: Array<{ instruction: string; shape: 'answer' | 'plan' }> = [];
   const newCalls: string[] = [];
+  const quickCalls: string[] = [];
   const classifyCalls: Array<{ instruction: string; requestedShape?: string }> = [];
 
   return {
@@ -27,6 +28,7 @@ function createHarness() {
     stderr,
     pmCalls,
     newCalls,
+    quickCalls,
     classifyCalls,
     deps: {
       stdout: (line: string) => {
@@ -54,6 +56,33 @@ function createHarness() {
       runNew: async (goal: string) => {
         newCalls.push(goal);
       },
+      runQuickTask: async (goal: string) => {
+        quickCalls.push(goal);
+        return goal.includes('too broad')
+          ? { status: 'escalated' as const, reason: 'Quick task could not establish a narrow write scope.', riskSignals: ['unclear_scope'] }
+          : {
+              status: 'started' as const,
+              preflight: {
+                ok: true as const,
+                scopeReason: 'test scope',
+                spec: {
+                  goal,
+                  acceptanceCriteria: ['done'],
+                  declaredWriteScope: ['src/banner.ts'],
+                  verificationCommands: ['npm test'],
+                  route: {
+                    provider: 'openai',
+                    model: 'gpt-5.3-codex',
+                    reasoningEffort: 'low',
+                    rationale: 'test route',
+                    fallback: null,
+                    requiresConfirmation: false,
+                    writeScope: ['src/banner.ts'],
+                  },
+                },
+              },
+            };
+      },
       runIntakeCommand: async (command: { command: 'ask' | 'do' | 'plan' | 'swarm' | 'auto'; instruction: string; }) => {
         return runIntakeCommand(command, {
           classifyInput: input => {
@@ -73,6 +102,33 @@ function createHarness() {
           },
           runNew: async goal => {
             newCalls.push(goal);
+          },
+          runQuickTask: async goal => {
+            quickCalls.push(goal);
+            return goal.includes('too broad')
+              ? { status: 'escalated' as const, reason: 'Quick task could not establish a narrow write scope.', riskSignals: ['unclear_scope'] }
+              : {
+                  status: 'started' as const,
+                  preflight: {
+                    ok: true as const,
+                    scopeReason: 'test scope',
+                    spec: {
+                      goal,
+                      acceptanceCriteria: ['done'],
+                      declaredWriteScope: ['src/banner.ts'],
+                      verificationCommands: ['npm test'],
+                      route: {
+                        provider: 'openai',
+                        model: 'gpt-5.3-codex',
+                        reasoningEffort: 'low',
+                        rationale: 'test route',
+                        fallback: null,
+                        requiresConfirmation: false,
+                        writeScope: ['src/banner.ts'],
+                      },
+                    },
+                  },
+                };
           },
           runPmReply: async request => {
             pmCalls.push(request);
@@ -155,12 +211,13 @@ test('plan prints PM planning reply without execution', async () => {
   assert.equal(harness.newCalls.length, 0);
 });
 
-test('safe do runs the existing workflow', async () => {
+test('safe do runs the quick-task workflow', async () => {
   const harness = createHarness();
   const result = await runCli(['do', 'rename', 'the', 'banner'], harness.deps);
 
   assert.deepEqual(result, { exitCode: 0, exitProcess: true });
-  assert.deepEqual(harness.newCalls, ['rename the banner']);
+  assert.deepEqual(harness.quickCalls, ['rename the banner']);
+  assert.equal(harness.newCalls.length, 0);
 });
 
 test('do escalates risky work to explicit swarm command', async () => {
@@ -169,7 +226,18 @@ test('do escalates risky work to explicit swarm command', async () => {
 
   assert.deepEqual(result, { exitCode: 1, exitProcess: false });
   assert.equal(harness.newCalls.length, 0);
+  assert.equal(harness.quickCalls.length, 0);
   assert.match(harness.stdout.join('\n'), /swarm swarm "fix auth flow"/);
+});
+
+test('do escalates when quick-task preflight cannot prove scope', async () => {
+  const harness = createHarness();
+  const result = await runCli(['do', 'rename', 'the', 'too', 'broad', 'thing'], harness.deps);
+
+  assert.deepEqual(result, { exitCode: 1, exitProcess: false });
+  assert.deepEqual(harness.quickCalls, ['rename the too broad thing']);
+  assert.match(harness.stdout.join('\n'), /Quick task paused/);
+  assert.match(harness.stdout.join('\n'), /unclear_scope/);
 });
 
 test('bare question auto-routes to PM answer', async () => {
