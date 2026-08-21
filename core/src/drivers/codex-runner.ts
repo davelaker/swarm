@@ -11,6 +11,11 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  supportsExecutionTransport,
+  validateReasoningEffort,
+  type ReasoningEffort,
+} from '../providers/catalog.js';
 
 // Codex never receives a native mutation capability.  Coder changes are returned
 // as patch proposals and applied by Swarm after broker approval.
@@ -28,7 +33,8 @@ export type CodexRunOptions = {
   outputSchema: Record<string, unknown>;
   sandbox: CodexSandbox;
   mcpServers?: Record<string, CodexMcpServer>;
-  model?: string;
+  model: string;
+  reasoningEffort: ReasoningEffort;
 };
 
 export type CodexRunResult = {
@@ -100,6 +106,10 @@ export function buildCodexCommand(
   if (opts.sandbox !== 'read-only') {
     throw new Error(`Unsupported Codex sandbox "${opts.sandbox}"`);
   }
+  if (!supportsExecutionTransport(opts.model, 'codex-cli')) {
+    throw new Error(`Codex CLI cannot execute model "${opts.model}". Select a model available through the codex-cli transport.`);
+  }
+  validateReasoningEffort(opts.model, opts.reasoningEffort);
 
   const args = [
     'exec',
@@ -114,14 +124,14 @@ export function buildCodexCommand(
     files.schemaPath,
     '--output-last-message',
     files.outputPath,
+    '--config',
+    `model_reasoning_effort=${tomlString(opts.reasoningEffort)}`,
   ];
 
   for (const override of mcpConfigOverrides(opts.mcpServers ?? {})) {
     args.push('--config', override);
   }
-  if (opts.model) {
-    args.push('--model', opts.model);
-  }
+  args.push('--model', opts.model);
   return [...args, '--', opts.prompt];
 }
 

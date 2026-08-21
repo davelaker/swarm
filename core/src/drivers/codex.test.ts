@@ -41,6 +41,7 @@ test('Codex coder uses a read-only session and delegates its exact patch to Swar
 
   assert.equal(options?.sandbox, 'read-only');
   assert.equal(options?.cwd, '/worktree');
+  assert.equal(options?.reasoningEffort, 'medium');
   assert.match(options?.prompt ?? '', /Do not attempt to write files/);
   assert.deepEqual(applied, {
     agentId: 't1', worktreePath: '/worktree', writeScope: ['src/allowed.ts'], proposal,
@@ -55,7 +56,7 @@ test('Codex coder receives its model and broker scope from the immutable task ro
   const routedTask: Task = {
     ...task,
     route: {
-      provider: 'openai', model: 'gpt-5.4', reasoningEffort: 'high', rationale: 'Bounded feature.',
+      provider: 'openai', model: 'gpt-5.3-codex', reasoningEffort: 'high', rationale: 'Bounded feature.',
       fallback: null, requiresConfirmation: false, writeScope: ['src/routed.ts'],
     },
   };
@@ -73,9 +74,39 @@ test('Codex coder receives its model and broker scope from the immutable task ro
 
   await driver.runCoder(routedTask, state, '/worktree');
 
-  assert.equal(options?.model, 'gpt-5.4');
+  assert.equal(options?.model, 'gpt-5.3-codex');
+  assert.equal(options?.reasoningEffort, 'high');
   assert.match(options?.prompt ?? '', /src\/routed\.ts/);
   assert.deepEqual((applied as { writeScope: string[] }).writeScope, ['src/routed.ts']);
+});
+
+test('Codex refuses a routed model or effort unavailable through its CLI transport', async () => {
+  const unavailableModelTask: Task = {
+    ...task,
+    route: {
+      provider: 'openai', model: 'gpt-5.4', reasoningEffort: 'high', rationale: 'Invalid transport pairing.',
+      fallback: null, requiresConfirmation: false, writeScope: ['src/allowed.ts'],
+    },
+  };
+  const missingEffortTask: Task = {
+    ...task,
+    route: {
+      provider: 'openai', model: 'gpt-5.3-codex', rationale: 'Invalid incomplete route.',
+      fallback: null, requiresConfirmation: false, writeScope: ['src/allowed.ts'],
+    },
+  };
+  const wrongProviderTask: Task = {
+    ...task,
+    route: {
+      provider: 'anthropic', model: 'claude-opus-4-8', reasoningEffort: 'high', rationale: 'Wrong driver.',
+      fallback: null, requiresConfirmation: false, writeScope: ['src/allowed.ts'],
+    },
+  };
+  const driver = createCodexDriver({ root: () => '/repo', run: async () => response({}) });
+
+  await assert.rejects(() => driver.runCoder(unavailableModelTask, state, '/worktree'), /cannot execute routed model/);
+  await assert.rejects(() => driver.runCoder(missingEffortTask, state, '/worktree'), /requires an explicit reasoning effort/);
+  await assert.rejects(() => driver.runCoder(wrongProviderTask, state, '/worktree'), /cannot execute anthropic route/);
 });
 
 test('Codex coder refuses to apply a patch without an isolated worktree', async () => {
@@ -147,6 +178,7 @@ test('Codex PM inference is read-only and returns data for the shared PM validat
   assert.equal(options?.sandbox, 'read-only');
   assert.equal(options?.cwd, '/repo');
   assert.equal(options?.outputSchema, PM_RESPONSE_SCHEMA);
+  assert.equal(options?.reasoningEffort, 'medium');
   assert.match(options?.prompt ?? '', /schema-constrained PM response/);
   assert.equal(result.reply, 'Ready.');
   assert.deepEqual(result.teamAdd, ['coder', 'reviewer']);

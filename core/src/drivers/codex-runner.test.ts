@@ -24,6 +24,7 @@ test('builds an isolated read-only Codex command with JSONL and schema output', 
       outputSchema: schema,
       sandbox: 'read-only',
       model: 'gpt-5.3-codex',
+      reasoningEffort: 'high',
       mcpServers: {
         swarm_result: {
           command: 'node',
@@ -35,7 +36,7 @@ test('builds an isolated read-only Codex command with JSONL and schema output', 
     { schemaPath: '/tmp/schema.json', outputPath: '/tmp/last-message.json' },
   );
 
-  assert.deepEqual(args.slice(0, 14), [
+  assert.deepEqual(args.slice(0, 16), [
     'exec',
     '--json',
     '--ephemeral',
@@ -49,10 +50,14 @@ test('builds an isolated read-only Codex command with JSONL and schema output', 
     '--output-last-message',
     '/tmp/last-message.json',
     '--config',
+    'model_reasoning_effort="high"',
+    '--config',
     'mcp_servers.swarm_result.command="node"',
   ]);
   assert.ok(args.includes('mcp_servers.swarm_result.args=["/tmp/result-server.js"]'));
   assert.ok(args.includes('mcp_servers.swarm_result.env={ RESULT_OUTPUT_PATH = "/tmp/result.json" }'));
+  assert.ok(args.includes('--model'));
+  assert.equal(args[args.indexOf('--model') + 1], 'gpt-5.3-codex');
   assert.ok(!args.includes('--dangerously-bypass-approvals-and-sandbox'));
   assert.deepEqual(args.slice(-2), ['--', 'Return the required object.']);
 });
@@ -66,6 +71,8 @@ test('rejects unsafe MCP names and unsupported sandboxes', () => {
           prompt: 'x',
           outputSchema: schema,
           sandbox: 'read-only',
+          model: 'gpt-5.3-codex',
+          reasoningEffort: 'low',
           mcpServers: { 'not.valid': { command: 'node' } },
         },
         { schemaPath: '/tmp/schema.json', outputPath: '/tmp/out.json' },
@@ -75,10 +82,27 @@ test('rejects unsafe MCP names and unsupported sandboxes', () => {
   assert.throws(
     () =>
       buildCodexCommand(
-        { cwd: '/tmp', prompt: 'x', outputSchema: schema, sandbox: 'danger-full-access' as never },
+        { cwd: '/tmp', prompt: 'x', outputSchema: schema, sandbox: 'danger-full-access' as never, model: 'gpt-5.3-codex', reasoningEffort: 'low' },
         { schemaPath: '/tmp/schema.json', outputPath: '/tmp/out.json' },
       ),
     /Unsupported Codex sandbox/,
+  );
+});
+
+test('fails closed when the route cannot be expressed by the Codex CLI', () => {
+  assert.throws(
+    () => buildCodexCommand(
+      { cwd: '/tmp', prompt: 'x', outputSchema: schema, sandbox: 'read-only', model: 'gpt-5.4', reasoningEffort: 'high' },
+      { schemaPath: '/tmp/schema.json', outputPath: '/tmp/out.json' },
+    ),
+    /cannot execute model "gpt-5.4"/,
+  );
+  assert.throws(
+    () => buildCodexCommand(
+      { cwd: '/tmp', prompt: 'x', outputSchema: schema, sandbox: 'read-only', model: 'gpt-5.3-codex', reasoningEffort: 'max' },
+      { schemaPath: '/tmp/schema.json', outputPath: '/tmp/out.json' },
+    ),
+    /does not support "max" reasoning effort/,
   );
 });
 

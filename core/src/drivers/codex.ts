@@ -9,6 +9,11 @@ import { applyCodexPatchProposal, CODEX_PATCH_PROPOSAL_SCHEMA } from './codex-pa
 import { runCodex, type CodexRunOptions, type CodexRunResult } from './codex-runner.js';
 import { coderFinding, marketplaceFinding, reviewerFinding, securityFinding, testerFinding } from './findings.js';
 import { getRoot } from '../state/repo.js';
+import {
+  supportsExecutionTransport,
+  validateReasoningEffort,
+  type ReasoningEffort,
+} from '../providers/catalog.js';
 import type {
   AgentDriver,
   DeadlockContext,
@@ -36,6 +41,7 @@ export type CodexDriverDependencies = {
 };
 
 const DEFAULT_MODEL = 'gpt-5.3-codex';
+const DEFAULT_REASONING_EFFORT: ReasoningEffort = 'medium';
 
 const resultFields = {
   verdict: { type: 'string' },
@@ -115,11 +121,29 @@ function objectArray(data: Record<string, unknown>, field: string): Record<strin
   return value as Record<string, unknown>[];
 }
 
-function codexModel(task?: Task): string {
-  if (task?.route?.provider === 'openai') {
-    return task.route.model;
+type CodexExecutionRoute = {
+  model: string;
+  reasoningEffort: ReasoningEffort;
+};
+
+function codexExecutionRoute(task?: Task): CodexExecutionRoute {
+  if (task?.route) {
+    if (task.route.provider !== 'openai') {
+      throw new Error(`Codex driver cannot execute ${task.route.provider} route for task "${task.id}".`);
+    }
+    if (!task.route.reasoningEffort) {
+      throw new Error(`Codex task "${task.id}" requires an explicit reasoning effort in its immutable route.`);
+    }
+    if (!supportsExecutionTransport(task.route.model, 'codex-cli')) {
+      throw new Error(`Codex CLI cannot execute routed model "${task.route.model}" for task "${task.id}". Select a codex-cli model.`);
+    }
+    validateReasoningEffort(task.route.model, task.route.reasoningEffort);
+    return { model: task.route.model, reasoningEffort: task.route.reasoningEffort };
   }
-  return task?.model?.startsWith('gpt-') ? task.model : DEFAULT_MODEL;
+  if (task?.model?.startsWith('gpt-')) {
+    throw new Error(`Codex task "${task.id}" must use an immutable OpenAI route with an explicit reasoning effort.`);
+  }
+  return { model: DEFAULT_MODEL, reasoningEffort: DEFAULT_REASONING_EFFORT };
 }
 
 function codexWriteScope(task: Task): string[] {
@@ -178,8 +202,10 @@ export function createCodexDriver(deps: CodexDriverDependencies = {}): AgentDriv
   const applyPatch = deps.applyPatch ?? applyCodexPatchProposal;
   const root = deps.root ?? getRoot;
 
-  const run = (prompt: string, outputSchema: Record<string, unknown>, task?: Task, cwd = root()) =>
-    execute({ cwd, prompt, outputSchema, sandbox: 'read-only', model: codexModel(task) });
+  const run = (prompt: string, outputSchema: Record<string, unknown>, task?: Task, cwd = root()) => {
+    const route = codexExecutionRoute(task);
+    return execute({ cwd, prompt, outputSchema, sandbox: 'read-only', ...route });
+  };
 
   return {
     name: 'codex',
@@ -188,6 +214,7 @@ export function createCodexDriver(deps: CodexDriverDependencies = {}): AgentDriv
       const response = await execute({
         cwd: request.projectRoot,
         model: DEFAULT_MODEL,
+        reasoningEffort: DEFAULT_REASONING_EFFORT,
         sandbox: 'read-only',
         outputSchema: request.outputSchema,
         prompt: [
