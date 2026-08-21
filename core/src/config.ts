@@ -1,5 +1,6 @@
 // Principle 4 — all secrets and API keys through one boundary.
 import { execSync } from 'node:child_process';
+import { resolveDriverMode, type DriverSelectionInput } from './drivers/types.js';
 
 // Model defaults per agent role. Tester and Security use Haiku — structured
 // output tasks that don't require Sonnet-level reasoning. Coder and Reviewer
@@ -29,23 +30,38 @@ export interface Config {
 
 let _config: Config | null = null;
 
+function getDriverSelectionInput(): DriverSelectionInput {
+  let hasClaudeCli = false;
+  try {
+    execSync('claude --version', { stdio: 'ignore' });
+    hasClaudeCli = true;
+  } catch {
+    // The resolved api-key mode provides the existing actionable error.
+  }
+
+  return {
+    explicitDriver: process.env.SWARM_DRIVER,
+    hasAnthropicApiKey: Boolean(process.env.ANTHROPIC_API_KEY),
+    hasClaudeCli,
+  };
+}
+
+/**
+ * The current configuration accepts an explicit Agent SDK selection as the
+ * subscription-authenticated path. In automatic and api-key modes, an
+ * Anthropic API key is required when no Claude CLI is available.
+ */
+export function hasDriverAuthentication(input: DriverSelectionInput): boolean {
+  return resolveDriverMode(input) === 'agent-sdk' || input.hasAnthropicApiKey;
+}
+
 export function getConfig(): Config {
   if (_config) return _config;
 
-  const mode = process.env.SWARM_DRIVER?.toLowerCase();
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  const hasClaudeCli = (() => {
-    try {
-      execSync('claude --version', { stdio: 'ignore' });
-      return true;
-    } catch {
-      return false;
-    }
-  })();
+  const driverSelection = getDriverSelectionInput();
 
-  const usingAgentSdk = mode === 'agent-sdk' || (!apiKey && hasClaudeCli && mode !== 'api-key');
-
-  if (!usingAgentSdk && !apiKey) {
+  if (!hasDriverAuthentication(driverSelection)) {
     throw new Error(
       'No authentication available.\n\n' +
         'Option A — Claude Max plan (no API account needed):\n' +
