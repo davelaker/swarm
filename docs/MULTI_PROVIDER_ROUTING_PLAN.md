@@ -252,7 +252,7 @@ and result, and any changed assumptions.
 | Subtask | Status | Commit / evidence | Notes |
 | --- | --- | --- | --- |
 | MP-01 | Complete | `d94b799`; TypeScript typecheck and 4 focused driver/config tests pass | Baseline selection behaviour is now pinned by pure selection tests. |
-| MP-02 | Not started | — | — |
+| MP-02 | Complete | `5ea9f05`; `npm run typecheck`, focused catalog tests, and 104-test suite pass | Provider-neutral Claude and OpenAI/Codex capability metadata established. |
 | MP-03 | Not started | — | — |
 | MP-04 | Not started | — | Critical compatibility spike |
 | MP-05 | Not started | — | — |
