@@ -408,8 +408,8 @@ risk.
 
 ### Current status
 
-The initial vertical slice is now shipped across the classifier, CLI, PM, server, and
-dashboard:
+The lightweight entry, terminal outcomes, and Quick task vertical slice are now shipped
+across the classifier, CLI, PM, server, and dashboard:
 
 - deterministic intake classification can now distinguish `answer`, `quick_task`,
   `plan`, and `coordinated_run`;
@@ -422,15 +422,20 @@ dashboard:
 - Answer and Plan are terminal PM outcomes that strip charter, graph, team, deployment,
   and execution mutations from their response contract;
 - the first dashboard request is held for a recommendation card, supports an explicit
-  override, and falls back to normal planning when intake is unavailable; and
-- classifier, server, PM, and CLI behaviour is covered by automated tests, while the
-  dashboard path has been typechecked, built, and exercised in a real browser.
+  override, and falls back to normal planning when intake is unavailable;
+- `swarm do` and `POST /run/quick-task` share a preflight compiler that proves narrow
+  scope or returns a structured escalation without dispatching;
+- a Quick task creates one implementation-owner node, then reuses the normal permission,
+  checks, and visual-verification gates rather than introducing a second run engine;
+- run state records the Quick task execution shape and compact metadata; and
+- the dashboard projects that state into a compact card with live phase, changed files,
+  verification evidence, diff review, cancellation, and an expandable full-run view.
 
-This is the lightweight **entry and outcome** slice, not the end of the roadmap. Quick
-task currently reuses the existing run path after intake approval. Packets E–H remain:
-the compact one-node compiler and result surface, durable session identity and safe
-telemetry, in-place escalation without restart, and the false-lightweight evaluation
-corpus.
+Packets A–F are now represented in the product, including the compact one-node compiler
+and result surface. The remaining roadmap is durable cross-outcome session continuity,
+in-place escalation without restarting the request, terminal streaming polish, and the
+false-lightweight evaluation corpus. Runtime discovery that widens scope still blocks the
+current run; it does not yet promote the same session into a coordinated run.
 
 ## Implementation boundaries
 
