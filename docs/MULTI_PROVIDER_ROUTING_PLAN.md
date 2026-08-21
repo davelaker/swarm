@@ -251,7 +251,7 @@ and result, and any changed assumptions.
 
 | Subtask | Status | Commit / evidence | Notes |
 | --- | --- | --- | --- |
-| MP-01 | Not started | — | — |
+| MP-01 | Complete | `d94b799`; TypeScript typecheck and 4 focused driver/config tests pass | Baseline selection behaviour is now pinned by pure selection tests. |
 | MP-02 | Not started | — | — |
 | MP-03 | Not started | — | — |
 | MP-04 | Not started | — | Critical compatibility spike |
