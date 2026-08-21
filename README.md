@@ -49,7 +49,7 @@ shape, dismiss it into normal planning, or continue normally when the classifier
 is unavailable. See the [lightweight workflow design and delivery status](docs/LIGHTWEIGHT_WORKFLOW.md)
 for the product rationale and remaining compact-run work.
 
-The dashboard uses the same Quick task compiler as `swarm do`.
+The dashboard and `swarm do` share the same Quick task compiler.
 
 ## Provider setup
 
