@@ -287,8 +287,8 @@ and result, and any changed assumptions.
 | MP-06 | Complete | `8b3fdbc`; TypeScript typecheck and 122-test suite pass | PM inference is provider-neutral across Claude API/CLI and read-only Codex; shared parsing and research loop remain intact. |
 | MP-07 | Complete | `07097f3`; typecheck and 131-test suite pass | Immutable validated task routes and declared write scopes added; legacy tasks remain compatible but Codex mutation fails closed without a scope. |
 | MP-08 | Complete | `dfbd22d`; focused routing tests plus restored full 138-test suite and typecheck pass | Pure deterministic policy recommends model/provider, rationale, fallback, confirmation, and reviewer diversity. |
-| MP-09 | Not started | — | — |
+| MP-09 | Complete | `a6fee06`; typecheck and 148-test suite pass | PM intent/preferences now feed the deterministic router; every LLM task receives a validated route and Codex-compatible write scope. |
 | MP-10 | Complete | `6160d0d`; focused scheduler tests and restored full 138-test suite/typecheck pass | Disjoint declared write scopes may run concurrently across providers; unknown or conflicting writer scopes serialize. |
 | MP-11 | Not started | — | — |
-| MP-12 | Not started | — | — |
+| MP-12 | Complete | `d29e30a`; typecheck and 144-test suite pass | Safe allow-listed route/outcome telemetry and synthetic routing evaluations added; no prompts, credentials, raw logs, or findings are persisted. |
 | MP-13 | Not started | — | — |
