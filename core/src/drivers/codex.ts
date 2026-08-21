@@ -40,7 +40,7 @@ export type CodexDriverDependencies = {
   root?: () => string;
 };
 
-const DEFAULT_MODEL = 'gpt-5.3-codex';
+const DEFAULT_MODEL = 'gpt-5.4';
 const DEFAULT_REASONING_EFFORT: ReasoningEffort = 'medium';
 
 const resultFields = {

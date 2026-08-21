@@ -377,7 +377,7 @@ export function normalizeModel(raw: unknown): string | undefined {
   } else if (s.includes('haiku')) {
     candidate = 'claude-haiku-4-5-20251001';
   } else if (s === 'codex' || s === 'gpt') {
-    candidate = 'gpt-5.3-codex';
+    candidate = 'gpt-5.4';
   } else {
     candidate = s;
   }

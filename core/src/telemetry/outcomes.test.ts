@@ -16,7 +16,7 @@ function task(overrides: Partial<Task> = {}): Task {
     attempts: 2,
     route: {
       provider: 'openai',
-      model: 'gpt-5.3-codex',
+      model: 'gpt-5.4',
       reasoningEffort: 'medium',
       rationale: 'This must not appear in telemetry.',
       fallback: null,
@@ -39,7 +39,7 @@ test('buildTaskOutcome allow-lists only safe route and gate metadata', () => {
   assert.deepEqual(outcome, {
     taskId: 't1',
     agentId: 'security',
-    route: { provider: 'openai', model: 'gpt-5.3-codex', reasoningEffort: 'medium' },
+    route: { provider: 'openai', model: 'gpt-5.4', reasoningEffort: 'medium' },
     durationMs: 13,
     retries: 1,
     status: 'blocked',

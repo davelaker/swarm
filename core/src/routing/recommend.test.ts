@@ -37,7 +37,7 @@ test('initial routing policy is deterministic and table-driven', () => {
     {
       name: 'small execution selects Codex',
       overrides: { intent: 'execution', scope: 'small' },
-      expected: 'gpt-5.3-codex', fallback: 'claude-haiku-4-5-20251001',
+      expected: 'gpt-5.4', fallback: 'claude-haiku-4-5-20251001',
     },
     {
       name: 'deterministic checks use no model',
@@ -139,11 +139,15 @@ test('Codex subscription routes never select Responses-API-only OpenAI models', 
   if (smallTask.kind !== 'model') {
     throw new Error('Expected a model route.');
   }
-  assert.equal(smallTask.route.model, 'gpt-5.3-codex');
+  assert.equal(smallTask.route.model, 'gpt-5.4');
   assert.notEqual(smallTask.route.reasoningEffort, 'none');
 
-  assert.throws(
-    () => recommendRoute(input({ intent: 'planning', scope: 'large', providerAvailability: openaiSubscriptionOnly })),
-    /No available provider model supports planning work/,
-  );
+  const largePlanning = recommendRoute(input({
+    intent: 'planning', scope: 'large', providerAvailability: openaiSubscriptionOnly,
+  }));
+  if (largePlanning.kind !== 'model') {
+    throw new Error('Expected a model route.');
+  }
+  assert.equal(largePlanning.route.model, 'gpt-5.4');
+  assert.notEqual(largePlanning.route.fallback?.model, 'gpt-5.6-sol');
 });

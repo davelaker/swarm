@@ -110,7 +110,7 @@ test('validateTaskGraph rejects dangling deps, duplicates, and cycles', () => {
 
 test('validates the complete persisted task route shape', () => {
   const result = validateTaskGraph([{ id: 't1', assignee: 'coder', title: 'Change a file', depends_on: [], route: {
-    provider: 'openai', model: 'gpt-5.3-codex', reasoningEffort: 'low', rationale: 'Mechanical fix.',
+    provider: 'openai', model: 'gpt-5.4', reasoningEffort: 'low', rationale: 'Mechanical fix.',
     fallback: null, requiresConfirmation: false, writeScope: ['src/**'],
   } }]);
   assert.equal(result.ok, true);
@@ -118,7 +118,7 @@ test('validates the complete persisted task route shape', () => {
 
 test('rejects unsafe write scope from an execute payload', () => {
   const result = validateTaskGraph([{ id: 't1', assignee: 'coder', title: 'Change a file', route: {
-    provider: 'openai', model: 'gpt-5.3-codex', rationale: 'Bad scope.', fallback: null,
+    provider: 'openai', model: 'gpt-5.4', rationale: 'Bad scope.', fallback: null,
     requiresConfirmation: false, writeScope: ['../.env'],
   } }]);
   assert.deepEqual(result, { ok: false, error: 'taskGraph[0].route.writeScope: must contain safe repo-relative path globs' });
@@ -126,7 +126,7 @@ test('rejects unsafe write scope from an execute payload', () => {
 
 test('rejects routed coder tasks without a broker write scope', () => {
   const result = validateTaskGraph([{ id: 't1', assignee: 'coder', title: 'Change a file', route: {
-    provider: 'openai', model: 'gpt-5.3-codex', rationale: 'No declared files.', fallback: null,
+    provider: 'openai', model: 'gpt-5.4', rationale: 'No declared files.', fallback: null,
     requiresConfirmation: false, writeScope: [],
   } }]);
   assert.deepEqual(result, { ok: false, error: 'taskGraph[0].route.writeScope: coder routes require at least one declared path' });

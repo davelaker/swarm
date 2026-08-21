@@ -56,7 +56,6 @@ export const MODEL_CHOICES: { id: string; label: string }[] = [
   { id: 'claude-sonnet-5', label: 'Sonnet 5' },
   { id: 'claude-opus-4-8', label: 'Opus' },
   { id: 'claude-fable-5', label: 'Fable' },
-  { id: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
   { id: 'gpt-5.4', label: 'GPT-5.4' },
 ];
 
@@ -81,7 +80,7 @@ export interface AvailableProvider {
 // The local Swarm OpenAI driver invokes `codex exec`. Models that are available
 // only through the Responses API must not appear as override choices merely
 // because the server's provider catalog knows about them.
-const CODEX_CLI_MODEL_IDS = new Set(['gpt-5.3-codex']);
+const CODEX_CLI_MODEL_IDS = new Set(['gpt-5.4']);
 
 function hasExecutableTransport(provider: AvailableProvider, model: AvailableModel): boolean {
   if (provider.provider !== 'openai') {

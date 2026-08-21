@@ -72,7 +72,7 @@ function createHarness() {
                   verificationCommands: ['npm test'],
                   route: {
                     provider: 'openai',
-                    model: 'gpt-5.3-codex',
+                    model: 'gpt-5.4',
                     reasoningEffort: 'low',
                     rationale: 'test route',
                     fallback: null,
@@ -119,7 +119,7 @@ function createHarness() {
                       verificationCommands: ['npm test'],
                       route: {
                         provider: 'openai',
-                        model: 'gpt-5.3-codex',
+                        model: 'gpt-5.4',
                         reasoningEffort: 'low',
                         rationale: 'test route',
                         fallback: null,

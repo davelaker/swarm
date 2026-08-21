@@ -30,7 +30,7 @@ function quickTaskSpec(): QuickTaskSpec {
     ],
     route: {
       provider: 'openai',
-      model: 'gpt-5.3-codex',
+      model: 'gpt-5.4',
       reasoningEffort: 'low',
       rationale: 'Small contained execution prefers the Codex/GPT execution model.',
       fallback: null,

@@ -10,8 +10,8 @@ test('normalizeModel resolves friendly aliases to canonical ids', () => {
 });
 
 test('normalizeModel accepts catalog-backed Codex aliases', () => {
-  assert.equal(normalizeModel('codex'), 'gpt-5.3-codex');
-  assert.equal(normalizeModel('gpt'), 'gpt-5.3-codex');
+  assert.equal(normalizeModel('codex'), 'gpt-5.4');
+  assert.equal(normalizeModel('gpt'), 'gpt-5.4');
   assert.equal(normalizeModel('gpt-5.4'), 'gpt-5.4');
 });
 

@@ -57,7 +57,8 @@ export interface ProviderModel {
 
 const ALL_CAPABILITIES: readonly ModelCapability[] = ['coding', 'planning', 'review'];
 const FULL_REASONING: readonly ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
-const GPT_5_3_CODEX_REASONING: readonly ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh'];
+const GPT_5_4_REASONING: readonly ReasoningEffort[] = ['low', 'medium', 'high', 'xhigh'];
+const GPT_5_4_SUPPORTED_REASONING: readonly SupportedReasoningEffort[] = ['none', 'low', 'medium', 'high', 'xhigh'];
 const GPT_5_6_REASONING: readonly SupportedReasoningEffort[] = ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
 
 /**
@@ -116,27 +117,15 @@ export const PROVIDER_MODELS: readonly ProviderModel[] = [
   },
   {
     provider: 'openai',
-    id: 'gpt-5.3-codex',
-    label: 'GPT-5.3 Codex',
+    id: 'gpt-5.4',
+    label: 'GPT-5.4',
     tier: 'standard',
-    supportedReasoningEfforts: GPT_5_3_CODEX_REASONING,
-    reasoningEfforts: GPT_5_3_CODEX_REASONING,
-    capabilities: ['coding', 'review'],
+    supportedReasoningEfforts: GPT_5_4_SUPPORTED_REASONING,
+    reasoningEfforts: GPT_5_4_REASONING,
+    capabilities: ALL_CAPABILITIES,
     routingRoles: ['small-execution'],
     authModes: ['subscription', 'api-key'],
     executionTransports: ['codex-cli', 'openai-responses-api'],
-  },
-  {
-    provider: 'openai',
-    id: 'gpt-5.4',
-    label: 'GPT-5.4',
-    tier: 'frontier',
-    supportedReasoningEfforts: ['none', 'low', 'medium', 'high', 'xhigh'],
-    reasoningEfforts: GPT_5_3_CODEX_REASONING,
-    capabilities: ALL_CAPABILITIES,
-    routingRoles: [],
-    authModes: ['api-key'],
-    executionTransports: ['openai-responses-api'],
   },
   {
     provider: 'openai',

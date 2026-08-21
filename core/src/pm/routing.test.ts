@@ -29,7 +29,7 @@ test('PM task hints receive authoritative routes without accepting an invented m
 
   const [coder, reviewer] = response.taskGraph ?? [];
   assert.equal(coder.route?.provider, 'openai');
-  assert.equal(coder.route?.model, 'gpt-5.3-codex');
+  assert.equal(coder.route?.model, 'gpt-5.4');
   assert.equal(coder.route?.requiresConfirmation, false);
   assert.deepEqual(coder.route?.writeScope, ['src/labels.ts']);
   assert.match(coder.route?.rationale ?? '', /not a supported catalog model/);

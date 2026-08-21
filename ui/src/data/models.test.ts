@@ -22,8 +22,8 @@ const providers: AvailableProvider[] = [
     availableAuthModes: [],
     models: [
       {
-        id: 'gpt-5.3-codex',
-        label: 'GPT-5.3 Codex',
+        id: 'gpt-5.4',
+        label: 'GPT-5.4',
         tier: 'standard',
         capabilities: ['coding', 'review'],
         reasoningEfforts: ['low', 'medium', 'high'],
@@ -64,8 +64,8 @@ describe('selectableModels', () => {
       availableAuthModes: ['subscription'],
       models: [
         {
-          id: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', tier: 'standard',
-          capabilities: ['coding', 'review'], reasoningEfforts: ['low', 'medium', 'high'],
+          id: 'gpt-5.4', label: 'GPT-5.4', tier: 'standard',
+          capabilities: ['coding', 'planning', 'review'], reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
         },
         {
           id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', tier: 'frontier',
@@ -74,7 +74,7 @@ describe('selectableModels', () => {
       ],
     }];
 
-    expect(selectableModels(openaiSubscription, 'coder').map(model => model.id)).toEqual(['gpt-5.3-codex']);
+    expect(selectableModels(openaiSubscription, 'coder').map(model => model.id)).toEqual(['gpt-5.4']);
   });
 
   it('explains the quota and quality trade-off for each selectable effort', () => {

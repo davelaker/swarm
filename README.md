@@ -76,7 +76,7 @@ The router assigns a route to each LLM task: provider, model, optional reasoning
 | --- | --- |
 | Large planning or ambiguous architecture | Fable, then Opus |
 | Large, risky, or multi-file coding | Opus |
-| Small, contained execution | GPT-5.3 Codex with low or medium effort |
+| Small, contained execution | GPT-5.4 with low or medium effort |
 | Deterministic checks | No model |
 | High-stakes review | A different available provider from the implementer |
 

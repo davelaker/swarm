@@ -10,9 +10,9 @@ import {
   validateSupportedReasoningEffort,
 } from './index.js';
 
-test('catalog exposes provider-neutral Claude and Codex records', () => {
+test('catalog exposes provider-neutral Claude and OpenAI execution records', () => {
   const claude = validateProviderModel('claude-opus-4-8');
-  const codex = validateProviderModel('gpt-5.3-codex');
+  const codex = validateProviderModel('gpt-5.4');
 
   assert.deepEqual(
     {
@@ -29,10 +29,10 @@ test('catalog exposes provider-neutral Claude and Codex records', () => {
     },
   );
   assert.equal(codex.provider, 'openai');
-  assert.equal(codex.label, 'GPT-5.3 Codex');
+  assert.equal(codex.label, 'GPT-5.4');
   assert.ok(codex.capabilities.includes('coding'));
   assert.ok(codex.reasoningEfforts.includes('high'));
-  assert.deepEqual(codex.supportedReasoningEfforts, ['low', 'medium', 'high', 'xhigh']);
+  assert.deepEqual(codex.supportedReasoningEfforts, ['none', 'low', 'medium', 'high', 'xhigh']);
   assert.deepEqual(codex.executionTransports, ['codex-cli', 'openai-responses-api']);
 });
 
@@ -40,7 +40,7 @@ test('catalog can query models by provider without loading an SDK', () => {
   assert.equal(getProviderModel('not-a-model'), undefined);
   assert.deepEqual(
     listProviderModels('openai').map((model) => model.id),
-    ['gpt-5.3-codex', 'gpt-5.4', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'],
+    ['gpt-5.4', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'],
   );
 });
 
@@ -59,25 +59,25 @@ test('OpenAI model families retain their documented purpose, effort, and transpo
   }
   assert.equal(validateSupportedReasoningEffort('gpt-5.6-sol', 'none').id, 'gpt-5.6-sol');
   assert.throws(
-    () => validateSupportedReasoningEffort('gpt-5.3-codex', 'none'),
-    /does not support "none" reasoning effort/,
+    () => validateSupportedReasoningEffort('gpt-5.4', 'max'),
+    /does not support "max" reasoning effort/,
   );
 });
 
 test('local Codex subscriptions cannot select Responses-API-only models', () => {
   assert.deepEqual(
     listProviderModelsForTransport('codex-cli', 'openai').map((model) => model.id),
-    ['gpt-5.3-codex'],
+    ['gpt-5.4'],
   );
-  assert.equal(supportsExecutionTransport('gpt-5.3-codex', 'codex-cli'), true);
+  assert.equal(supportsExecutionTransport('gpt-5.4', 'codex-cli'), true);
   assert.equal(supportsExecutionTransport('gpt-5.6-sol', 'codex-cli'), false);
-  assert.equal(supportsExecutionTransport('gpt-5.4', 'codex-cli'), false);
+  assert.equal(supportsExecutionTransport('gpt-5.6-terra', 'codex-cli'), false);
 });
 
 test('unknown models explain how to correct the selection', () => {
   assert.throws(
     () => validateProviderModel('gpt-unknown'),
-    /Unknown model "gpt-unknown"\. Choose a catalog model: .*gpt-5\.3-codex/,
+    /Unknown model "gpt-unknown"\. Choose a catalog model: .*gpt-5\.4/,
   );
 });
 
@@ -86,5 +86,5 @@ test('reasoning validation reports unsupported effort clearly', () => {
     () => validateReasoningEffort('claude-haiku-4-5-20251001', 'high'),
     /does not support "high" reasoning effort\. Supported levels: none/,
   );
-  assert.equal(validateReasoningEffort('gpt-5.3-codex', 'medium').id, 'gpt-5.3-codex');
+  assert.equal(validateReasoningEffort('gpt-5.4', 'medium').id, 'gpt-5.4');
 });

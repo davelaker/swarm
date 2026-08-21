@@ -47,7 +47,7 @@ test('persists bounded metadata-only task outcomes', () => {
     setRoot(dir);
     initWorkspace('fixture', 'Telemetry fixture');
     const outcome: TaskOutcomeTelemetry = {
-      taskId: 't1', agentId: 'coder', route: { provider: 'openai', model: 'gpt-5.3-codex' },
+      taskId: 't1', agentId: 'coder', route: { provider: 'openai', model: 'gpt-5.4' },
       durationMs: 25, retries: 0, status: 'done', verdict: 'COMPLETE', costQuotaClass: 'subscription-quota',
     };
     recordTaskOutcome(outcome);

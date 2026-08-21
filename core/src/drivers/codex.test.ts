@@ -56,7 +56,7 @@ test('Codex coder receives its model and broker scope from the immutable task ro
   const routedTask: Task = {
     ...task,
     route: {
-      provider: 'openai', model: 'gpt-5.3-codex', reasoningEffort: 'high', rationale: 'Bounded feature.',
+      provider: 'openai', model: 'gpt-5.4', reasoningEffort: 'high', rationale: 'Bounded feature.',
       fallback: null, requiresConfirmation: false, writeScope: ['src/routed.ts'],
     },
   };
@@ -74,7 +74,7 @@ test('Codex coder receives its model and broker scope from the immutable task ro
 
   await driver.runCoder(routedTask, state, '/worktree');
 
-  assert.equal(options?.model, 'gpt-5.3-codex');
+  assert.equal(options?.model, 'gpt-5.4');
   assert.equal(options?.reasoningEffort, 'high');
   assert.match(options?.prompt ?? '', /src\/routed\.ts/);
   assert.deepEqual((applied as { writeScope: string[] }).writeScope, ['src/routed.ts']);
@@ -84,14 +84,14 @@ test('Codex refuses a routed model or effort unavailable through its CLI transpo
   const unavailableModelTask: Task = {
     ...task,
     route: {
-      provider: 'openai', model: 'gpt-5.4', reasoningEffort: 'high', rationale: 'Invalid transport pairing.',
+      provider: 'openai', model: 'gpt-5.6-sol', reasoningEffort: 'high', rationale: 'Invalid transport pairing.',
       fallback: null, requiresConfirmation: false, writeScope: ['src/allowed.ts'],
     },
   };
   const missingEffortTask: Task = {
     ...task,
     route: {
-      provider: 'openai', model: 'gpt-5.3-codex', rationale: 'Invalid incomplete route.',
+      provider: 'openai', model: 'gpt-5.4', rationale: 'Invalid incomplete route.',
       fallback: null, requiresConfirmation: false, writeScope: ['src/allowed.ts'],
     },
   };

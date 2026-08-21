@@ -31,7 +31,7 @@ function spec(): QuickTaskSpec {
     verificationCommands: ['cd ui && npm test'],
     route: {
       provider: 'openai',
-      model: 'gpt-5.3-codex',
+      model: 'gpt-5.4',
       reasoningEffort: 'low',
       rationale: 'Small contained execution prefers Codex.',
       fallback: null,
@@ -60,7 +60,7 @@ test('compileQuickTask emits a one-coder quick task graph', () => {
       '- cd ui && npm test',
     ].join('\n'),
     depends_on: [],
-    model: 'gpt-5.3-codex',
+    model: 'gpt-5.4',
     effort: 'low',
     route: spec().route,
   });
@@ -92,7 +92,7 @@ test('preflightQuickTask infers explicit path scope and route', () => {
   assert.ok(preflight.ok);
   assert.deepEqual(preflight.spec.declaredWriteScope, ['ui/src/components/ReconnectBanner.tsx']);
   assert.equal(preflight.spec.route.provider, 'openai');
-  assert.equal(preflight.spec.route.model, 'gpt-5.3-codex');
+  assert.equal(preflight.spec.route.model, 'gpt-5.4');
 });
 
 test('preflightQuickTask escalates when no narrow scope is discovered', () => {

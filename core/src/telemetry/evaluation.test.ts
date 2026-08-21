@@ -25,7 +25,7 @@ test('synthetic routing evaluation covers the release policy scenarios', () => {
   const results = evaluateRoutingPolicy([
     fixture('large planning', 'claude-fable-5', { intent: 'planning', scope: 'large' }),
     fixture('large coding', 'claude-opus-4-8', { intent: 'coding', scope: 'large' }),
-    fixture('small execution', 'gpt-5.3-codex', { intent: 'execution', scope: 'small' }),
+    fixture('small execution', 'gpt-5.4', { intent: 'execution', scope: 'small' }),
     fixture('deterministic validation', null, { intent: 'validation', deterministic: true, writeAccess: 'none', writeScope: [] }),
   ]);
 
@@ -34,7 +34,7 @@ test('synthetic routing evaluation covers the release policy scenarios', () => {
 
 test('evaluation reports policy regressions without changing policy', () => {
   const [result] = evaluateRoutingPolicy([
-    fixture('intentional mismatch', 'gpt-5.3-codex', { intent: 'coding', scope: 'large' }),
+    fixture('intentional mismatch', 'gpt-5.4', { intent: 'coding', scope: 'large' }),
   ]);
   assert.equal(result.pass, false);
   assert.match(result.detail, /Expected/);

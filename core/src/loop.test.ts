@@ -28,7 +28,7 @@ function task(
       : {
           route: {
             provider: id === 'openai' ? 'openai' : 'anthropic',
-            model: id === 'openai' ? 'gpt-5.3-codex' : 'claude-opus-4-8',
+            model: id === 'openai' ? 'gpt-5.4' : 'claude-opus-4-8',
             rationale: 'test',
             fallback: null,
             requiresConfirmation: false,
