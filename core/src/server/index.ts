@@ -31,6 +31,7 @@ import {
 } from '../state/repo.js';
 import { serverFreshness } from './freshness.js';
 import { checkRequest } from './request-guard.js';
+import { createQuickTaskHandler } from './quick-task.js';
 import { validateRosterPayload, validateCharterGraph } from './validate.js';
 import { runPreflight, uniqueSwarmBranch } from './preflight.js';
 import { rewindTask } from './rewind.js';
@@ -64,6 +65,9 @@ import type { SwarmEvent, SwarmState, Task } from '../state/types.js';
 type SseClient = http.ServerResponse;
 
 const clients = new Set<SseClient>();
+const handleQuickTaskRequest = createQuickTaskHandler({
+  hasActiveRun: () => activeRun,
+});
 
 // ─── Active-run guard ─────────────────────────────────────────────────────────
 // Prevents a second Execute while agents are running. Without this, an HMR
@@ -1932,6 +1936,25 @@ async function routePost(
         .finally(() => {
           activeRun = false;
         });
+      return;
+    }
+    if (route === '/run/quick-task') {
+      const result = await handleQuickTaskRequest(payload);
+      res.writeHead(result.status);
+      res.end(JSON.stringify(result.body));
+      if (result.status === 200 && result.body.status === 'started' && result.dispatch) {
+        activeRun = true;
+        console.log(`\n  ▸ quick task: "${result.body.goal}"\n`);
+        result.dispatch()
+          .catch(err => {
+            const msg = (err as Error).message ?? 'Unknown error';
+            console.error('  ✗ quick task error:', msg);
+            fanout({ type: 'run.blocked', reason: msg });
+          })
+          .finally(() => {
+            activeRun = false;
+          });
+      }
       return;
     }
     if (route === '/run/pause') {
