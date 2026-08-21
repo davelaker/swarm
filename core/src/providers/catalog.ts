@@ -12,6 +12,12 @@ export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export type ModelCapability = 'coding' | 'planning' | 'review';
 
+/**
+ * Stable policy roles used by the router. These describe a model's intended
+ * default placement; concrete model IDs remain catalog data, not router code.
+ */
+export type RoutingRole = 'large-planning' | 'large-coding' | 'small-execution';
+
 export type AuthMode = 'subscription' | 'api-key';
 
 export interface ProviderModel {
@@ -21,6 +27,7 @@ export interface ProviderModel {
   tier: ModelTier;
   reasoningEfforts: readonly ReasoningEffort[];
   capabilities: readonly ModelCapability[];
+  routingRoles: readonly RoutingRole[];
   authModes: readonly AuthMode[];
 }
 
@@ -40,6 +47,7 @@ export const PROVIDER_MODELS: readonly ProviderModel[] = [
     tier: 'fast',
     reasoningEfforts: [],
     capabilities: ['coding', 'review'],
+    routingRoles: [],
     authModes: ['subscription', 'api-key'],
   },
   {
@@ -49,6 +57,7 @@ export const PROVIDER_MODELS: readonly ProviderModel[] = [
     tier: 'standard',
     reasoningEfforts: FULL_REASONING,
     capabilities: ALL_CAPABILITIES,
+    routingRoles: [],
     authModes: ['subscription', 'api-key'],
   },
   {
@@ -58,6 +67,7 @@ export const PROVIDER_MODELS: readonly ProviderModel[] = [
     tier: 'frontier',
     reasoningEfforts: FULL_REASONING,
     capabilities: ALL_CAPABILITIES,
+    routingRoles: ['large-coding'],
     authModes: ['subscription', 'api-key'],
   },
   {
@@ -67,6 +77,7 @@ export const PROVIDER_MODELS: readonly ProviderModel[] = [
     tier: 'frontier',
     reasoningEfforts: FULL_REASONING,
     capabilities: ALL_CAPABILITIES,
+    routingRoles: ['large-planning'],
     authModes: ['subscription', 'api-key'],
   },
   {
@@ -76,6 +87,7 @@ export const PROVIDER_MODELS: readonly ProviderModel[] = [
     tier: 'standard',
     reasoningEfforts: FULL_REASONING,
     capabilities: ['coding', 'review'],
+    routingRoles: ['small-execution'],
     authModes: ['subscription', 'api-key'],
   },
   {
@@ -85,6 +97,7 @@ export const PROVIDER_MODELS: readonly ProviderModel[] = [
     tier: 'frontier',
     reasoningEfforts: FULL_REASONING,
     capabilities: ALL_CAPABILITIES,
+    routingRoles: [],
     authModes: ['subscription', 'api-key'],
   },
 ];
