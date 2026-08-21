@@ -408,17 +408,29 @@ risk.
 
 ### Current status
 
-The first packet is the right starting point and is already useful even before the full
-workflow lands:
+The initial vertical slice is now shipped across the classifier, CLI, PM, server, and
+dashboard:
 
 - deterministic intake classification can now distinguish `answer`, `quick_task`,
   `plan`, and `coordinated_run`;
 - read-only questions about sensitive areas remain `answer` while still surfacing risk
   signals;
-- explicit requested shapes are handled as structured input rather than by smuggling
-  slash prefixes through the request text; and
-- the contract is covered by table-driven tests for the classifier, server intake
-  validation, and CLI command parsing.
+- explicit requested shapes are accepted as structured input, honored for safe terminal
+  outcomes, and still escalated when a requested quick task is destructive;
+- `swarm ask`, `swarm plan`, `swarm do`, `swarm swarm`, and bare-prompt automatic intake
+  are routed through one CLI entry point;
+- Answer and Plan are terminal PM outcomes that strip charter, graph, team, deployment,
+  and execution mutations from their response contract;
+- the first dashboard request is held for a recommendation card, supports an explicit
+  override, and falls back to normal planning when intake is unavailable; and
+- classifier, server, PM, and CLI behaviour is covered by automated tests, while the
+  dashboard path has been typechecked, built, and exercised in a real browser.
+
+This is the lightweight **entry and outcome** slice, not the end of the roadmap. Quick
+task currently reuses the existing run path after intake approval. Packets E–H remain:
+the compact one-node compiler and result surface, durable session identity and safe
+telemetry, in-place escalation without restart, and the false-lightweight evaluation
+corpus.
 
 ## Implementation boundaries
 

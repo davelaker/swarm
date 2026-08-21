@@ -19,6 +19,32 @@ swarm dev
 
 Open the local dashboard, create a plan, inspect its proposed routes, confirm any cost-class warnings, and start the run. See [docs](docs/README.md) for the design corpus and build details.
 
+## Lightweight intake
+
+Swarm can now start with the request instead of requiring a full run up front. The CLI
+classifies a bare prompt and exposes explicit shortcuts when you already know the
+workflow you want:
+
+```sh
+swarm ask "why is this test flaky?"
+swarm plan "move sessions to SQLite"
+swarm do "fix the reconnect banner"
+swarm swarm "replace the authorization layer"
+swarm "review the reconnect flow"
+```
+
+`ask` and `plan` return terminal PM outcomes without creating a charter or task graph.
+Bare prompts may answer or plan immediately, but write-shaped requests require an
+explicit `do` or `swarm` command. `do` keeps the existing run, permission, and
+verification boundaries and escalates destructive or otherwise risky wording to the
+coordinated workflow.
+
+In the dashboard, the first request in a fresh planning session receives an Answer,
+Quick task, Plan, or Coordinated run recommendation. You can accept it, select another
+shape, dismiss it into normal planning, or continue normally when the classifier server
+is unavailable. See the [lightweight workflow design and delivery status](docs/LIGHTWEIGHT_WORKFLOW.md)
+for the product rationale and remaining compact-run work.
+
 ## Provider setup
 
 Swarm detects provider availability without reading CLI configuration, account details, tokens, or API-key values. It runs only `<cli> --version` and checks whether the relevant environment variable is present.
