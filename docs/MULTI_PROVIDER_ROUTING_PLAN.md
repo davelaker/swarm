@@ -285,7 +285,7 @@ and result, and any changed assumptions.
 | MP-04 | Complete (native write rejected) | `0a89601`; typecheck, 112-test suite, and two real Codex fixture smokes pass | Transport is proven; native Codex write mode is rejected. The approved read-only patch-proposal boundary unblocks MP-05. See `CODEX_RUNNER_SPIKE.md`. |
 | MP-05 | Complete | MP-05a: `2ba77b7`; MP-05b: `e319a67`; typecheck and 119-test suite pass | Codex is strictly read-only; Swarm validates and applies coder patches. It fails closed until MP-07 supplies declared task write scopes. |
 | MP-06 | Complete | `8b3fdbc`; TypeScript typecheck and 122-test suite pass | PM inference is provider-neutral across Claude API/CLI and read-only Codex; shared parsing and research loop remain intact. |
-| MP-07 | Not started | — | — |
+| MP-07 | Complete | `07097f3`; typecheck and 131-test suite pass | Immutable validated task routes and declared write scopes added; legacy tasks remain compatible but Codex mutation fails closed without a scope. |
 | MP-08 | Not started | — | — |
 | MP-09 | Not started | — | — |
 | MP-10 | Not started | — | — |
