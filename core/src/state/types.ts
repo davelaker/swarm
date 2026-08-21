@@ -22,6 +22,30 @@ export type TaskRoute = {
   writeScope: string[];
 };
 
+/**
+ * A deliberately small, safe record of a completed task. Outcome telemetry is
+ * for evaluating routing policy, never for replaying an agent session. Do not
+ * add prompts, finding bodies, provider logs, credentials, or token contents.
+ */
+export interface TaskOutcomeTelemetry {
+  taskId: string;
+  agentId: string;
+  route: {
+    provider: import('../providers/catalog.js').ProviderId;
+    model: string;
+    reasoningEffort?: import('../providers/catalog.js').ReasoningEffort;
+  } | null;
+  durationMs: number;
+  retries: number;
+  status: TaskStatus;
+  verdict?: string;
+  gateFinding?: {
+    verdict: string;
+    blocksDone: boolean;
+  };
+  costQuotaClass: 'api-metered' | 'subscription-quota' | 'unmetered' | 'unknown';
+}
+
 // A lease is acquired when a task moves to in_progress.
 // If expires_at passes without a heartbeat the task is eligible for reconcile.
 export interface Lease {
@@ -109,6 +133,9 @@ export interface SwarmState {
   updated_at: string;
   tasks: Task[];
   log: LogEntry[];
+  // Bounded, metadata-only routing outcome history. It intentionally excludes
+  // prompts, credentials, raw provider events, and free-form finding text.
+  outcomes?: TaskOutcomeTelemetry[];
 }
 
 // ─── Events emitted by the state repository ──────────────────────────────────
@@ -142,6 +169,7 @@ export type SwarmEvent =
   | { type: 'run.cost_updated'; spent: number; cap: number }
   | { type: 'run.paused' }
   | { type: 'run.aborted' }
+  | { type: 'task.outcome_recorded'; outcome: TaskOutcomeTelemetry }
   | {
       type: 'task.metrics';
       task_id: string;

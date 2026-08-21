@@ -18,6 +18,7 @@ import {
   readProjectMemory,
   writeProjectMemory,
   getRoot,
+  recordTaskOutcome,
 } from './state/repo.js';
 import { dispatch } from './dispatch/index.js';
 import { validateFinding, hasSensitivePaths } from './agents/finding.js';
@@ -33,6 +34,7 @@ import { bus } from './state/events.js';
 import { isPaused, isAborted } from './loop-control.js';
 import type { SwarmState, Task } from './state/types.js';
 import type { DeadlockContext } from './drivers/types.js';
+import { buildTaskOutcome } from './telemetry/outcomes.js';
 
 const HEARTBEAT_MS = 30_000;
 const POLL_MS = 500;
@@ -945,6 +947,11 @@ export async function runLoop(): Promise<LoopResult> {
         );
         console.error(`  ✗ ${task.id} worktree add failed: ${msg}`);
         updateTask(task.id, { status: 'failed', lease: undefined });
+        recordTaskOutcome(buildTaskOutcome({
+          task: { ...task, attempts: task.attempts + 1 },
+          status: 'failed',
+          durationMs: Date.now() - now.getTime(),
+        }));
         return;
       }
     }
@@ -982,6 +989,11 @@ export async function runLoop(): Promise<LoopResult> {
           cleanupWorktree(task.id, worktreePath);
           worktreePath = undefined; // already cleaned up — skip the finally block
           updateTask(task.id, { status: 'failed', lease: undefined });
+          recordTaskOutcome(buildTaskOutcome({
+            task: { ...task, attempts: task.attempts + 1 },
+            status: 'failed',
+            durationMs: Date.now() - now.getTime(),
+          }));
           return;
         }
       }
@@ -1052,6 +1064,15 @@ export async function runLoop(): Promise<LoopResult> {
         lease: undefined,
       });
 
+      recordTaskOutcome(buildTaskOutcome({
+        task: { ...task, attempts: task.attempts + 1 },
+        status: finalStatus,
+        durationMs: Date.now() - now.getTime(),
+        verdict: result.verdict,
+        blocksDone: finalStatus === 'blocked',
+        costUsd: result.costUsd,
+      }));
+
       // E1: early-exit — skip downstream tasks when a dependency produced nothing actionable.
       // Coder with no file output: testers, reviewers, and security agents downstream
       // have nothing to work on. Security APPROVED with no findings: any spawned fix
@@ -1090,6 +1111,11 @@ export async function runLoop(): Promise<LoopResult> {
       const cur = getState().tasks.find(t => t.id === task.id);
       if (cur && cur.attempts >= cfg.maxAttempts) {
         updateTask(task.id, { status: 'failed', lease: undefined });
+        recordTaskOutcome(buildTaskOutcome({
+          task: cur,
+          status: 'failed',
+          durationMs: Date.now() - now.getTime(),
+        }));
       } else {
         updateTask(task.id, { status: 'pending', lease: undefined });
       }

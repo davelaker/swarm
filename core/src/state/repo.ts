@@ -6,8 +6,9 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { bus } from './events.js';
-import type { SwarmState, Task, TaskStatus, LogEntry, TaskRoute } from './types.js';
+import type { SwarmState, Task, TaskStatus, LogEntry, TaskRoute, TaskOutcomeTelemetry } from './types.js';
 import { getProviderModel } from '../providers/catalog.js';
+import { appendOutcome } from '../telemetry/outcomes.js';
 
 // ─── Mutable project root ─────────────────────────────────────────────────────
 // Initialised from process.cwd() at startup; can be changed at runtime via
@@ -365,6 +366,14 @@ export function appendLog(actor: string, event: string): void {
   state.log.push(entry);
   writeState(state);
   bus.emit('swarm', { type: 'log.appended', actor, event });
+}
+
+/** Persist a bounded, metadata-only task outcome for routing evaluation. */
+export function recordTaskOutcome(outcome: TaskOutcomeTelemetry): void {
+  const state = getState();
+  state.outcomes = appendOutcome(state.outcomes, outcome);
+  writeState(state);
+  bus.emit('swarm', { type: 'task.outcome_recorded', outcome });
 }
 
 // Workers write findings; PM reads them via result_ref.
