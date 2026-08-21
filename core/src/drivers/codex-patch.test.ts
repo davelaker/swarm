@@ -61,6 +61,32 @@ test('applies a valid in-scope patch exactly once after broker approval', async 
   }
 });
 
+test('recounts incorrect model-generated hunk line counts before applying', async () => {
+  const f = fixture();
+  try {
+    const recountedPatch = patch(
+      'export const value = 1;',
+      'export const value = 2;',
+    ).replace('@@ -1 +1 @@', '@@ -1,4 +1,4 @@');
+    const result = await applyCodexPatchProposal({
+      agentId: 'coder',
+      worktreePath: f.root,
+      writeScope: ['allowed.ts'],
+      proposal: {
+        base_revision: f.base,
+        changed_paths: ['allowed.ts'],
+        patch: recountedPatch,
+      },
+      requestApproval: async () => 'allow',
+    });
+
+    assert.deepEqual(result.changedPaths, ['allowed.ts']);
+    assert.equal(fs.readFileSync(path.join(f.root, 'allowed.ts'), 'utf8'), 'export const value = 2;\n');
+  } finally {
+    f.cleanup();
+  }
+});
+
 test('rejects malformed, stale, binary, unsafe, and out-of-scope proposals before approval', async () => {
   const f = fixture();
   try {

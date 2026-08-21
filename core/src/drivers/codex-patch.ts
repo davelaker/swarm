@@ -173,7 +173,7 @@ export async function applyCodexPatchProposal(opts: ApplyCodexPatchOptions): Pro
   }
 
   await assertBaseRevision(opts.worktreePath, proposal.base_revision);
-  await git(['apply', '--check', '--whitespace=error'], opts.worktreePath, proposal.patch);
+  await git(['apply', '--check', '--recount', '--whitespace=error'], opts.worktreePath, proposal.patch);
 
   const approval = await (opts.requestApproval ?? requestPermission)(opts.agentId, 'apply_patch', {
     base_revision: proposal.base_revision,
@@ -186,7 +186,7 @@ export async function applyCodexPatchProposal(opts: ApplyCodexPatchOptions): Pro
   // The project may have changed while the approval dialog was visible. Recheck
   // both invariants immediately before Swarm performs its only mutation.
   await assertBaseRevision(opts.worktreePath, proposal.base_revision);
-  await git(['apply', '--check', '--whitespace=error'], opts.worktreePath, proposal.patch);
-  await git(['apply', '--whitespace=error'], opts.worktreePath, proposal.patch);
+  await git(['apply', '--check', '--recount', '--whitespace=error'], opts.worktreePath, proposal.patch);
+  await git(['apply', '--recount', '--whitespace=error'], opts.worktreePath, proposal.patch);
   return { changedPaths: paths };
 }
