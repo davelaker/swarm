@@ -24,6 +24,7 @@ launch  →  brainstorm (Planning)  →  Charter + approval gate  →  execute (
 | --- | -------------- |
 | [`DESIGN.md`](DESIGN.md) | **Start here.** Goals, the blackboard architecture, personas, the `state.json` schema and orchestrator loop, the local-first hosting decision, the four product-layer principles, failure modes, glossary. |
 | [`INCEPTION.md`](INCEPTION.md) | Planning mode: the brainstorm phase, the critical-partner PM, the Project Charter, the approval gate, single-launch entry. |
+| [`LIGHTWEIGHT_WORKFLOW.md`](LIGHTWEIGHT_WORKFLOW.md) | Progressive orchestration: Claude Code/Codex comparison, lightweight intake, and the engineering plan for Answer, Quick task, Plan, and Coordinated run workflows. |
 | [`UX.md`](UX.md) | Real-time mechanism (SSE + POST), the dashboard, marketplace screens, and the design prompts for generating the UI. |
 | [`MARKETPLACE.md`](MARKETPLACE.md) | Installable, customisable agent templates; per-owner teams; trust & safety for third-party templates. |
 | [`CATALOG.md`](CATALOG.md) | Routing contracts for the default team + the first ten hireable specialists. |
