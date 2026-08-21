@@ -43,6 +43,12 @@ interface ServerState {
   tasks: ServerTask[];
   log: Array<{ ts: string; actor: string; event: string }>;
   branchName?: string;
+  pendingPermission?: {
+    request_id: string;
+    agent_id: string;
+    tool: string;
+    input: Record<string, unknown>;
+  } | null;
   executionShape?: ExecutionShape;
   charter?: {
     quickTask?: ServerQuickTaskMetadata;
@@ -362,7 +368,14 @@ export function useRealRun(resetKey?: string | null): RealRun {
           pushed,
           branchName: snap.branchName,
           elapsedMs,
-          pendingPermission: prev?.pendingPermission ?? null,
+          pendingPermission: snap.pendingPermission
+            ? {
+                requestId: snap.pendingPermission.request_id,
+                agentId: snap.pendingPermission.agent_id,
+                tool: snap.pendingPermission.tool,
+                input: snap.pendingPermission.input,
+              }
+            : (prev?.pendingPermission ?? null),
         }));
       })
       .catch(() => {

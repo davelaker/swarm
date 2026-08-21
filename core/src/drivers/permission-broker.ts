@@ -19,6 +19,13 @@ interface PendingRequest {
   timeoutId: ReturnType<typeof setTimeout>;
 }
 
+export interface PendingPermissionSnapshot {
+  request_id: string;
+  agent_id: string;
+  tool: string;
+  input: Record<string, unknown>;
+}
+
 const pending = new Map<string, PendingRequest>();
 
 // Auto-deny after 10 minutes so a forgotten dialog doesn't stall a run forever.
@@ -67,4 +74,18 @@ export function resolvePermission(requestId: string, decision: 'allow' | 'deny')
 
 export function hasPendingPermission(requestId: string): boolean {
   return pending.has(requestId);
+}
+
+export function currentPendingPermission(): PendingPermissionSnapshot | null {
+  const entry = pending.entries().next();
+  if (entry.done) {
+    return null;
+  }
+  const [requestId, request] = entry.value;
+  return {
+    request_id: requestId,
+    agent_id: request.agentId,
+    tool: request.tool,
+    input: request.input,
+  };
 }

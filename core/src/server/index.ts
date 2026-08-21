@@ -46,7 +46,11 @@ import { getConfigOptional } from '../config.js';
 import { getDriverMode } from '../drivers/index.js';
 import { getProviderSelection, listProviderModels } from '../providers/index.js';
 import { steerLiveSession } from '../drivers/agent-sdk.js';
-import { requestPermission, resolvePermission } from '../drivers/permission-broker.js';
+import {
+  currentPendingPermission,
+  requestPermission,
+  resolvePermission,
+} from '../drivers/permission-broker.js';
 import { loadRoster, saveRoster } from '../state/roster.js';
 import { probeAvailableConnectors } from '../state/connectors.js';
 import { loadBuiltinInstructions, saveBuiltinInstructions } from '../state/builtin-instructions.js';
@@ -360,6 +364,7 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
           driver,
           model,
           activeRun,
+          pendingPermission: currentPendingPermission(),
           repoUrl: githubUrl,
           root: getRoot(),
           project: path.basename(getRoot()),
