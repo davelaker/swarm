@@ -351,6 +351,7 @@ export function App() {
     setRunGoal(body.goal);
     setRunCharter(null);
     setRunTeam([]);
+    setRunDone(false);
     setIsInitiating(true);
     setSurface('running');
 
@@ -369,8 +370,6 @@ export function App() {
         } else if (message.type === 'run.blocked') {
           clearTimeout(timer);
           finish();
-          setExecuteError(message.reason ?? 'Quick task was blocked before it could start.');
-          setSurface('planning');
         }
       } catch {
         // Ignore malformed events; the normal run connection remains authoritative.
