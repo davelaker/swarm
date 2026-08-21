@@ -12,7 +12,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-export type CodexSandbox = 'read-only' | 'workspace-write';
+// Codex never receives a native mutation capability.  Coder changes are returned
+// as patch proposals and applied by Swarm after broker approval.
+export type CodexSandbox = 'read-only';
 
 export type CodexMcpServer = {
   command: string;
@@ -95,7 +97,7 @@ export function buildCodexCommand(
   opts: CodexRunOptions,
   files: Pick<CodexEphemeralFiles, 'schemaPath' | 'outputPath'>,
 ): string[] {
-  if (opts.sandbox !== 'read-only' && opts.sandbox !== 'workspace-write') {
+  if (opts.sandbox !== 'read-only') {
     throw new Error(`Unsupported Codex sandbox "${opts.sandbox}"`);
   }
 

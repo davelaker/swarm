@@ -16,13 +16,13 @@ const schema = {
   additionalProperties: false,
 };
 
-test('builds an isolated workspace-write Codex command with JSONL and schema output', () => {
+test('builds an isolated read-only Codex command with JSONL and schema output', () => {
   const args = buildCodexCommand(
     {
       cwd: '/tmp/swarm-fixture',
       prompt: 'Return the required object.',
       outputSchema: schema,
-      sandbox: 'workspace-write',
+      sandbox: 'read-only',
       model: 'gpt-5.3-codex',
       mcpServers: {
         swarm_result: {
@@ -41,7 +41,7 @@ test('builds an isolated workspace-write Codex command with JSONL and schema out
     '--ephemeral',
     '--ignore-user-config',
     '--sandbox',
-    'workspace-write',
+    'read-only',
     '--cd',
     '/tmp/swarm-fixture',
     '--output-schema',
