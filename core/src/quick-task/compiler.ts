@@ -145,6 +145,11 @@ export function compileQuickTask(spec: QuickTaskSpec): QuickTaskRunDefinition {
         'Do not introduce a multi-agent review graph unless a gate or sensitive path requires it.',
       ],
       questions: [],
+      quickTask: {
+        declaredWriteScope: writeScope,
+        verificationCommands: verification,
+        acceptanceCriteria: acceptance,
+      },
       taskGraph,
     },
     taskGraph,

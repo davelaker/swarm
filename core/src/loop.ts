@@ -778,8 +778,7 @@ export async function runLoop(): Promise<LoopResult> {
         );
       }
       bus.emit('swarm', { type: 'agent.finished', agent_id: 'pm' });
-      const executionShape = (state as SwarmState & { executionShape?: string }).executionShape;
-      if (executionShape !== 'quick_task') {
+      if (state.executionShape !== 'quick_task') {
         // Self-building memory — distil durable learnings into CLAUDE.md (best-effort).
         await distillMemory(state).catch(err =>
           console.warn(`  [scribe] memory distillation skipped: ${(err as Error).message}`),

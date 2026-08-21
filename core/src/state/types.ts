@@ -4,6 +4,8 @@ export type TaskStatus = 'pending' | 'in_progress' | 'blocked' | 'done' | 'faile
 
 export type Tier = 'bugfix' | 'feature' | 'greenfield' | 'refactor';
 
+export type ExecutionShape = 'answer' | 'quick_task' | 'plan' | 'coordinated_run';
+
 export type AgentId = 'pm' | 'coder' | 'tester' | 'security' | 'reviewer' | 'negotiator';
 
 export type TaskRoute = {
@@ -116,6 +118,11 @@ export interface RunCharter {
   constraints: string[];
   nongoals: string[];
   questions: string[];
+  quickTask?: {
+    declaredWriteScope: string[];
+    verificationCommands: string[];
+    acceptanceCriteria: string[];
+  };
   branchMode?: 'branch' | 'main';
   branchName?: string; // user-set slug (no swarm/ prefix); auto-derived from goal if absent
   taskGraph?: TaskGraphEntry[];
@@ -128,6 +135,7 @@ export interface SwarmState {
   owner: string; // Principle 1
   goal: string;
   tier: Tier;
+  executionShape?: ExecutionShape;
   charter?: RunCharter;
   branchName?: string; // set at run start when charter.branchMode === 'branch'
   updated_at: string;

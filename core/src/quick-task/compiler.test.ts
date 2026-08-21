@@ -65,6 +65,11 @@ test('compileQuickTask emits a one-coder quick task graph', () => {
     route: spec().route,
   });
   assert.deepEqual(compiled.charter.taskGraph, compiled.taskGraph);
+  assert.deepEqual(compiled.charter.quickTask, {
+    declaredWriteScope: ['ui/src/components/ReconnectBanner.tsx'],
+    verificationCommands: ['cd ui && npm test'],
+    acceptanceCriteria: ['Banner hides after reconnect'],
+  });
 });
 
 test('compileQuickTask rejects mismatched route write scope', () => {
