@@ -15,16 +15,34 @@ export interface IntakeClassifyRequest {
   requestedShape?: ExecutionShape;
 }
 
+export type PmExecutionShape = ExecutionShape | undefined;
+
 export type IntakeClassifyResponse =
   | { status: 200; body: IntakeDecision }
   | { status: 400; body: { error: string } };
 
-function fail(error: string): Validation<IntakeClassifyRequest> {
+function fail<T = IntakeClassifyRequest>(error: string): Validation<T> {
   return { ok: false, error };
 }
 
 function isExecutionShape(value: string): value is ExecutionShape {
   return EXECUTION_SHAPES.has(value as ExecutionShape);
+}
+
+export function validatePmExecutionShape(raw: unknown): Validation<PmExecutionShape> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return fail('request body must be an object');
+  }
+
+  const executionShape = (raw as Record<string, unknown>).executionShape;
+  if (executionShape === undefined) {
+    return { ok: true, value: undefined };
+  }
+  if (typeof executionShape !== 'string' || !isExecutionShape(executionShape)) {
+    return fail('executionShape must be answer, quick_task, plan, or coordinated_run');
+  }
+
+  return { ok: true, value: executionShape };
 }
 
 export function validateIntakeClassifyRequest(raw: unknown): Validation<IntakeClassifyRequest> {

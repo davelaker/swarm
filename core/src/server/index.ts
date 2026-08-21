@@ -38,7 +38,7 @@ import { buildStructuredDiff, buildTaskDiff } from './diff.js';
 import { worktreeInfo } from '../loop.js';
 import { buildScorecards } from './scorecards.js';
 import { readReview, writeReview } from './review.js';
-import { runPmMessage, PM_SYSTEM } from '../pm/index.js';
+import { runPmAnswerMessage, runPmMessage, runPmPlanMessage, PM_SYSTEM } from '../pm/index.js';
 import { runNew, checkGitClean } from '../commands/new.js';
 import { pauseRun, resumeRun, abortRun } from '../loop-control.js';
 import { getConfigOptional } from '../config.js';
@@ -50,7 +50,7 @@ import { loadRoster, saveRoster } from '../state/roster.js';
 import { probeAvailableConnectors } from '../state/connectors.js';
 import { loadBuiltinInstructions, saveBuiltinInstructions } from '../state/builtin-instructions.js';
 import { loadBuiltinModels, saveBuiltinModels } from '../state/builtin-models.js';
-import { classifyIntakeRequest } from './intake.js';
+import { classifyIntakeRequest, validatePmExecutionShape } from './intake.js';
 import {
   CODER_SYSTEM,
   TESTER_SYSTEM,
@@ -1343,6 +1343,13 @@ async function routePost(
     }
 
     if (route === '/pm/message') {
+      const validExecutionShape = validatePmExecutionShape(rawPayload);
+      if (!validExecutionShape.ok) {
+        res.writeHead(400);
+        res.end(JSON.stringify({ error: validExecutionShape.error }));
+        return;
+      }
+
       const {
         text,
         history = [],
@@ -1385,7 +1392,14 @@ async function routePost(
         res.write(`data: ${JSON.stringify(data)}\n\n`);
       };
 
-      runPmMessage(
+      const runTerminalPmMessage =
+        validExecutionShape.value === 'answer'
+          ? runPmAnswerMessage
+          : validExecutionShape.value === 'plan'
+            ? runPmPlanMessage
+            : runPmMessage;
+
+      runTerminalPmMessage(
         text,
         history as any,
         charter,

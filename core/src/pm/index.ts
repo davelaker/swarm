@@ -102,6 +102,8 @@ export interface PmResponse {
   hireSuggestion?: { agentId: string; reason: string };
 }
 
+type PmTerminalOutcome = 'answer' | 'plan';
+
 // ─── System prompt ────────────────────────────────────────────────────────────
 
 export const PM_SYSTEM = `\
@@ -620,6 +622,41 @@ const SUBMIT_PM_TOOL: Anthropic.Tool = {
 // before the shared parser normalises the result.
 export const PM_RESPONSE_SCHEMA = SUBMIT_PM_TOOL.input_schema as Record<string, unknown>;
 
+export function pmTerminalOutcomeInstructions(outcome: PmTerminalOutcome): string {
+  if (outcome === 'answer') {
+    return `\
+TERMINAL OUTCOME: ANSWER
+The user asked for a lightweight direct answer, not a coordinated run.
+- Treat this as read-only: answer from the available context.
+- You may use research_request when source-code Scout research would make the answer materially more accurate.
+- Do not update the charter, task graph, team, deployment info, hire suggestions, or execution state.
+- Do not enable Execute. The reply text is the final outcome.
+- The submit_pm_response schema still requires team_add and task_graph; provide structurally valid placeholders if needed. They will be ignored.`;
+  }
+
+  return `\
+TERMINAL OUTCOME: PLAN
+The user asked for a lightweight plan, not an executable coordinated run.
+- Produce a complete engineering plan in reply text as the terminal outcome.
+- Include useful sub-agent/task sequencing, risks, verification, and likely files when known.
+- You may use research_request when source-code Scout research would make the plan materially more accurate.
+- Do not update the charter, task graph, team, deployment info, hire suggestions, or execution state.
+- Do not enable Execute automatically. The reply text is the final outcome.
+- The submit_pm_response schema still requires team_add and task_graph; provide structurally valid placeholders if needed. They will be ignored.`;
+}
+
+export function normalizeTerminalPmResponse(
+  response: PmResponse,
+  _outcome: PmTerminalOutcome,
+): PmResponse {
+  return {
+    reply: response.reply,
+    securityInterject: response.securityInterject,
+    suggestCompact: response.suggestCompact,
+    enableExecute: false,
+  };
+}
+
 export async function runPmInference(
   driver: Pick<AgentDriver, 'runPm'>,
   request: Omit<PmInferenceRequest, 'outputSchema'>,
@@ -875,20 +912,39 @@ function ensureRepoDigestInBackground(): void {
     });
 }
 
-export async function runPmMessage(
-  text: string,
-  history: HistoryMessage[],
-  charter?: PmCharter,
-  team?: string[],
-  onChunk?: (text: string) => void,
+interface RunPmMessageInput {
+  text: string;
+  history: HistoryMessage[];
+  charter?: PmCharter;
+  team?: string[];
+  onChunk?: (text: string) => void;
   onResearch?: (status: {
     phase: 'started' | 'done';
     question: string;
     summary?: string;
     agent?: string;
-  }) => void,
-  onThinking?: (text: string) => void,
-): Promise<PmResponse> {
+  }) => void;
+  onThinking?: (text: string) => void;
+  terminalOutcome?: PmTerminalOutcome;
+}
+
+async function runPmMessageInternal({
+  text,
+  history,
+  charter,
+  team,
+  onChunk,
+  onResearch,
+  onThinking,
+  terminalOutcome,
+}: RunPmMessageInput): Promise<PmResponse> {
+  const terminalInstructions = terminalOutcome
+    ? pmTerminalOutcomeInstructions(terminalOutcome)
+    : '';
+
+  const finish = (response: PmResponse): PmResponse =>
+    terminalOutcome ? normalizeTerminalPmResponse(response, terminalOutcome) : response;
+
   getConfigOptional();
   const projectCtx = loadProjectContextBounded();
   const subdirFiles = loadSubdirContextBounded();
@@ -916,6 +972,7 @@ export async function runPmMessage(
   const charterBlock = formatCharter(charter ?? null, team ?? []);
   const estimatedTokens = estimateTokens(
     PM_SYSTEM,
+    terminalInstructions,
     projectCtx,
     subdirBlock,
     charterBlock,
@@ -946,6 +1003,7 @@ export async function runPmMessage(
       `${marketplaceBlock}\n`,
       recentHistory.length ? `Recent conversation:\n${formatHistory(recentHistory)}\n` : '',
       `User's latest message: ${text}`,
+      terminalInstructions ? `\n${terminalInstructions}` : '',
       researchNotes
         ? `\nResearch findings gathered this turn (from the Scout):\n${researchNotes}`
         : '',
@@ -991,7 +1049,7 @@ export async function runPmMessage(
       // that contention was timing the PM out at 90s.
       if (!repoDigest) ensureRepoDigestInBackground();
       if (!liveCtx) ensureLiveContextInBackground(roster);
-      return response;
+      return finish(response);
     }
 
     // The PM wants the codebase investigated before it plans. Route the research:
@@ -1021,6 +1079,75 @@ export async function runPmMessage(
       });
     }
   }
+}
+
+export async function runPmMessage(
+  text: string,
+  history: HistoryMessage[],
+  charter?: PmCharter,
+  team?: string[],
+  onChunk?: (text: string) => void,
+  onResearch?: (status: {
+    phase: 'started' | 'done';
+    question: string;
+    summary?: string;
+    agent?: string;
+  }) => void,
+  onThinking?: (text: string) => void,
+): Promise<PmResponse> {
+  return runPmMessageInternal({ text, history, charter, team, onChunk, onResearch, onThinking });
+}
+
+export async function runPmAnswerMessage(
+  text: string,
+  history: HistoryMessage[],
+  charter?: PmCharter,
+  team?: string[],
+  onChunk?: (text: string) => void,
+  onResearch?: (status: {
+    phase: 'started' | 'done';
+    question: string;
+    summary?: string;
+    agent?: string;
+  }) => void,
+  onThinking?: (text: string) => void,
+): Promise<PmResponse> {
+  return runPmMessageInternal({
+    text,
+    history,
+    charter,
+    team,
+    onChunk,
+    onResearch,
+    onThinking,
+    terminalOutcome: 'answer',
+  });
+}
+
+export async function runPmPlanMessage(
+  text: string,
+  history: HistoryMessage[],
+  charter?: PmCharter,
+  team?: string[],
+  onChunk?: (text: string) => void,
+  onResearch?: (status: {
+    phase: 'started' | 'done';
+    question: string;
+    summary?: string;
+    agent?: string;
+  }) => void,
+  onThinking?: (text: string) => void,
+): Promise<PmResponse> {
+  return runPmMessageInternal({
+    text,
+    history,
+    charter,
+    team,
+    onChunk,
+    onResearch,
+    onThinking,
+    terminalOutcome: 'plan',
+  });
 }
 
 // ─── Subprocess PM call (agent-sdk / Max path) ───────────────────────────────

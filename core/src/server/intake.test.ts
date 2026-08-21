@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyIntakeRequest, validateIntakeClassifyRequest } from './intake.js';
+import {
+  classifyIntakeRequest,
+  validateIntakeClassifyRequest,
+  validatePmExecutionShape,
+} from './intake.js';
 
 test('validateIntakeClassifyRequest accepts instruction and requested shape', () => {
   assert.deepEqual(validateIntakeClassifyRequest({
@@ -44,12 +48,39 @@ test('validateIntakeClassifyRequest rejects unknown requested shapes', () => {
   });
 });
 
+test('validatePmExecutionShape accepts omitted and known PM message shapes', () => {
+  assert.deepEqual(validatePmExecutionShape({ text: 'explain this code' }), {
+    ok: true,
+    value: undefined,
+  });
+  assert.deepEqual(validatePmExecutionShape({
+    text: 'make a plan',
+    executionShape: 'plan',
+  }), {
+    ok: true,
+    value: 'plan',
+  });
+});
+
+test('validatePmExecutionShape rejects unknown PM message shapes', () => {
+  assert.deepEqual(validatePmExecutionShape({
+    text: 'explain this code',
+    executionShape: 'chat',
+  }), {
+    ok: false,
+    error: 'executionShape must be answer, quick_task, plan, or coordinated_run',
+  });
+});
+
 test('classifyIntakeRequest returns an IntakeDecision JSON body', async () => {
   const response = await classifyIntakeRequest({
     instruction: 'why is this test flaky?',
   });
 
   assert.equal(response.status, 200);
+  if (response.status !== 200) {
+    assert.fail('expected successful intake response');
+  }
   assert.equal(typeof response.body.rationale, 'string');
   assert.equal(typeof response.body.suggestedAction, 'string');
   assert.ok(['answer', 'quick_task', 'plan', 'coordinated_run'].includes(response.body.shape));
@@ -64,6 +95,9 @@ test('classifyIntakeRequest applies requestedShape as an explicit classifier ove
   });
 
   assert.equal(response.status, 200);
+  if (response.status !== 200) {
+    assert.fail('expected successful intake response');
+  }
   assert.equal(response.body.shape, 'plan');
   assert.deepEqual(response.body.riskSignals, ['explicit_plan_request']);
 });
