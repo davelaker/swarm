@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { bus } from './events.js';
-import type { SwarmState, Task, TaskStatus, LogEntry } from './types.js';
+import type { SwarmState, Task, TaskStatus, LogEntry, TaskRoute } from './types.js';
+import { getProviderModel } from '../providers/catalog.js';
 
 // ─── Mutable project root ─────────────────────────────────────────────────────
 // Initialised from process.cwd() at startup; can be changed at runtime via
@@ -257,9 +258,56 @@ export function writeProjectMemory(learnings: string): void {
 
 // ─── Read ─────────────────────────────────────────────────────────────────────
 
+function legacyRoute(task: Task): TaskRoute | undefined {
+  // Legacy coder tasks never carried an enforceable declared write scope. Do
+  // not manufacture one: retain their legacy fields so their existing driver
+  // behavior remains compatible until a user/route recommender supplies scope.
+  if (!task.model || task.assignee === 'coder') {
+    return undefined;
+  }
+  const model = getProviderModel(task.model);
+  if (!model) {
+    return undefined;
+  }
+  return {
+    provider: model.provider,
+    model: model.id,
+    ...(task.effort ? { reasoningEffort: task.effort as TaskRoute['reasoningEffort'] } : {}),
+    rationale: 'Migrated from the legacy per-task model selection.',
+    fallback: null,
+    requiresConfirmation: false,
+    writeScope: [],
+  };
+}
+
+/**
+ * Add route metadata to legacy persisted tasks without changing their existing
+ * model/effort fields. Keeping the migration pure makes it safe to run on every
+ * state read and lets old state files remain valid.
+ */
+export function migrateState(raw: SwarmState): { state: SwarmState; changed: boolean } {
+  let changed = false;
+  const tasks = raw.tasks.map((task) => {
+    if (task.route) {
+      return task;
+    }
+    const route = legacyRoute(task);
+    if (!route) {
+      return task;
+    }
+    changed = true;
+    return { ...task, route };
+  });
+  return changed ? { state: { ...raw, tasks }, changed } : { state: raw, changed };
+}
+
 export function getState(): SwarmState {
   const raw = fs.readFileSync(stateFile(), 'utf8');
-  return JSON.parse(raw) as SwarmState;
+  const migrated = migrateState(JSON.parse(raw) as SwarmState);
+  if (migrated.changed) {
+    writeState(migrated.state);
+  }
+  return migrated.state;
 }
 
 // ─── Write (crash-atomic) ─────────────────────────────────────────────────────
@@ -285,6 +333,9 @@ export function updateTask(taskId: string, updates: Partial<Task>): void {
   if (idx === -1) throw new Error(`Task ${taskId} not found`);
 
   const before = state.tasks[idx];
+  if (updates.route !== undefined && before.status !== 'pending') {
+    throw new Error(`Task ${taskId} route is immutable after the task starts`);
+  }
   state.tasks[idx] = { ...before, ...updates };
   writeState(state);
 

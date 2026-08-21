@@ -3,11 +3,13 @@
 // is active (agent-sdk for Max plan, api-key for console.anthropic.com).
 // Phase 5: Negotiator. Phase 6: sandboxed containers.
 
-import type { Task, SwarmState } from '../state/types.js';
-import { getDriver } from '../drivers/index.js';
+import type { Task, SwarmState, TaskRoute } from '../state/types.js';
+import { getDriver, getDriverForProvider } from '../drivers/index.js';
 import { loadRoster } from '../state/roster.js';
 import { runDeterministicChecks } from '../agents/checks.js';
 import { runVisualCheck } from '../agents/visual.js';
+import { getProviderModel, type ModelCapability, type ProviderAvailability } from '../providers/index.js';
+import { getProviderSelection } from '../providers/index.js';
 
 export interface TaskResult {
   status: 'done' | 'failed';
@@ -28,17 +30,93 @@ export function idempotencyKey(task: Task): string {
 const DONE_VERDICTS = new Set(['COMPLETE', 'PASS', 'APPROVED']);
 const BLOCKS_VERDICTS = new Set(['CHANGES_REQUESTED', 'FAIL', 'FAILED']);
 
+function capabilityForTask(task: Task): ModelCapability | undefined {
+  if (task.assignee === 'coder') {
+    return 'coding';
+  }
+  if (task.assignee === 'tester' || task.assignee === 'security' || task.assignee === 'reviewer') {
+    return 'review';
+  }
+  if (task.assignee === 'checks' || task.assignee === 'visual') {
+    return undefined;
+  }
+  return 'coding';
+}
+
+function validateFallback(route: TaskRoute): void {
+  if (!route.fallback) {
+    return;
+  }
+  const fallback = getProviderModel(route.fallback.model);
+  if (!fallback || fallback.provider !== route.fallback.provider) {
+    throw new Error(`Task route fallback model "${route.fallback.model}" does not belong to provider "${route.fallback.provider}".`);
+  }
+  if (route.fallback.reasoningEffort && !fallback.reasoningEfforts.includes(route.fallback.reasoningEffort)) {
+    throw new Error(`Task route fallback model "${fallback.id}" does not support "${route.fallback.reasoningEffort}" reasoning effort.`);
+  }
+}
+
+/** Validates a persisted task route against current safe capability metadata. */
+export function validateTaskRouteForDispatch(
+  task: Task,
+  availability: readonly ProviderAvailability[] = getProviderSelection().availability,
+): void {
+  if (!task.route) {
+    return; // Legacy tasks remain supported until route recommendation is introduced.
+  }
+  const route = task.route;
+  if (route.requiresConfirmation) {
+    throw new Error(`Task ${task.id} route requires user confirmation before dispatch.`);
+  }
+  const capability = capabilityForTask(task);
+  if (!capability) {
+    throw new Error(`Task ${task.id} is deterministic and must not have an LLM route.`);
+  }
+  const model = getProviderModel(route.model);
+  if (!model || model.provider !== route.provider) {
+    throw new Error(`Task ${task.id} route model "${route.model}" is not available from provider "${route.provider}".`);
+  }
+  if (!model.capabilities.includes(capability)) {
+    throw new Error(`Task ${task.id} route model "${route.model}" cannot perform ${capability} work.`);
+  }
+  if (route.reasoningEffort && !model.reasoningEfforts.includes(route.reasoningEffort)) {
+    throw new Error(`Task ${task.id} route model "${route.model}" does not support "${route.reasoningEffort}" reasoning effort.`);
+  }
+  if (task.assignee === 'coder' && !route.writeScope.length) {
+    throw new Error(`Task ${task.id} coder route must declare a non-empty write scope.`);
+  }
+  const provider = availability.find((entry) => entry.provider === route.provider);
+  if (!provider?.enabled || !provider.availableAuthModes.length) {
+    throw new Error(`Task ${task.id} route provider "${route.provider}" is unavailable or unauthorised.`);
+  }
+  if (route.provider === 'openai' && !provider.cliAvailable) {
+    throw new Error(`Task ${task.id} OpenAI route requires the local Codex CLI.`);
+  }
+  validateFallback(route);
+}
+
 export async function dispatch(
   task: Task,
   state: SwarmState,
   worktreePath?: string,
 ): Promise<TaskResult> {
-  const driver = getDriver();
+  let driver: ReturnType<typeof getDriver>;
+  try {
+    validateTaskRouteForDispatch(task);
+    driver = task.route ? getDriverForProvider(task.route.provider) : getDriver();
+  } catch (err) {
+    return { status: 'failed', summary: (err as Error).message };
+  }
+  // Existing Claude drivers still consume model/effort fields. Preserve the
+  // authoritative immutable route while adapting it at this legacy boundary.
+  const dispatchedTask = task.route
+    ? { ...task, model: task.route.model, effort: task.route.reasoningEffort }
+    : task;
 
   try {
-    switch (task.assignee) {
+    switch (dispatchedTask.assignee) {
       case 'coder': {
-        const r = await driver.runCoder(task, state, worktreePath);
+        const r = await driver.runCoder(dispatchedTask, state, worktreePath);
         return {
           status: r.verdict === 'FAILED' ? 'failed' : 'done',
           summary: r.summary,
@@ -54,7 +132,7 @@ export async function dispatch(
 
       case 'checks': {
         // Deterministic gate — no LLM, no driver. Runs tools and trusts exit codes.
-        const r = await runDeterministicChecks(task, state);
+        const r = await runDeterministicChecks(dispatchedTask, state);
         return {
           status: 'done',
           summary: r.summary,
@@ -67,7 +145,7 @@ export async function dispatch(
 
       case 'visual': {
         // Advisory: renders changed routes in a browser and attaches screenshots.
-        const r = await runVisualCheck(task, state);
+        const r = await runVisualCheck(dispatchedTask, state);
         return {
           status: 'done',
           summary: r.summary,
@@ -79,7 +157,7 @@ export async function dispatch(
       }
 
       case 'tester': {
-        const r = await driver.runTester(task, state);
+        const r = await driver.runTester(dispatchedTask, state);
         return {
           status: 'done',
           summary: r.summary,
@@ -93,7 +171,7 @@ export async function dispatch(
       }
 
       case 'security': {
-        const r = await driver.runSecurity(task, state);
+        const r = await driver.runSecurity(dispatchedTask, state);
         return {
           status: 'done',
           summary: r.summary,
@@ -107,7 +185,7 @@ export async function dispatch(
       }
 
       case 'reviewer': {
-        const r = await driver.runReviewer(task, state);
+        const r = await driver.runReviewer(dispatchedTask, state);
         return {
           status: 'done',
           summary: r.summary,
@@ -132,14 +210,14 @@ export async function dispatch(
       default: {
         // Marketplace agent — look up from the hired roster.
         const roster = loadRoster();
-        const agent = roster.find(a => a.id === task.assignee && a.enabled);
+        const agent = roster.find(a => a.id === dispatchedTask.assignee && a.enabled);
         if (!agent) {
           return {
             status: 'failed',
-            summary: `Unknown agent: ${task.assignee} — not found in hired roster`,
+            summary: `Unknown agent: ${dispatchedTask.assignee} — not found in hired roster`,
           };
         }
-        const r = await driver.runMarketplaceAgent(task, state, agent);
+        const r = await driver.runMarketplaceAgent(dispatchedTask, state, agent);
         return {
           status: 'done' as const,
           summary: r.summary,

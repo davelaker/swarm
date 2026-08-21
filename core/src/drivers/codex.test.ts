@@ -49,6 +49,35 @@ test('Codex coder uses a read-only session and delegates its exact patch to Swar
   assert.equal(result.verdict, 'COMPLETE');
 });
 
+test('Codex coder receives its model and broker scope from the immutable task route', async () => {
+  let options: CodexRunOptions | undefined;
+  let applied: unknown;
+  const routedTask: Task = {
+    ...task,
+    route: {
+      provider: 'openai', model: 'gpt-5.4', reasoningEffort: 'high', rationale: 'Bounded feature.',
+      fallback: null, requiresConfirmation: false, writeScope: ['src/routed.ts'],
+    },
+  };
+  const driver = createCodexDriver({
+    root: () => '/repo',
+    run: async (opts) => {
+      options = opts;
+      return response({ verdict: 'COMPLETE', summary: 'Updated fixture', detail: 'Used the broker boundary.', patch_proposal: proposal });
+    },
+    applyPatch: async (opts) => {
+      applied = opts;
+      return { changedPaths: ['src/routed.ts'] };
+    },
+  });
+
+  await driver.runCoder(routedTask, state, '/worktree');
+
+  assert.equal(options?.model, 'gpt-5.4');
+  assert.match(options?.prompt ?? '', /src\/routed\.ts/);
+  assert.deepEqual((applied as { writeScope: string[] }).writeScope, ['src/routed.ts']);
+});
+
 test('Codex coder refuses to apply a patch without an isolated worktree', async () => {
   const driver = createCodexDriver({
     root: () => '/repo',

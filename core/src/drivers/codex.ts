@@ -116,7 +116,14 @@ function objectArray(data: Record<string, unknown>, field: string): Record<strin
 }
 
 function codexModel(task?: Task): string {
+  if (task?.route?.provider === 'openai') {
+    return task.route.model;
+  }
   return task?.model?.startsWith('gpt-') ? task.model : DEFAULT_MODEL;
+}
+
+function codexWriteScope(task: Task): string[] {
+  return task.route?.writeScope ?? task.artifacts;
 }
 
 function taskContext(task: Task, state: SwarmState): string {
@@ -198,7 +205,7 @@ export function createCodexDriver(deps: CodexDriverDependencies = {}): AgentDriv
         'Do not attempt to write files, use shell redirection, commit, or alter configuration.',
         'Inspect the code, then return the exact unified diff needed in patch_proposal.',
         'The patch must modify only the declared task paths. Swarm—not you—will validate, approve, and apply it.',
-        `Declared writable paths: ${task.artifacts.join(', ') || '(none; return a patch only if this is corrected)'}.`,
+        `Declared writable paths: ${codexWriteScope(task).join(', ') || '(none; return a patch only if this is corrected)'}.`,
         taskContext(task, state),
       ].join('\n\n'), coderSchema, task, worktreePath ?? root());
       const data = response.output;
@@ -214,7 +221,7 @@ export function createCodexDriver(deps: CodexDriverDependencies = {}): AgentDriv
       const applied = await applyPatch({
         agentId: task.id,
         worktreePath,
-        writeScope: task.artifacts,
+        writeScope: codexWriteScope(task),
         proposal: data.patch_proposal,
       });
       return { verdict: 'COMPLETE', summary, filesChanged: applied.changedPaths, securityFindings: [], reviewerFindings: [], findingMarkdown: coderFinding(task, summary, detail, applied.changedPaths) };

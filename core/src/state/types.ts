@@ -6,6 +6,22 @@ export type Tier = 'bugfix' | 'feature' | 'greenfield' | 'refactor';
 
 export type AgentId = 'pm' | 'coder' | 'tester' | 'security' | 'reviewer' | 'negotiator';
 
+export type TaskRoute = {
+  provider: import('../providers/catalog.js').ProviderId;
+  model: string;
+  reasoningEffort?: import('../providers/catalog.js').ReasoningEffort;
+  rationale: string;
+  fallback: {
+    provider: import('../providers/catalog.js').ProviderId;
+    model: string;
+    reasoningEffort?: import('../providers/catalog.js').ReasoningEffort;
+  } | null;
+  requiresConfirmation: boolean;
+  // A declared, repo-relative glob list. Codex coder work is applied only through
+  // the broker and may not touch paths outside this scope.
+  writeScope: string[];
+};
+
 // A lease is acquired when a task moves to in_progress.
 // If expires_at passes without a heartbeat the task is eligible for reconcile.
 export interface Lease {
@@ -28,6 +44,9 @@ export interface Task {
   attempts: number;
   model?: string; // PM-recommended model override for this task
   effort?: string; // PM-recommended reasoning effort (low|medium|high|xhigh|max)
+  // The selected provider/model contract. It is immutable after a task starts.
+  // model/effort remain temporarily for compatibility with existing drivers/state.
+  route?: TaskRoute;
   cost_usd?: number; // accumulated agent cost for this task (api-key driver only)
   lease?: Lease;
   skip_reason?: string; // set when status === 'skipped'; explains why the task was not run
@@ -66,6 +85,7 @@ export interface TaskGraphEntry {
   depends_on: string[];
   model?: string; // optional model override recommended by the PM
   effort?: string; // optional reasoning effort recommended by the PM
+  route?: TaskRoute;
 }
 
 export interface RunCharter {

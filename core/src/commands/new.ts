@@ -82,6 +82,7 @@ function buildFromPmGraph(entries: TaskGraphEntry[], cfg: ReturnType<typeof getC
     attempts: 0,
     ...(e.model ? { model: e.model } : {}),
     ...(e.effort ? { effort: e.effort } : {}),
+    ...(e.route ? { route: e.route } : {}),
   }));
 }
 

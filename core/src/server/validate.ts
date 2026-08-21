@@ -7,6 +7,7 @@
 import { CONNECTOR_BY_ID } from '../state/connectors.js';
 import type { RosterEntry } from '../state/types.js';
 import type { RunCharter } from '../state/types.js';
+import type { ProviderId, ReasoningEffort } from '../providers/catalog.js';
 
 export type Validation<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -100,6 +101,54 @@ const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const ASSIGNEE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const MAX_TASKS = 50;
 const MAX_TITLE = 2_000;
+const REASONING_EFFORTS = new Set<ReasoningEffort>(['low', 'medium', 'high', 'xhigh', 'max']);
+const PROVIDERS = new Set<ProviderId>(['anthropic', 'openai']);
+
+function validWriteScope(value: unknown): boolean {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= 512
+    && !value.startsWith('/')
+    && !value.startsWith('\\')
+    && !/^[A-Za-z]:/.test(value)
+    && !/[\x00-\x1f]/.test(value)
+    && !value.replace(/\\/g, '/').split('/').some(segment => !segment || segment === '..' || segment === '.swarm');
+}
+
+function validateRouteShape(value: unknown, at: string): string | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return `${at}.route: must be an object`;
+  }
+  const route = value as Record<string, unknown>;
+  if (typeof route.provider !== 'string' || !PROVIDERS.has(route.provider as ProviderId)) {
+    return `${at}.route.provider: unknown provider`;
+  }
+  if (typeof route.model !== 'string' || !route.model.trim() || route.model.length > 200) {
+    return `${at}.route.model: required`;
+  }
+  if (route.reasoningEffort !== undefined && (typeof route.reasoningEffort !== 'string' || !REASONING_EFFORTS.has(route.reasoningEffort as ReasoningEffort))) {
+    return `${at}.route.reasoningEffort: invalid reasoning effort`;
+  }
+  if (typeof route.rationale !== 'string' || !route.rationale.trim() || route.rationale.length > MAX_TEXT) {
+    return `${at}.route.rationale: required`;
+  }
+  if (typeof route.requiresConfirmation !== 'boolean') {
+    return `${at}.route.requiresConfirmation: must be a boolean`;
+  }
+  if (route.fallback !== null && route.fallback !== undefined) {
+    const fallback = route.fallback as Record<string, unknown>;
+    if (!fallback || typeof fallback !== 'object' || typeof fallback.provider !== 'string' || !PROVIDERS.has(fallback.provider as ProviderId) || typeof fallback.model !== 'string' || !fallback.model.trim()) {
+      return `${at}.route.fallback: must be null or a provider/model route`;
+    }
+    if (fallback.reasoningEffort !== undefined && (typeof fallback.reasoningEffort !== 'string' || !REASONING_EFFORTS.has(fallback.reasoningEffort as ReasoningEffort))) {
+      return `${at}.route.fallback.reasoningEffort: invalid reasoning effort`;
+    }
+  }
+  if (!Array.isArray(route.writeScope) || route.writeScope.some(scope => !validWriteScope(scope))) {
+    return `${at}.route.writeScope: must contain safe repo-relative path globs`;
+  }
+  return undefined;
+}
 
 export function validateTaskGraph(raw: unknown): Validation<void> {
   if (raw === undefined) {
@@ -133,6 +182,12 @@ export function validateTaskGraph(raw: unknown): Validation<void> {
     }
     if (entry.depends_on !== undefined && !Array.isArray(entry.depends_on)) {
       return fail(`${at}.depends_on: must be an array`);
+    }
+    if (entry.route !== undefined) {
+      const routeError = validateRouteShape(entry.route, at);
+      if (routeError) {
+        return fail(routeError);
+      }
     }
   }
   // Second pass: dependencies reference known ids, and the graph is acyclic.
