@@ -283,7 +283,7 @@ and result, and any changed assumptions.
 | MP-02 | Complete | `5ea9f05`; `npm run typecheck`, focused catalog tests, and 104-test suite pass | Provider-neutral Claude and OpenAI/Codex capability metadata established. |
 | MP-03 | Complete | `825fa4c`; TypeScript typecheck and 109-test suite pass | Safe Claude/Codex capability discovery and provider configuration added; Codex selection intentionally fails closed pending its driver. |
 | MP-04 | Complete (native write rejected) | `0a89601`; typecheck, 112-test suite, and two real Codex fixture smokes pass | Transport is proven; native Codex write mode is rejected. The approved read-only patch-proposal boundary unblocks MP-05. See `CODEX_RUNNER_SPIKE.md`. |
-| MP-05 | In progress | MP-05a: `2ba77b7`; typecheck, focused tests, and 115-test suite pass | Patch proposals are schema-validated and broker-applied; MP-05b must wire the read-only Codex driver. |
+| MP-05 | Complete | MP-05a: `2ba77b7`; MP-05b: `e319a67`; typecheck and 119-test suite pass | Codex is strictly read-only; Swarm validates and applies coder patches. It fails closed until MP-07 supplies declared task write scopes. |
 | MP-06 | Not started | — | — |
 | MP-07 | Not started | — | — |
 | MP-08 | Not started | — | — |
