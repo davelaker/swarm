@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { validateProviderModel } from '../providers/index.js';
 import { getRoot } from './repo.js';
 
 export interface BuiltinModels {
@@ -41,6 +42,13 @@ export function loadBuiltinModels(): BuiltinModels {
 
 export function saveBuiltinModels(data: Partial<BuiltinModels>): void {
   const merged = { ...loadBuiltinModels(), ...data };
+  for (const [agent, modelId] of Object.entries(merged)) {
+    try {
+      validateProviderModel(modelId);
+    } catch (error) {
+      throw new Error(`Invalid model for built-in agent \"${agent}\": ${(error as Error).message}`);
+    }
+  }
   const p = filePath();
   fs.mkdirSync(path.dirname(p), { recursive: true });
   const tmp = p + '.tmp';
