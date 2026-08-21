@@ -98,8 +98,29 @@ export interface DeadlockContext {
   tasks: Task[];
 }
 
+/**
+ * Provider-neutral PM inference request. The PM owns prompt assembly and
+ * response validation; drivers own transport, authentication, and any
+ * provider-specific structured-output mechanism.
+ */
+export interface PmInferenceRequest {
+  systemPrompt: string;
+  conversationPrompt: string;
+  projectRoot: string;
+  outputSchema: Record<string, unknown>;
+  onChunk?: (text: string) => void;
+  onThinking?: (text: string) => void;
+}
+
+export interface PmInferenceResult {
+  data: Record<string, unknown>;
+}
+
 export interface AgentDriver {
   name: string;
+  // Planning inference is provider-specific, but its result is always passed
+  // through the PM's shared validator before it reaches the UI or scheduler.
+  runPm(request: PmInferenceRequest): Promise<PmInferenceResult>;
   runCoder(task: Task, state: SwarmState, worktreePath?: string): Promise<DriverResult>;
   runTester(task: Task, state: SwarmState): Promise<DriverResult>;
   runSecurity(task: Task, state: SwarmState): Promise<DriverResult>;

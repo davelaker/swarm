@@ -2,6 +2,7 @@
 // Requires ANTHROPIC_API_KEY from console.anthropic.com.
 
 import { getConfig } from '../config.js';
+import Anthropic from '@anthropic-ai/sdk';
 import { runCoder } from '../agents/coder.js';
 import { runTester } from '../agents/tester.js';
 import { runSecurity } from '../agents/security.js';
@@ -18,11 +19,55 @@ import type {
   DocsScribeResult,
   ScribeContext,
   ScribeResult,
+  PmInferenceRequest,
+  PmInferenceResult,
 } from './types.js';
 import type { Task, SwarmState, RosterEntry } from '../state/types.js';
 
+async function runPmViaAnthropic(request: PmInferenceRequest): Promise<PmInferenceResult> {
+  const client = new Anthropic({ apiKey: getConfig().anthropicApiKey });
+  const stream = client.messages.stream({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 16_000,
+    system: [{ type: 'text', text: request.systemPrompt, cache_control: { type: 'ephemeral' } }],
+    tools: [{
+      name: 'submit_pm_response',
+      description: 'Submit the schema-constrained PM response.',
+      input_schema: request.outputSchema as Anthropic.Tool['input_schema'],
+    }],
+    tool_choice: { type: 'tool', name: 'submit_pm_response' },
+    messages: [{ role: 'user', content: request.conversationPrompt }],
+  });
+
+  let thinking = '';
+  stream.on('streamEvent', (event: Anthropic.MessageStreamEvent) => {
+    if (event.type === 'content_block_delta' && event.delta.type === 'thinking_delta') {
+      thinking += event.delta.thinking;
+    } else if (event.type === 'content_block_stop' && thinking) {
+      request.onThinking?.(thinking);
+      thinking = '';
+    }
+  });
+  const message = await stream.finalMessage();
+  const tool = message.content.find(
+    (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use' && block.name === 'submit_pm_response',
+  );
+  if (!tool) {
+    throw new Error('Anthropic PM did not return submit_pm_response');
+  }
+  const data = tool.input as Record<string, unknown>;
+  if (typeof data.reply === 'string') {
+    request.onChunk?.(data.reply);
+  }
+  return { data };
+}
+
 export const apiKeyDriver: AgentDriver = {
   name: 'api-key',
+
+  async runPm(request: PmInferenceRequest): Promise<PmInferenceResult> {
+    return runPmViaAnthropic(request);
+  },
 
   // worktreePath is ignored: the api-key path runs via the Anthropic SDK
   // in-process (not a subprocess), so git worktrees don't apply.

@@ -59,6 +59,8 @@ import type {
   ScribeResult,
   DocsScribeContext,
   DocsScribeResult,
+  PmInferenceRequest,
+  PmInferenceResult,
 } from './types.js';
 import type { Task, SwarmState, RosterEntry } from '../state/types.js';
 import { CONNECTOR_BY_ID, mcpToolId } from '../state/connectors.js';
@@ -78,6 +80,93 @@ const RESULT_SERVER_CMD = IS_TSX ? 'tsx' : 'node';
 const RESULT_SERVER_PATH = IS_TSX
   ? new URL('../agents/result-server/mcp-server.ts', import.meta.url).pathname
   : new URL('../agents/result-server/mcp-server.js', import.meta.url).pathname;
+
+const PM_SERVER_PATH = IS_TSX
+  ? new URL('../pm/mcp-server.ts', import.meta.url).pathname
+  : new URL('../pm/mcp-server.js', import.meta.url).pathname;
+const PM_SERVER_CMD = IS_TSX ? 'tsx' : 'node';
+
+function runPmViaClaudeCli(request: PmInferenceRequest): Promise<PmInferenceResult> {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const outputPath = path.join(os.tmpdir(), `swarm-pm-output-${suffix}.json`);
+  const configPath = path.join(os.tmpdir(), `swarm-pm-config-${suffix}.json`);
+  fs.writeFileSync(configPath, JSON.stringify({
+    mcpServers: {
+      pm_responder: {
+        command: PM_SERVER_CMD,
+        args: [PM_SERVER_PATH],
+        env: { PM_OUTPUT_PATH: outputPath },
+      },
+    },
+  }), { mode: 0o600 });
+
+  const cleanup = () => {
+    for (const file of [outputPath, configPath]) {
+      try {
+        fs.unlinkSync(file);
+      } catch {
+        // The child may have failed before creating its result; either way this
+        // exact per-request temporary path is safe to ignore.
+      }
+    }
+  };
+
+  return new Promise((resolve, reject) => {
+    let stderr = '';
+    let stdoutTail = '';
+    let resultIsError = false;
+    const ndjson = createNdjsonBuffer(raw => {
+      for (const event of parseStreamMessage(raw)) {
+        if (event.kind === 'result') {
+          resultIsError = event.isError;
+        } else if (event.kind === 'thinking') {
+          request.onThinking?.(event.text);
+        }
+      }
+    });
+    const child = spawn('claude', [
+      '--print', '--output-format', 'stream-json', '--verbose', '--no-session-persistence',
+      '--model', 'claude-sonnet-4-6', '--strict-mcp-config', '--mcp-config', configPath,
+      '--allowedTools', 'mcp__pm_responder__submit_pm_response', '--system-prompt', request.systemPrompt,
+      '--', request.conversationPrompt,
+    ], { cwd: request.projectRoot, stdio: ['ignore', 'pipe', 'pipe'] });
+    const timer = setTimeout(() => {
+      child.kill();
+      cleanup();
+      reject(new Error('PM response timed out after 150s'));
+    }, 150_000);
+    child.stdout.on('data', (chunk: Buffer) => {
+      const text = chunk.toString();
+      ndjson.push(text);
+      stdoutTail = (stdoutTail + text).slice(-2_000);
+    });
+    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+    child.on('error', error => {
+      clearTimeout(timer);
+      cleanup();
+      reject(new Error(`Failed to spawn claude: ${error.message}`));
+    });
+    child.on('close', code => {
+      clearTimeout(timer);
+      ndjson.flush();
+      if (resultIsError || (code !== 0 && !fs.existsSync(outputPath))) {
+        const detail = stderr.slice(0, 300) || stdoutTail.slice(-300) || '(no output)';
+        cleanup();
+        reject(new Error(`Claude PM inference failed: ${detail}`));
+        return;
+      }
+      try {
+        const data = JSON.parse(fs.readFileSync(outputPath, 'utf8')) as Record<string, unknown>;
+        if (typeof data.reply === 'string') request.onChunk?.(data.reply);
+        cleanup();
+        resolve({ data });
+      } catch (error) {
+        cleanup();
+        reject(new Error(`PM did not return a structured response: ${error}`));
+      }
+    });
+  });
+}
 
 // ─── JSON schema for structured output ───────────────────────────────────────
 // claude -p enforces this schema on the model's final response.
@@ -1078,6 +1167,10 @@ function assembleSpecialistTools(
 
 export const agentSdkDriver: AgentDriver = {
   name: 'agent-sdk',
+
+  async runPm(request: PmInferenceRequest): Promise<PmInferenceResult> {
+    return runPmViaClaudeCli(request);
+  },
 
   async runCoder(task, state, worktreePath?: string): Promise<DriverResult> {
     const cfg = getConfig();

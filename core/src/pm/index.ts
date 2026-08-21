@@ -40,6 +40,7 @@ import { formatMarketplace, CATALOG_BY_ID } from '../state/marketplace-catalog.j
 import { getDriverMode, getDriver } from '../drivers/index.js';
 import { parseStreamMessage, createNdjsonBuffer } from '../drivers/stream-parse.js';
 import type { RosterEntry } from '../state/types.js';
+import type { AgentDriver, PmInferenceRequest } from '../drivers/types.js';
 import { normalizeEffort } from '../agents/effort.js';
 
 // ─── MCP server path ──────────────────────────────────────────────────────────
@@ -394,7 +395,7 @@ export function normalizeModel(raw: unknown): string | undefined {
   return s.startsWith('claude-') ? s : undefined;
 }
 
-function parsePmData(data: Record<string, unknown>): PmResponse {
+export function parsePmData(data: Record<string, unknown>): PmResponse {
   const cu = (data.charter_updates ?? {}) as Record<string, unknown>;
   const rv = cu.resolved_question as { index: number; answer: string } | undefined;
 
@@ -608,6 +609,19 @@ const SUBMIT_PM_TOOL: Anthropic.Tool = {
     },
   } as Anthropic.Tool['input_schema'],
 };
+
+// Codex's JSON-schema output and Anthropic's tool input use the same PM
+// contract. Keep one canonical schema so both provider paths are constrained
+// before the shared parser normalises the result.
+export const PM_RESPONSE_SCHEMA = SUBMIT_PM_TOOL.input_schema as Record<string, unknown>;
+
+export async function runPmInference(
+  driver: Pick<AgentDriver, 'runPm'>,
+  request: Omit<PmInferenceRequest, 'outputSchema'>,
+): Promise<PmResponse> {
+  const result = await driver.runPm({ ...request, outputSchema: PM_RESPONSE_SCHEMA });
+  return parsePmData(result.data);
+}
 
 // ─── Direct API path (api-key mode only) ─────────────────────────────────────
 // Bypasses the claude subprocess entirely — no CLI cold start, no MCP subprocess,
@@ -942,13 +956,17 @@ export async function runPmMessage(
     ? `${PM_SYSTEM}\n\n## Additional instructions\n${builtinInstr.pm}`
     : PM_SYSTEM;
 
-  // One PM call for a given conversation prompt. Dispatches to the api-key direct
-  // path or the agent-sdk subprocess path — identical machinery to before, just
-  // parameterised so the research loop can call it repeatedly.
+  // One PM call for a given conversation prompt. The provider driver owns its
+  // transport and structured-output mechanism; parsing stays shared so Claude,
+  // read-only Codex, and future drivers produce the same PmResponse contract.
   const runOnce = (prompt: string): Promise<PmResponse> =>
-    getDriverMode() === 'api-key'
-      ? runPmMessageApi(pmSystemPrompt, prompt, onChunk, onThinking)
-      : runPmMessageSubprocess(pmSystemPrompt, prompt, projectRoot, onChunk, onThinking);
+    runPmInference(getDriver(), {
+      systemPrompt: pmSystemPrompt,
+      conversationPrompt: prompt,
+      projectRoot,
+      onChunk,
+      onThinking,
+    });
 
   // ── Research loop ──────────────────────────────────────────────────────────
   // Most turns make exactly one call and return — zero extra latency, no scout.

@@ -16,6 +16,8 @@ import type {
   DocsScribeResult,
   DriverResult,
   NegotiatorDecision,
+  PmInferenceRequest,
+  PmInferenceResult,
   ReviewerFinding,
   ScoutResult,
   ScribeContext,
@@ -174,6 +176,21 @@ export function createCodexDriver(deps: CodexDriverDependencies = {}): AgentDriv
 
   return {
     name: 'codex',
+
+    async runPm(request: PmInferenceRequest): Promise<PmInferenceResult> {
+      const response = await execute({
+        cwd: request.projectRoot,
+        model: DEFAULT_MODEL,
+        sandbox: 'read-only',
+        outputSchema: request.outputSchema,
+        prompt: [
+          request.systemPrompt,
+          'Return only the schema-constrained PM response. You have read-only repository access; do not write files, invoke connectors, or rely on MCP tools.',
+          request.conversationPrompt,
+        ].join('\n\n'),
+      });
+      return { data: response.output };
+    },
 
     async runCoder(task, state, worktreePath): Promise<DriverResult> {
       const response = await run([

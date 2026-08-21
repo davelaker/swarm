@@ -3,6 +3,7 @@ import test from 'node:test';
 import { createCodexDriver } from './codex.js';
 import type { CodexRunOptions, CodexRunResult } from './codex-runner.js';
 import type { SwarmState, Task } from '../state/types.js';
+import { PM_RESPONSE_SCHEMA, runPmInference } from '../pm/index.js';
 
 const task: Task = {
   id: 't1', title: 'Change an allowed file', status: 'pending', owner: 'me', assignee: 'coder',
@@ -97,4 +98,27 @@ test('live context never receives connector tools on the read-only Codex driver'
   const result = await driver.runLiveContextScout('Check production', ['mcp__dangerous__write']);
   assert.match(result.summary, /unavailable/);
   assert.match(result.digest, /No connector tools/);
+});
+
+test('Codex PM inference is read-only and returns data for the shared PM validator', async () => {
+  let options: CodexRunOptions | undefined;
+  const driver = createCodexDriver({
+    run: async (opts) => {
+      options = opts;
+      return response({
+        reply: 'Ready.', team_add: ['coder', 'reviewer'], task_graph: [], enable_execute: true,
+      });
+    },
+  });
+
+  const result = await runPmInference(driver, {
+    systemPrompt: 'You are the PM.', conversationPrompt: 'Plan this.', projectRoot: '/repo',
+  });
+
+  assert.equal(options?.sandbox, 'read-only');
+  assert.equal(options?.cwd, '/repo');
+  assert.equal(options?.outputSchema, PM_RESPONSE_SCHEMA);
+  assert.match(options?.prompt ?? '', /schema-constrained PM response/);
+  assert.equal(result.reply, 'Ready.');
+  assert.deepEqual(result.teamAdd, ['coder', 'reviewer']);
 });
