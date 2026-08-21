@@ -111,6 +111,16 @@ test('legacy new preserves execution path', async () => {
   assert.equal(harness.pmCalls.length, 0);
 });
 
+test('legacy dev starts the server with the configured driver context', async () => {
+  const harness = createHarness();
+  const result = await runCli(['dev'], harness.deps);
+
+  assert.deepEqual(result, { exitCode: 0, exitProcess: false });
+  assert.match(harness.stdout.join('\n'), /orchestrator starting/);
+  assert.match(harness.stdout.join('\n'), /Test driver/);
+  assert.match(harness.stdout.join('\n'), /dashboard/);
+});
+
 test('ask prints recommendation header and PM reply only', async () => {
   const harness = createHarness();
   const result = await runCli(['ask', 'why', 'is', 'the', 'test', 'flaky?'], harness.deps);

@@ -92,9 +92,16 @@ export async function runCli(argv: readonly string[], deps: CliDeps = {}): Promi
 
   if (parsed.value.kind === 'legacy') {
     const commandFns = await loadLegacyCommandFns(parsed.value.command, deps);
+    const driverFns =
+      parsed.value.command === 'dev'
+        ? deps.driverBanner && deps.getDriverMode
+          ? { driverBanner: deps.driverBanner, getDriverMode: deps.getDriverMode }
+          : await loadDriverFns()
+        : {};
     return runLegacyCommand(parsed.value, {
       ...resolved,
       ...commandFns,
+      ...driverFns,
     });
   }
 
