@@ -28,7 +28,6 @@ workflow you want:
 ```sh
 swarm ask "why is this test flaky?"
 swarm plan "move sessions to SQLite"
-swarm quick "add email validation to login"
 swarm do "fix the reconnect banner"
 swarm swarm "replace the authorization layer"
 swarm "review the reconnect flow"
@@ -39,6 +38,10 @@ Bare prompts may answer or plan immediately, but write-shaped requests require a
 explicit `do` or `swarm` command. `do` keeps the existing run, permission, and
 verification boundaries and escalates destructive or otherwise risky wording to the
 coordinated workflow.
+
+For example, `swarm do "fix ui/src/components/common/StaleServerBanner.tsx"`
+preflights that narrow path and compiles one implementation-owner node. The normal
+permission boundary and deterministic verification gates still run before completion.
 
 In the dashboard, the first request in a fresh planning session receives an Answer,
 Quick task, Plan, or Coordinated run recommendation. You can accept it, select another
