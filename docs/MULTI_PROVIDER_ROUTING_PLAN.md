@@ -271,6 +271,45 @@ interfaces.
 | 2026-08-21 | Use a deterministic router with transparent rationale. | Keeps cost, safety, and policy under user control. |
 | 2026-08-21 | Add Codex CLI before an OpenAI API driver. | Reuses the user's existing local Codex authentication and preserves local-agent semantics. |
 | 2026-08-21 | Keep strict broker enforcement; approve a read-only Codex patch-proposal boundary. | Codex receives no native repository write permission. Swarm validates and applies structured patches through its broker, which is stronger than post-run diff inspection while remaining practical for small GPT execution tasks. Native Codex writes remain deferred until an OS-enforced, path-restricted container/VM boundary is proven. |
+| 2026-08-21 | Treat provider, concrete model, execution transport, and reasoning effort as separate routing dimensions. | “GPT” is not one engine: Codex-specialised models and the Sol/Terra/Luna family have different intended trade-offs and supported effort levels. A route is valid only when its exact model and effort can be enforced by its chosen transport. |
+
+## Follow-on: provider-native model and effort routing
+
+The initial multi-provider release established the route schema and UI, but the
+Codex transport must apply the task's selected reasoning effort rather than
+only display it. Keep these small handoffs separate from the original rollout.
+
+### MP-14a — Provider-native model catalog
+
+- **Scope:** provider catalog and table-driven tests only.
+- **Change:** model Codex-specialised and current GPT families separately,
+  including execution transport eligibility and exact supported effort levels.
+  Do not advertise an API-only model as selectable by the subscription CLI.
+- **Done when:** a route cannot select an unavailable model/transport pair;
+  catalog tests cover Codex coding, Sol frontier, Terra balanced, Luna economy,
+  and Claude equivalents.
+
+### MP-14b — Enforce reasoning effort at execution
+
+- **Depends on:** MP-14a
+- **Scope:** Codex runner/driver and focused tests only.
+- **Change:** map a validated route effort into the documented Codex CLI
+  per-invocation configuration; test command construction. If the installed
+  CLI cannot accept an effort value, fail closed rather than silently ignoring
+  it.
+- **Done when:** every provider execution request receives the route's effort
+  or fails before work starts with an actionable message.
+
+### MP-14c — Calibrated routing policy and UX explanation
+
+- **Depends on:** MP-14a, MP-14b
+- **Scope:** pure router, routing evaluations, planning route controls, and
+  focused tests.
+- **Change:** select both model family and effort based on task complexity,
+  risk, dependency depth, budget, and transport availability. Explain the
+  trade-off in the UI and preserve user override/confirmation rules.
+- **Done when:** evaluations demonstrate the planned model/effort choices and
+  UI never presents a selection that cannot be executed.
 
 ## Living status
 
