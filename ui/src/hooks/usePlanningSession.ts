@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import type { ActivityEntry, CharterData, ChatMessage, SessionSnapshot } from '../types';
 import type { RunCharter, TaskGraphEntry } from '../App';
 import type { ReasoningEffort } from '../data/models';
+import type { ExecutionShape } from '../data/intake';
 
 function now(): string {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -418,7 +419,7 @@ export function usePlanningSession(
   // ─── send ─────────────────────────────────────────────────────────────────
 
   const send = useCallback(
-    (text: string) => {
+    (text: string, executionShape?: ExecutionShape) => {
       const trimmed = text.trim();
       if (!trimmed) return;
 
@@ -461,6 +462,7 @@ export function usePlanningSession(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: trimmed,
+          ...(executionShape ? { executionShape } : {}),
           history: historySnapshot,
           charter: {
             goal: state.charter.goal || undefined,
@@ -549,8 +551,7 @@ export function usePlanningSession(
                 type Cu = NonNullable<PmResp['charterUpdates']>;
                 const cu = (data.charterUpdates ?? {}) as Cu;
                 const hs = data.hireSuggestion as
-                  | { agentId?: unknown; reason?: unknown }
-                  | undefined;
+                  { agentId?: unknown; reason?: unknown } | undefined;
                 const hireSuggestion =
                   hs && typeof hs.agentId === 'string'
                     ? {

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { usePlanningSession } from '../../hooks/usePlanningSession';
+import { useIntakeDecision } from '../../hooks/useIntakeDecision';
 import { useContextFiles } from '../../hooks/useContextFiles';
 import { Charter } from './Charter';
 import { Message, StreamingMessage, ProgressiveTypingIndicator } from './Message';
+import { IntakeDecisionCard } from './IntakeDecisionCard';
 import { resolveAgentPersona } from '../../data/personas';
 import { IconSend } from '../common/icons';
 import { ActivityItem } from '../common/ActivityItem';
@@ -19,6 +21,7 @@ import {
   type AvailableProvider,
   type ReasoningEffort,
 } from '../../data/models';
+import type { ExecutionShape, IntakeDecision } from '../../data/intake';
 import { useAgentDefaults } from '../../hooks/useAgentDefaults';
 import type { CharterData, SessionSnapshot } from '../../types';
 
@@ -176,7 +179,8 @@ function ModelPlan({
                     </span>
                   )}
                   <span>
-                    Reasoning effort: {effort ?? 'provider default'} — {reasoningEffortTradeoff(effort)}
+                    Reasoning effort: {effort ?? 'provider default'} —{' '}
+                    {reasoningEffortTradeoff(effort)}
                   </span>
                   {costClass && <span>Cost class: {costClass}</span>}
                   {t.route.requiresConfirmation && (
@@ -330,7 +334,12 @@ interface GhIssue {
 }
 
 // Compose a PM brief from a GitHub issue. Pure so it is trivially testable.
-export function issueToBrief(issue: { number: number; title: string; body?: string; url?: string }): string {
+export function issueToBrief(issue: {
+  number: number;
+  title: string;
+  body?: string;
+  url?: string;
+}): string {
   const body = (issue.body ?? '').trim();
   const parts = [`GitHub issue #${issue.number}: ${issue.title}`];
   if (body) {
@@ -477,6 +486,96 @@ interface PlanningProps {
   historicalSession?: SessionSnapshot;
 }
 
+interface PendingIntake {
+  text: string;
+  sessionKey: number;
+  requestedShape?: ExecutionShape;
+}
+
+function IntakeStatusCard({
+  pending,
+  state,
+  serverDown,
+  onAccept,
+  onChooseShape,
+  onContinue,
+}: {
+  pending: PendingIntake;
+  state: ReturnType<typeof useIntakeDecision>;
+  serverDown: boolean;
+  onAccept: (decision: IntakeDecision) => void;
+  onChooseShape: (shape: ExecutionShape) => void;
+  onContinue: () => void;
+}) {
+  const requestedShape = pending.requestedShape;
+
+  if (serverDown) {
+    return (
+      <div className="intake-card intake-status-card" role="status">
+        <div>
+          <p className="intake-card-kicker">Workflow recommendation unavailable</p>
+          <p className="intake-card-action">
+            The server is offline, so Swarm cannot classify this first request right now.
+          </p>
+        </div>
+        <div className="intake-actions">
+          <button type="button" className="btn primary" onClick={onContinue}>
+            Continue with normal planning
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (state.status === 'success') {
+    return (
+      <IntakeDecisionCard
+        decision={state.decision}
+        onAccept={onAccept}
+        onChooseShape={onChooseShape}
+        onDismiss={onContinue}
+      />
+    );
+  }
+
+  if (state.status === 'error') {
+    return (
+      <div className="intake-card intake-status-card" role="alert">
+        <div>
+          <p className="intake-card-kicker">Workflow recommendation failed</p>
+          <p className="intake-card-action">{state.error}</p>
+        </div>
+        <div className="intake-actions">
+          <button type="button" className="btn primary" onClick={onContinue}>
+            Continue with normal planning
+          </button>
+          {requestedShape && (
+            <button
+              type="button"
+              className="intake-choice-toggle"
+              onClick={() => onChooseShape(requestedShape)}
+            >
+              Try again
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="intake-card intake-status-card" role="status" aria-live="polite">
+      <div>
+        <p className="intake-card-kicker">Choosing a lightweight workflow</p>
+        <p className="intake-card-action">
+          Swarm is checking whether this should be an answer, quick task, plan, or coordinated run.
+        </p>
+      </div>
+      <div className="intake-loading-bar" aria-hidden="true" />
+    </div>
+  );
+}
+
 export function Planning({
   onExecute,
   onExecutable,
@@ -528,8 +627,15 @@ export function Planning({
   );
   const context = useContextFiles();
   const [input, setInput] = useState('');
+  const [pendingIntake, setPendingIntake] = useState<PendingIntake | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const activePendingIntake =
+    pendingIntake?.sessionKey === session.sessionKey ? pendingIntake : null;
+  const intakeState = useIntakeDecision(
+    activePendingIntake && serverStatus !== 'down' ? activePendingIntake.text : '',
+    activePendingIntake?.requestedShape,
+  );
 
   const executePlan = useCallback(() => {
     const taskGraph = (session.taskGraph ?? []).map(task =>
@@ -623,7 +729,7 @@ export function Planning({
   // Auto-scroll on new messages / typing indicator / streaming text
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [session.messages, session.typing, session.streamingPmText]);
+  }, [session.messages, session.typing, session.streamingPmText, activePendingIntake, intakeState]);
 
   // Auto-grow textarea. Use height='0' (not 'auto') before measuring so that
   // scrollHeight reflects actual content rather than the rows attribute.
@@ -635,10 +741,45 @@ export function Planning({
     el.style.height = Math.min(el.scrollHeight, 120) + 'px';
   }, [input]);
 
+  const hasUserMessage = session.messages.some(m => m.from === 'you');
+  const shouldClassifyFirstRequest = !hasUserMessage && session.phase !== 'start';
+  const intakePending = activePendingIntake !== null;
+
+  const continueWithNormalPlanning = useCallback(() => {
+    if (!activePendingIntake) {
+      return;
+    }
+    const text = activePendingIntake.text;
+    setPendingIntake(null);
+    session.send(text);
+  }, [activePendingIntake, session.send]);
+
+  const acceptIntakeDecision = useCallback(
+    (decision: IntakeDecision) => {
+      if (!activePendingIntake) {
+        return;
+      }
+      const text = activePendingIntake.text;
+      setPendingIntake(null);
+      session.send(text, decision.shape);
+    },
+    [activePendingIntake, session.send],
+  );
+
+  const chooseIntakeShape = useCallback((shape: ExecutionShape) => {
+    setPendingIntake(prev => (prev ? { ...prev, requestedShape: shape } : prev));
+  }, []);
+
   const handleSend = () => {
     const text = input.trim();
-    if (!text || session.typing) return;
+    if (!text || session.typing || intakePending) {
+      return;
+    }
     setInput('');
+    if (shouldClassifyFirstRequest) {
+      setPendingIntake({ text, sessionKey: session.sessionKey });
+      return;
+    }
     session.send(text);
   };
 
@@ -759,6 +900,7 @@ export function Planning({
             className="new-session-btn"
             onClick={() => {
               session.newSession();
+              setPendingIntake(null);
               onNewSession?.();
             }}
             title="Clear conversation and start fresh"
@@ -797,7 +939,8 @@ export function Planning({
             {!session.messages.some(m => m.from === 'you') &&
               !session.typing &&
               !session.streamingPmText &&
-              !session.researching && (
+              !session.researching &&
+              !activePendingIntake && (
                 <StarterPrompts
                   onPick={text => {
                     setInput(text);
@@ -805,6 +948,19 @@ export function Planning({
                   }}
                 />
               )}
+            {activePendingIntake && (
+              <>
+                <Message m={{ from: 'you', text: activePendingIntake.text }} />
+                <IntakeStatusCard
+                  pending={activePendingIntake}
+                  state={intakeState}
+                  serverDown={serverStatus === 'down'}
+                  onAccept={acceptIntakeDecision}
+                  onChooseShape={chooseIntakeShape}
+                  onContinue={continueWithNormalPlanning}
+                />
+              </>
+            )}
             {session.streamingPmText ? (
               <StreamingMessage text={session.streamingPmText} />
             ) : session.pmActivity && session.pmActivity.length > 0 ? (
@@ -895,17 +1051,21 @@ export function Planning({
                 placeholder={
                   session.phase === 'start'
                     ? 'Waiting for PM…'
-                    : session.typing
-                      ? 'PM is typing…'
-                      : 'Reply to the PM — Enter to send'
+                    : intakePending
+                      ? 'Review the workflow recommendation…'
+                      : session.typing
+                        ? 'PM is typing…'
+                        : 'Reply to the PM — Enter to send'
                 }
-                disabled={session.phase === 'start' || !!session.typing}
-                style={{ opacity: session.phase === 'start' || !!session.typing ? 0.5 : 1 }}
+                disabled={session.phase === 'start' || !!session.typing || intakePending}
+                style={{
+                  opacity: session.phase === 'start' || !!session.typing || intakePending ? 0.5 : 1,
+                }}
               />
               <button
                 className="send-btn"
                 onClick={handleSend}
-                disabled={!input.trim() || !!session.typing}
+                disabled={!input.trim() || !!session.typing || intakePending}
               >
                 <IconSend />
               </button>

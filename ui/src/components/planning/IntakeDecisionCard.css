@@ -8,6 +8,10 @@
   background: color-mix(in srgb, var(--blue) 8%, var(--bg-1));
 }
 
+.chat-scroll > .intake-card {
+  margin: 2px 12px 8px 52px;
+}
+
 .intake-card-head {
   display: flex;
   align-items: flex-start;
@@ -184,11 +188,42 @@
   color: var(--tx-3);
 }
 
+.intake-loading-bar {
+  position: relative;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--bg-3);
+}
+
+.intake-loading-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 42%;
+  border-radius: inherit;
+  background: var(--blue);
+  animation: intakeLoading 1.1s ease-in-out infinite;
+}
+
+@keyframes intakeLoading {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(260%);
+  }
+}
+
 @media (max-width: 680px) {
   .intake-card-head,
   .intake-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .chat-scroll > .intake-card {
+    margin-left: 12px;
   }
 
   .intake-card-meta {
