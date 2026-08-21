@@ -511,19 +511,26 @@ function linkNodeModules(worktreePath: string, root: string): void {
   }
 }
 
-// Create an isolated worktree on a fresh `swarm/<task.id>` branch off HEAD.
-function createWorktree(taskId: string): string {
-  const worktreePath = path.join(os.tmpdir(), `swarm-${taskId}-${Date.now()}`);
-  const branch = `swarm/${taskId}`;
-  // If a stale branch from a crashed run lingers, delete it so `-b` succeeds.
-  try {
-    git(['branch', '-D', branch]);
-  } catch {
-    /* no such branch — fine */
-  }
-  git(['worktree', 'add', worktreePath, '-b', branch, 'HEAD']);
-  linkNodeModules(worktreePath, getRoot());
-  return worktreePath;
+type CreatedWorktree = {
+  path: string;
+  branch: string;
+};
+
+export function worktreeRunNames(taskId: string, runId: number): CreatedWorktree {
+  return {
+    path: path.join(os.tmpdir(), `swarm-${taskId}-${runId}`),
+    branch: `swarm/${taskId}-${runId}`,
+  };
+}
+
+// Create an isolated worktree on a run-specific branch off HEAD. Task ids are
+// reused by Quick tasks, so the branch must not be the task id alone: an
+// interrupted process can leave that branch attached to a stale worktree.
+function createWorktree(taskId: string): CreatedWorktree {
+  const worktree = worktreeRunNames(taskId, Date.now());
+  git(['worktree', 'add', worktree.path, '-b', worktree.branch, 'HEAD']);
+  linkNodeModules(worktree.path, getRoot());
+  return worktree;
 }
 
 // Serialises everything that mutates the MAIN working tree so two such operations
@@ -544,9 +551,8 @@ function withMainTreeLock<T>(fn: () => Promise<T>): Promise<T> {
 
 // Merge the worktree's branch back into the working branch. Serialised.
 // Throws if the merge conflicts (aborting the merge first so the tree is clean).
-function mergeWorktree(taskId: string): Promise<void> {
+function mergeWorktree(taskId: string, branch: string): Promise<void> {
   return withMainTreeLock(async () => {
-    const branch = `swarm/${taskId}`;
     try {
       git(['merge', '--no-ff', '-m', `merge: ${taskId} into working branch`, branch]);
     } catch (err) {
@@ -565,7 +571,7 @@ function mergeWorktree(taskId: string): Promise<void> {
 }
 
 // Remove the worktree and delete its branch. Best-effort — never throws.
-function cleanupWorktree(taskId: string, worktreePath: string): void {
+function cleanupWorktree(branch: string, worktreePath: string): void {
   // Remove our node_modules symlink FIRST so teardown can never follow it into — and delete
   // the contents of — the project's real node_modules. Unlinking a symlink only drops the
   // link, never its target. (git worktree remove already unlinks rather than recurses, but
@@ -584,7 +590,7 @@ function cleanupWorktree(taskId: string, worktreePath: string): void {
     /* already gone */
   }
   try {
-    git(['branch', '-D', `swarm/${taskId}`]);
+    git(['branch', '-D', branch]);
   } catch {
     /* already gone */
   }
@@ -931,9 +937,12 @@ export async function runLoop(): Promise<LoopResult> {
     const isCoder = task.assignee === 'coder';
     const isFixTask = task.id.startsWith('t_fix_');
     let worktreePath: string | undefined;
+    let worktreeBranch: string | undefined;
     if (isCoder && !isFixTask) {
       try {
-        worktreePath = createWorktree(task.id);
+        const worktree = createWorktree(task.id);
+        worktreePath = worktree.path;
+        worktreeBranch = worktree.branch;
         // Track the worktree + its base commit so the per-task diff endpoint can show
         // the change accumulating live, and so we can capture the final diff on landing.
         activeWorktrees.set(task.id, {
@@ -981,15 +990,16 @@ export async function runLoop(): Promise<LoopResult> {
 
       // Merge the coder's isolated branch back into the working branch
       // (serialised — one merge at a time). A conflict marks the task failed.
-      if (isCoder && worktreePath) {
+      if (isCoder && worktreePath && worktreeBranch) {
         try {
-          await mergeWorktree(task.id);
+          await mergeWorktree(task.id, worktreeBranch);
         } catch (mergeErr) {
           const msg = mergeErr instanceof Error ? mergeErr.message : String(mergeErr);
           appendLog('pm', `✗ ${task.assignee} [${task.id}] merge failed: ${msg.slice(0, 200)}`);
           console.error(`  ✗ ${task.id} merge failed: ${msg}`);
-          cleanupWorktree(task.id, worktreePath);
+          cleanupWorktree(worktreeBranch, worktreePath);
           worktreePath = undefined; // already cleaned up — skip the finally block
+          worktreeBranch = undefined;
           updateTask(task.id, { status: 'failed', lease: undefined });
           recordTaskOutcome(buildTaskOutcome({
             task: { ...task, attempts: task.attempts + 1 },
@@ -1124,7 +1134,7 @@ export async function runLoop(): Promise<LoopResult> {
     } finally {
       // Always clean up the worktree + branch — never leave orphans, even on
       // crash. (On the merge-failure path worktreePath is already cleared.)
-      if (worktreePath) cleanupWorktree(task.id, worktreePath);
+      if (worktreePath && worktreeBranch) cleanupWorktree(worktreeBranch, worktreePath);
       // Drop any live-worktree tracking left over from a thrown dispatch.
       activeWorktrees.delete(task.id);
     }

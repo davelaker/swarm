@@ -3,9 +3,19 @@ import test from 'node:test';
 import {
   dependenciesAreComplete,
   selectRunnableBatch,
+  worktreeRunNames,
   writeScopesMayOverlap,
 } from './loop.js';
 import type { Task } from './state/types.js';
+
+test('repeated task ids receive run-specific worktree branches', () => {
+  const first = worktreeRunNames('t_quick', 100);
+  const second = worktreeRunNames('t_quick', 101);
+
+  assert.equal(first.branch, 'swarm/t_quick-100');
+  assert.equal(second.branch, 'swarm/t_quick-101');
+  assert.notEqual(first.path, second.path);
+});
 
 function task(
   id: string,
