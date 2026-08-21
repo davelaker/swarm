@@ -21,13 +21,14 @@ import {
   recordTaskOutcome,
 } from './state/repo.js';
 import { dispatch } from './dispatch/index.js';
-import { validateFinding, hasSensitivePaths } from './agents/finding.js';
+import { validateFinding, hasSensitiveContent } from './agents/finding.js';
 import {
   parsePorcelain,
   newlyChanged,
   partitionDocPaths,
   listLivingDocFiles,
 } from './agents/living-docs.js';
+import { parseUnifiedDiff } from './server/diff.js';
 import { getConfig } from './config.js';
 import { getDriver } from './drivers/index.js';
 import { bus } from './state/events.js';
@@ -67,27 +68,79 @@ function reconcile(state: SwarmState, maxAttempts: number): void {
 
 // ─── Sensitive-path check ─────────────────────────────────────────────────────
 
-async function checkSensitivePaths(task: Task, artifacts: string[]): Promise<boolean> {
-  if (!artifacts.length) return false;
-  const contents = await Promise.all(
-    artifacts.map(async f => {
-      try {
-        return await fsp.readFile(path.resolve(process.cwd(), f), 'utf8');
-      } catch (err) {
-        // A missing artifact is normal (the change deleted the file). Anything
-        // else is a silent fail-OPEN on a security escalation — say so loudly
-        // instead of quietly skipping the S2 check for this file.
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
-          console.warn(
-            `  ⚠ S2: could not read artifact ${f} for ${task.id} — ` +
-              `sensitive-path check skipped for this file: ${(err as Error).message}`,
-          );
+export interface SensitiveDiffSource {
+  cwd: string;
+  baseRevision: string;
+}
+
+export function extractSensitiveDiffSignals(rawDiff: string): string[] {
+  const files = parseUnifiedDiff(rawDiff);
+  const signals: string[] = [];
+  for (const file of files) {
+    signals.push(file.path);
+    if (file.oldPath) {
+      signals.push(file.oldPath);
+    }
+    for (const hunk of file.hunks) {
+      for (const line of hunk.lines) {
+        if (line.type === 'add') {
+          signals.push(line.content);
         }
-        return '';
       }
-    }),
-  );
-  return hasSensitivePaths(contents);
+    }
+  }
+  return signals;
+}
+
+function readNoIndexDiff(args: string[], cwd: string): string {
+  try {
+    return git(args, cwd);
+  } catch (err) {
+    const stdout = (err as { stdout?: Buffer | string }).stdout?.toString() ?? '';
+    if (stdout) {
+      return stdout;
+    }
+    throw err;
+  }
+}
+
+function artifactExistsAtRevision(cwd: string, revision: string, artifact: string): boolean {
+  try {
+    git(['cat-file', '-e', `${revision}:${artifact}`], cwd);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readArtifactDiff(source: SensitiveDiffSource, artifact: string): string {
+  if (artifactExistsAtRevision(source.cwd, source.baseRevision, artifact)) {
+    return git(['diff', '--unified=0', source.baseRevision, '--', artifact], source.cwd);
+  }
+
+  return readNoIndexDiff(['diff', '--no-index', '--unified=0', '--', '/dev/null', artifact], source.cwd);
+}
+
+export async function checkSensitivePaths(
+  task: Task,
+  artifacts: string[],
+  diffSource: SensitiveDiffSource | null,
+): Promise<boolean> {
+  if (!artifacts.length) return false;
+  if (!diffSource) {
+    console.warn(`  ⚠ S2 fail-closed: no diff source available for ${task.id}`);
+    return true;
+  }
+  try {
+    const rawDiff = artifacts
+      .map(artifact => readArtifactDiff(diffSource, artifact))
+      .filter(diff => diff.trim())
+      .join('\n');
+    return hasSensitiveContent(extractSensitiveDiffSignals(rawDiff));
+  } catch (err) {
+    console.warn(`  ⚠ S2 fail-closed: could not inspect diff for ${task.id} — ${(err as Error).message}`);
+    return true;
+  }
 }
 
 // ─── Remediation spawning ─────────────────────────────────────────────────────
@@ -938,16 +991,21 @@ export async function runLoop(): Promise<LoopResult> {
     const isFixTask = task.id.startsWith('t_fix_');
     let worktreePath: string | undefined;
     let worktreeBranch: string | undefined;
+    let sensitiveDiffSource: SensitiveDiffSource | null = null;
     if (isCoder && !isFixTask) {
       try {
         const worktree = createWorktree(task.id);
         worktreePath = worktree.path;
         worktreeBranch = worktree.branch;
+        sensitiveDiffSource = {
+          cwd: worktreePath,
+          baseRevision: git(['rev-parse', 'HEAD']).trim(),
+        };
         // Track the worktree + its base commit so the per-task diff endpoint can show
         // the change accumulating live, and so we can capture the final diff on landing.
         activeWorktrees.set(task.id, {
           path: worktreePath,
-          base: git(['rev-parse', 'HEAD']).trim(),
+          base: sensitiveDiffSource.baseRevision,
         });
       } catch (err) {
         clearInterval(heartbeat);
@@ -965,6 +1023,12 @@ export async function runLoop(): Promise<LoopResult> {
         }));
         return;
       }
+    }
+    if (isCoder && isFixTask) {
+      sensitiveDiffSource = {
+        cwd: getRoot(),
+        baseRevision: git(['rev-parse', 'HEAD']).trim(),
+      };
     }
 
     try {
@@ -1045,7 +1109,7 @@ export async function runLoop(): Promise<LoopResult> {
 
       // S2: sensitive-path escalation after coder runs
       if (task.assignee === 'coder' && result.artifacts?.length) {
-        const sensitive = await checkSensitivePaths(task, result.artifacts);
+        const sensitive = await checkSensitivePaths(task, result.artifacts, sensitiveDiffSource);
         if (sensitive) ensureSecurityTask(getState(), task.id, cfg);
       }
 

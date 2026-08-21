@@ -86,8 +86,8 @@ export function validateFinding(content: string, expectedTaskId?: string): Valid
 }
 
 // ─── Sensitive-path escalation (S2) ──────────────────────────────────────────
-// Any diff touching auth, crypto, SQL, permissions, or input handling
-// force-escalates to a security pass regardless of tier.
+// Any changed path or added diff content touching auth, crypto, SQL, permissions,
+// or input handling force-escalates to a security pass regardless of tier.
 
 const SENSITIVE_RE = [
   /\b(auth|authenticate|authoriz|login|logout|session|jwt|bearer|oauth|saml)\b/i,
@@ -99,6 +99,8 @@ const SENSITIVE_RE = [
   /\b(exec|spawn|eval|child_process|subprocess|shell|os\.system)\b/i,
 ];
 
-export function hasSensitivePaths(fileContents: string[]): boolean {
-  return fileContents.some(c => SENSITIVE_RE.some(re => re.test(c)));
+export function hasSensitiveContent(signals: readonly string[]): boolean {
+  return signals.some(signal => SENSITIVE_RE.some(re => re.test(signal)));
 }
+
+export const hasSensitivePaths = hasSensitiveContent;

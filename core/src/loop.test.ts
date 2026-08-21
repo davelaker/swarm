@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import {
+  checkSensitivePaths,
   dependenciesAreComplete,
+  extractSensitiveDiffSignals,
   selectRunnableBatch,
   worktreeRunNames,
   writeScopesMayOverlap,
@@ -92,4 +98,108 @@ test('a review or gate waits for every declared producer', () => {
 
   assert.equal(dependenciesAreComplete(review, new Set(['coder-a'])), false);
   assert.equal(dependenciesAreComplete(review, new Set(['coder-a', 'coder-b'])), true);
+});
+
+function sensitiveFixture(initialContent: string, filePath: string = 'README.md'): {
+  root: string;
+  task: Task;
+  cleanup: () => void;
+  baseRevision: string;
+} {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'swarm-sensitive-diff-'));
+  execFileSync('git', ['init', '--quiet'], { cwd: root });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: root });
+  execFileSync('git', ['config', 'user.name', 'Swarm Test'], { cwd: root });
+  const absPath = path.join(root, filePath);
+  fs.mkdirSync(path.dirname(absPath), { recursive: true });
+  fs.writeFileSync(absPath, initialContent);
+  execFileSync('git', ['add', filePath], { cwd: root });
+  execFileSync('git', ['commit', '--quiet', '-m', 'fixture'], { cwd: root });
+  return {
+    root,
+    task: task('t_quick', 'coder', [filePath]),
+    baseRevision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
+    cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
+  };
+}
+
+test('extractSensitiveDiffSignals keeps only changed paths and added lines', () => {
+  const raw = [
+    'diff --git a/README.md b/README.md',
+    'index 111..222 100644',
+    '--- a/README.md',
+    '+++ b/README.md',
+    '@@ -1,2 +1,2 @@',
+    '-Existing permission docs stay untouched.',
+    '+Fresh copy without sensitive keywords.',
+    ' unchanged context',
+    '',
+  ].join('\n');
+
+  assert.deepEqual(extractSensitiveDiffSignals(raw), ['README.md', 'Fresh copy without sensitive keywords.']);
+});
+
+test('pre-existing sensitive words outside the patch do not escalate', async () => {
+  const fixture = sensitiveFixture('Existing permission docs stay untouched.\nA neutral line.\n');
+  try {
+    fs.writeFileSync(
+      path.join(fixture.root, 'README.md'),
+      'Existing permission docs stay untouched.\nA refreshed neutral line.\n',
+    );
+
+    const sensitive = await checkSensitivePaths(
+      fixture.task,
+      ['README.md'],
+      { cwd: fixture.root, baseRevision: fixture.baseRevision },
+    );
+    assert.equal(sensitive, false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('newly added sensitive diff content escalates', async () => {
+  const fixture = sensitiveFixture('Welcome.\n');
+  try {
+    fs.writeFileSync(path.join(fixture.root, 'README.md'), 'Welcome.\nDocument the permission flow.\n');
+
+    const sensitive = await checkSensitivePaths(
+      fixture.task,
+      ['README.md'],
+      { cwd: fixture.root, baseRevision: fixture.baseRevision },
+    );
+    assert.equal(sensitive, true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('sensitive changed paths still escalate even without keyword additions', async () => {
+  const fixture = sensitiveFixture('export const timeout = 1;\n', 'core/src/auth/session.ts');
+  try {
+    fs.writeFileSync(path.join(fixture.root, 'core/src/auth/session.ts'), 'export const timeout = 2;\n');
+
+    const sensitive = await checkSensitivePaths(
+      fixture.task,
+      ['core/src/auth/session.ts'],
+      { cwd: fixture.root, baseRevision: fixture.baseRevision },
+    );
+    assert.equal(sensitive, true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('failure to obtain a diff fails closed', async () => {
+  const fixture = sensitiveFixture('Welcome.\n');
+  try {
+    const sensitive = await checkSensitivePaths(
+      fixture.task,
+      ['README.md'],
+      { cwd: path.join(fixture.root, 'missing'), baseRevision: fixture.baseRevision },
+    );
+    assert.equal(sensitive, true);
+  } finally {
+    fixture.cleanup();
+  }
 });
