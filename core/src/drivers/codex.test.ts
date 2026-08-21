@@ -43,6 +43,7 @@ test('Codex coder uses a read-only session and delegates its exact patch to Swar
   assert.equal(options?.cwd, '/worktree');
   assert.equal(options?.reasoningEffort, 'medium');
   assert.match(options?.prompt ?? '', /Do not attempt to write files/);
+  assert.match(options?.prompt ?? '', /git rev-parse HEAD/);
   assert.match(options?.prompt ?? '', /standard Git unified diff starting with/);
   assert.match(options?.prompt ?? '', /Never use "\*\*\* Begin Patch" markers/);
   assert.deepEqual(applied, {
