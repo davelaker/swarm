@@ -6,6 +6,7 @@ import test from 'node:test';
 import {
   buildCodexCommand,
   cleanupCodexEphemeralFiles,
+  codexFailureMessage,
   createCodexEphemeralFiles,
 } from './codex-runner.js';
 
@@ -15,6 +16,16 @@ const schema = {
   required: ['status'],
   additionalProperties: false,
 };
+
+test('Codex failures prefer the structured error event without exposing other output', () => {
+  const stdout = [
+    JSON.stringify({ type: 'item.completed', item: { text: 'private partial output' } }),
+    JSON.stringify({ type: 'error', message: 'invalid schema keyword' }),
+  ].join('\n');
+
+  assert.equal(codexFailureMessage(stdout, 'warning'), 'invalid schema keyword');
+  assert.equal(codexFailureMessage('', 'fallback warning'), 'fallback warning');
+});
 
 test('builds an isolated read-only Codex command with JSONL and schema output', () => {
   const args = buildCodexCommand(

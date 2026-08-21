@@ -30,7 +30,6 @@ export const CODEX_PATCH_PROPOSAL_SCHEMA: Record<string, unknown> = {
     changed_paths: {
       type: 'array',
       minItems: 1,
-      uniqueItems: true,
       items: { type: 'string', minLength: 1 },
     },
     patch: { type: 'string', minLength: 1 },

@@ -146,6 +146,21 @@ function parseJsonl(stdout: string): unknown[] {
   });
 }
 
+export function codexFailureMessage(stdout: string, stderr: string): string {
+  const lines = stdout.split('\n').filter(Boolean).reverse();
+  for (const line of lines) {
+    try {
+      const event = JSON.parse(line) as { type?: unknown; message?: unknown };
+      if (event.type === 'error' && typeof event.message === 'string') {
+        return event.message.slice(-2_000);
+      }
+    } catch {
+      // Ignore non-JSON diagnostics and fall back to stderr below.
+    }
+  }
+  return stderr.slice(-2_000) || '(no error output)';
+}
+
 export async function runCodex(opts: CodexRunOptions): Promise<CodexRunResult> {
   const files = createCodexEphemeralFiles(opts.outputSchema);
   const args = buildCodexCommand(opts, files);
@@ -170,7 +185,7 @@ export async function runCodex(opts: CodexRunOptions): Promise<CodexRunResult> {
       },
     );
     if (code !== 0) {
-      throw new Error(`Codex exited ${code ?? 'null'}: ${stderr.slice(0, 500) || '(no error output)'}`);
+      throw new Error(`Codex exited ${code ?? 'null'}: ${codexFailureMessage(stdout, stderr)}`);
     }
     if (!fs.existsSync(files.outputPath)) {
       throw new Error('Codex completed without writing the schema-constrained final response');

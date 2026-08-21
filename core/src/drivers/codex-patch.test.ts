@@ -101,4 +101,8 @@ test('rejects malformed schema shapes and unsafe paths', () => {
     () => parseCodexPatchProposal({ base_revision: 'A'.repeat(40), changed_paths: ['allowed.ts'], patch: 'x' }),
     /lowercase/,
   );
+  assert.throws(
+    () => parseCodexPatchProposal({ base_revision: 'a'.repeat(40), changed_paths: ['allowed.ts', 'allowed.ts'], patch: 'x' }),
+    /must not contain duplicates/,
+  );
 });
