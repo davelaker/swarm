@@ -53,6 +53,62 @@ test('Codex coder uses a read-only session and delegates its exact patch to Swar
   assert.equal(result.verdict, 'COMPLETE');
 });
 
+test('Codex coder retries one pre-approval patch syntax failure with the same route', async () => {
+  const prompts: string[] = [];
+  let applyAttempts = 0;
+  const driver = createCodexDriver({
+    root: () => '/repo',
+    run: async opts => {
+      prompts.push(opts.prompt);
+      return response({
+        verdict: 'COMPLETE',
+        summary: 'Updated fixture',
+        detail: 'Returned a corrected standard patch.',
+        patch_proposal: proposal,
+      });
+    },
+    applyPatch: async () => {
+      applyAttempts += 1;
+      if (applyAttempts === 1) {
+        throw new Error('error: corrupt patch at line 11');
+      }
+      return { changedPaths: ['src/allowed.ts'] };
+    },
+  });
+
+  const result = await driver.runCoder(task, state, '/worktree');
+
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[1], /previous patch failed local "git apply --check"/);
+  assert.equal(applyAttempts, 2);
+  assert.equal(result.verdict, 'COMPLETE');
+});
+
+test('Codex coder does not retry a patch safety failure', async () => {
+  let runs = 0;
+  const driver = createCodexDriver({
+    root: () => '/repo',
+    run: async () => {
+      runs += 1;
+      return response({
+        verdict: 'COMPLETE',
+        summary: 'Unsafe proposal',
+        detail: 'Attempted to widen scope.',
+        patch_proposal: proposal,
+      });
+    },
+    applyPatch: async () => {
+      throw new Error('Codex patch is outside the task write scope');
+    },
+  });
+
+  await assert.rejects(
+    () => driver.runCoder(task, state, '/worktree'),
+    /outside the task write scope/,
+  );
+  assert.equal(runs, 1);
+});
+
 test('Codex coder receives its model and broker scope from the immutable task route', async () => {
   let options: CodexRunOptions | undefined;
   let applied: unknown;

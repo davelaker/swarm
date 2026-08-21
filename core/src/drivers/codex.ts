@@ -162,6 +162,61 @@ function taskContext(task: Task, state: SwarmState): string {
   ].filter(Boolean).join('\n');
 }
 
+function coderPrompt(task: Task, state: SwarmState): string {
+  return [
+    'You are Swarm\'s coder. You have read-only repository access.',
+    'Do not attempt to write files, use shell redirection, commit, or alter configuration.',
+    'Inspect the code, then return the exact unified diff needed in patch_proposal.',
+    'Run "git rev-parse HEAD" in the read-only worktree and copy that exact full lowercase SHA into patch_proposal.base_revision; never use a placeholder or all-zero SHA.',
+    'The patch field must be a standard Git unified diff starting with "diff --git a/<path> b/<path>", followed by "--- a/<path>", "+++ b/<path>", and one or more "@@" hunks.',
+    'Never use "*** Begin Patch" markers or include prose inside the patch field.',
+    'The patch must modify only the declared task paths. Swarm—not you—will validate, approve, and apply it.',
+    `Declared writable paths: ${codexWriteScope(task).join(', ') || '(none; return a patch only if this is corrected)'}.`,
+    taskContext(task, state),
+  ].join('\n\n');
+}
+
+function coderRepairPrompt(task: Task, state: SwarmState, error: Error): string {
+  return [
+    coderPrompt(task, state),
+    `Your previous patch failed local "git apply --check" before approval: ${error.message.slice(0, 300)}`,
+    'Regenerate the entire schema response from the current worktree. Correct the unified-diff structure and hunk contents; do not widen changed_paths.',
+  ].join('\n\n');
+}
+
+function isRepairablePatchError(error: Error): boolean {
+  return /corrupt patch|patch does not apply|must contain at least one standard git unified diff/i.test(
+    error.message,
+  );
+}
+
+type ParsedCoderOutput = {
+  verdict: string;
+  summary: string;
+  detail: string;
+  proposal: unknown;
+};
+
+function parseCoderOutput(data: Record<string, unknown>): ParsedCoderOutput {
+  return {
+    verdict: verdict(data, 'FAILED'),
+    summary: stringField(data, 'summary'),
+    detail: stringField(data, 'detail'),
+    proposal: data.patch_proposal,
+  };
+}
+
+function failedCoderResult(task: Task, output: ParsedCoderOutput): DriverResult {
+  return {
+    verdict: 'FAILED',
+    summary: output.summary,
+    filesChanged: [],
+    securityFindings: [],
+    reviewerFindings: [],
+    findingMarkdown: coderFinding(task, output.summary, output.detail, []),
+  };
+}
+
 function asSecurityFindings(data: Record<string, unknown>): SecurityFinding[] {
   return objectArray(data, 'findings').map((finding) => ({
     id: stringField(finding, 'id'),
@@ -227,34 +282,54 @@ export function createCodexDriver(deps: CodexDriverDependencies = {}): AgentDriv
     },
 
     async runCoder(task, state, worktreePath): Promise<DriverResult> {
-      const response = await run([
-        'You are Swarm\'s coder. You have read-only repository access.',
-        'Do not attempt to write files, use shell redirection, commit, or alter configuration.',
-        'Inspect the code, then return the exact unified diff needed in patch_proposal.',
-        'Run "git rev-parse HEAD" in the read-only worktree and copy that exact full lowercase SHA into patch_proposal.base_revision; never use a placeholder or all-zero SHA.',
-        'The patch field must be a standard Git unified diff starting with "diff --git a/<path> b/<path>", followed by "--- a/<path>", "+++ b/<path>", and one or more "@@" hunks.',
-        'Never use "*** Begin Patch" markers or include prose inside the patch field.',
-        'The patch must modify only the declared task paths. Swarm—not you—will validate, approve, and apply it.',
-        `Declared writable paths: ${codexWriteScope(task).join(', ') || '(none; return a patch only if this is corrected)'}.`,
-        taskContext(task, state),
-      ].join('\n\n'), coderSchema, task, worktreePath ?? root());
-      const data = response.output;
-      const summary = stringField(data, 'summary');
-      const detail = stringField(data, 'detail');
-      const resultVerdict = verdict(data, 'FAILED');
-      if (resultVerdict === 'FAILED') {
-        return { verdict: 'FAILED', summary, filesChanged: [], securityFindings: [], reviewerFindings: [], findingMarkdown: coderFinding(task, summary, detail, []) };
+      let output = parseCoderOutput(
+        (await run(coderPrompt(task, state), coderSchema, task, worktreePath ?? root())).output,
+      );
+      if (output.verdict === 'FAILED') {
+        return failedCoderResult(task, output);
       }
       if (!worktreePath) {
         throw new Error('Codex coder requires an isolated worktree for broker-mediated patch application');
       }
-      const applied = await applyPatch({
-        agentId: task.id,
-        worktreePath,
-        writeScope: codexWriteScope(task),
-        proposal: data.patch_proposal,
-      });
-      return { verdict: 'COMPLETE', summary, filesChanged: applied.changedPaths, securityFindings: [], reviewerFindings: [], findingMarkdown: coderFinding(task, summary, detail, applied.changedPaths) };
+      let applied: Awaited<ReturnType<PatchApplier>>;
+      try {
+        applied = await applyPatch({
+          agentId: task.id,
+          worktreePath,
+          writeScope: codexWriteScope(task),
+          proposal: output.proposal,
+        });
+      } catch (error) {
+        const patchError = error instanceof Error ? error : new Error(String(error));
+        if (!isRepairablePatchError(patchError)) {
+          throw patchError;
+        }
+        output = parseCoderOutput(
+          (await run(coderRepairPrompt(task, state, patchError), coderSchema, task, worktreePath)).output,
+        );
+        if (output.verdict === 'FAILED') {
+          return failedCoderResult(task, output);
+        }
+        applied = await applyPatch({
+          agentId: task.id,
+          worktreePath,
+          writeScope: codexWriteScope(task),
+          proposal: output.proposal,
+        });
+      }
+      return {
+        verdict: 'COMPLETE',
+        summary: output.summary,
+        filesChanged: applied.changedPaths,
+        securityFindings: [],
+        reviewerFindings: [],
+        findingMarkdown: coderFinding(
+          task,
+          output.summary,
+          output.detail,
+          applied.changedPaths,
+        ),
+      };
     },
 
     async runTester(task, state): Promise<DriverResult> {
