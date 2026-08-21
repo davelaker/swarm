@@ -1,0 +1,1 @@
+export { QuickTaskCard } from './QuickTaskCard';
