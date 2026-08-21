@@ -126,9 +126,19 @@ function fanout(event: SwarmEvent): void {
 // SSE events by diffing old vs new state.
 
 function diffAndEmit(prev: SwarmState | null, next: SwarmState): void {
+  const classifiedEvent = (): SwarmEvent => ({
+    type: 'run.classified',
+    tier: next.tier,
+    tasks: next.tasks as unknown as Task[],
+    goal: next.goal,
+    ...(next.executionShape ? { executionShape: next.executionShape } : {}),
+    ...(next.charter?.quickTask ? { quickTask: next.charter.quickTask } : {}),
+    ...(next.charter?.taskGraph?.[0]?.route ? { route: next.charter.taskGraph[0].route } : {}),
+  });
+
   if (!prev) {
     // First snapshot — emit current task graph so the UI can initialise
-    fanout({ type: 'run.classified', tier: next.tier, tasks: next.tasks as unknown as Task[] });
+    fanout(classifiedEvent());
     return;
   }
 
@@ -138,7 +148,7 @@ function diffAndEmit(prev: SwarmState | null, next: SwarmState): void {
   // as each task is added by subsequent addTask() calls.
   const isNewRun = prev.goal !== next.goal || (prev.tasks.length > 0 && next.tasks.length === 0);
   if (isNewRun) {
-    fanout({ type: 'run.classified', tier: next.tier, tasks: next.tasks as unknown as Task[] });
+    fanout(classifiedEvent());
     return;
   }
 

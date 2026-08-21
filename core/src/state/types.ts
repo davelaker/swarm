@@ -150,7 +150,15 @@ export interface SwarmState {
 // These are the same event types the SSE stream forwards to the browser (UX.md §4).
 
 export type SwarmEvent =
-  | { type: 'run.classified'; tier: Tier; tasks: Task[] }
+  | {
+      type: 'run.classified';
+      tier: Tier;
+      tasks: Task[];
+      goal?: string;
+      executionShape?: ExecutionShape;
+      quickTask?: RunCharter['quickTask'];
+      route?: TaskRoute;
+    }
   | { type: 'task.created'; task: Task }
   | { type: 'task.status_changed'; task_id: string; status: TaskStatus; skip_reason?: string }
   | { type: 'agent.started'; agent_id: string }
