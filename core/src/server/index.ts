@@ -50,6 +50,7 @@ import { loadRoster, saveRoster } from '../state/roster.js';
 import { probeAvailableConnectors } from '../state/connectors.js';
 import { loadBuiltinInstructions, saveBuiltinInstructions } from '../state/builtin-instructions.js';
 import { loadBuiltinModels, saveBuiltinModels } from '../state/builtin-models.js';
+import { classifyIntakeRequest } from './intake.js';
 import {
   CODER_SYSTEM,
   TESTER_SYSTEM,
@@ -1291,6 +1292,13 @@ async function routePost(
   const payload = rawPayload as Record<string, unknown>;
   {
     const route = url.pathname;
+
+    if (route === '/intake/classify') {
+      const response = await classifyIntakeRequest(rawPayload);
+      res.writeHead(response.status);
+      res.end(JSON.stringify(response.body));
+      return;
+    }
 
     if (route === '/marketplace/roster') {
       const valid = validateRosterPayload(rawPayload);

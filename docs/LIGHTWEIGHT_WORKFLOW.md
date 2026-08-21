@@ -363,6 +363,63 @@ Coordinated run, rejection of escalation, and recovery after restart at each bou
 time-to-first-response and prompt-to-verified-result measurements; perform screenshot
 verification of compact and expanded states.
 
+## Orchestrated implementation slices
+
+The lightweight workflow should be delivered as small work packets with one coordinator
+owning sequencing, docs, and integration decisions. Each packet should be independently
+testable and, where possible, assigned to the least-capable model that still matches the
+risk.
+
+### Coordinator responsibilities
+
+- Maintain the single workflow contract: `ExecutionShape`, `IntakeDecision`, transition
+  rules, and verification expectations.
+- Serialize packets that touch the same files or the same state transitions.
+- Keep the README and this document aligned with shipped behaviour.
+- Reject any packet that weakens sensitive-path escalation, route validation,
+  permissions, or deterministic gates in the name of "lightweight" UX.
+
+### Recommended packets and model tiers
+
+| Packet | Scope | Recommended model | Why |
+| --- | --- | --- | --- |
+| **A. Intake contract** | Pure `ExecutionShape` / `IntakeDecision` types, deterministic classifier, fixtures, server request validation | **GPT-5.4** | Deterministic core logic and tests; modest integration risk |
+| **B. CLI command parsing** | `swarm ask`, `swarm do`, `swarm plan`, `swarm "..."`, usage/help output, parser fixtures | **GPT-5.4 Mini** | Mostly mechanical parsing and usage-string work |
+| **C. Intake API plumbing** | `/intake/classify`, shared session identity, telemetry events for intake started / decision made | **GPT-5.4** | Straightforward server and state wiring with moderate contract sensitivity |
+| **D. Answer workflow** | Read-only PM/Scout path, no-run terminal outcome, shared session persistence | **GPT-5.5** | Crosses planning, server, and storage boundaries; quiet mistakes matter |
+| **E. Quick task compiler** | Compile quick tasks to one-node runs, narrow write scope, focused checks, escalation triggers | **GPT-5.5** | Higher behavioural risk because it touches execution, permissions, and gates |
+| **F. Compact task UI** | Minimal task surface, expandable run details, result and verification evidence | **GPT-5.4** | Mostly presentation work on top of settled server contracts |
+| **G. In-place escalation** | Answer → Plan → Quick task → Coordinated run transitions and approval boundaries | **GPT-5.5** | Stateful workflow logic with high regression cost |
+| **H. Evaluation corpus** | False-lightweight fixtures, regression corpus, local metrics reports | **GPT-5.4 Mini** | Fixture-heavy, mostly mechanical expansion once the contract settles |
+
+### Suggested execution order
+
+1. Packet A: land the deterministic intake contract and server seam first.
+2. Packet B: finish CLI parsing and top-level command routing while the contract is
+   still fresh.
+3. Packet C: emit stable intake telemetry and session identity before richer workflows
+   depend on them.
+4. Packet D: ship Answer as the first full lightweight outcome.
+5. Packet E and Packet F: add Quick task execution and its compact UI together once the
+   read-only path is stable.
+6. Packet G: add in-place escalation only after Answer and Quick task are both proven.
+7. Packet H: keep expanding the evaluation corpus throughout, but treat it as complete
+   only after escalation ships.
+
+### Current status
+
+The first packet is the right starting point and is already useful even before the full
+workflow lands:
+
+- deterministic intake classification can now distinguish `answer`, `quick_task`,
+  `plan`, and `coordinated_run`;
+- read-only questions about sensitive areas remain `answer` while still surfacing risk
+  signals;
+- explicit requested shapes are handled as structured input rather than by smuggling
+  slash prefixes through the request text; and
+- the contract is covered by table-driven tests for the classifier, server intake
+  validation, and CLI command parsing.
+
 ## Implementation boundaries
 
 - Do not create a separate lightweight execution engine. Compile lightweight requests
