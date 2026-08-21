@@ -137,6 +137,16 @@ test('explicit requested shape is applied independently of slash-prefix text', (
   assert.deepEqual(decision.riskSignals, ['explicit_plan_request']);
 });
 
+test('explicit plan overrides question-shaped wording', () => {
+  const decision = classifyIntakeInput({
+    instruction: 'Why does the reconnect banner stay visible?',
+    requestedShape: 'plan',
+  });
+
+  assert.equal(decision.shape, 'plan');
+  assert.deepEqual(decision.riskSignals, ['explicit_plan_request']);
+});
+
 test('structured quick-task requests still escalate when the wording is destructive', () => {
   const decision = classifyIntakeInput({
     instruction: 'delete old sessions permanently',

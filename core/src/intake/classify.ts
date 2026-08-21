@@ -204,7 +204,7 @@ export function classifyIntake(requestText: string): IntakeDecision {
     );
   }
 
-  if (explicitShape === 'answer' || isReadOnlyRequest(normalized)) {
+  if (explicitShape === 'answer') {
     return buildDecision(
       'answer',
       'The request reads as a question or investigation that does not require repository writes.',
@@ -214,7 +214,27 @@ export function classifyIntake(requestText: string): IntakeDecision {
     );
   }
 
-  if (explicitShape === 'plan' || isPlanRequest(normalized)) {
+  if (explicitShape === 'plan') {
+    return buildDecision(
+      'plan',
+      'The request is asking for options, sequencing, or design rather than immediate execution.',
+      'high',
+      riskSignals,
+      'Return a plan with decisions, risks, and the next recommended action.',
+    );
+  }
+
+  if (isReadOnlyRequest(normalized)) {
+    return buildDecision(
+      'answer',
+      'The request reads as a question or investigation that does not require repository writes.',
+      'high',
+      riskSignals,
+      'Answer directly with evidence and avoid creating a run.',
+    );
+  }
+
+  if (isPlanRequest(normalized)) {
     return buildDecision(
       'plan',
       'The request is asking for options, sequencing, or design rather than immediate execution.',
