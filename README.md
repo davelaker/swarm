@@ -45,10 +45,11 @@ permission boundary and deterministic verification gates still run before comple
 
 In the dashboard, the first request in a fresh planning session receives an Answer,
 Quick task, Plan, or Coordinated run recommendation. You can accept it, select another
-The dashboard uses the same Quick task compiler as `swarm do`.
 shape, dismiss it into normal planning, or continue normally when the classifier server
 is unavailable. See the [lightweight workflow design and delivery status](docs/LIGHTWEIGHT_WORKFLOW.md)
 for the product rationale and remaining compact-run work.
+
+The dashboard uses the same Quick task compiler as `swarm do`.
 
 ## Provider setup
 
