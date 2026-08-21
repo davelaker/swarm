@@ -39,9 +39,11 @@ import { readCachedLiveContext, ensureLiveContextInBackground } from './live-con
 import { formatMarketplace, CATALOG_BY_ID } from '../state/marketplace-catalog.js';
 import { getDriverMode, getDriver } from '../drivers/index.js';
 import { parseStreamMessage, createNdjsonBuffer } from '../drivers/stream-parse.js';
+import { getProviderModel, getProviderSelection } from '../providers/index.js';
 import type { RosterEntry } from '../state/types.js';
 import type { AgentDriver, PmInferenceRequest } from '../drivers/types.js';
 import { normalizeEffort } from '../agents/effort.js';
+import { routePmTaskGraph, type PmRoutingContext, type PmTaskGraphEntry } from './routing.js';
 
 // ─── MCP server path ──────────────────────────────────────────────────────────
 // Production (__dirname is dist/pm/): run the compiled mcp-server.js with node.
@@ -75,14 +77,7 @@ export interface PmCharter {
   branchMode?: 'branch' | 'main';
 }
 
-export interface TaskGraphEntry {
-  id: string;
-  assignee: 'coder' | 'tester' | 'security' | 'reviewer';
-  title: string;
-  depends_on: string[];
-  model?: string; // canonical model id, normalised from the PM's alias
-  effort?: string; // reasoning effort, normalised from the PM's alias
-}
+export type TaskGraphEntry = PmTaskGraphEntry;
 
 export interface PmResponse {
   reply: string;
@@ -200,13 +195,7 @@ TASK GRAPH — draft early, update on every response, finalize at enable_execute
 Set task_graph as soon as you know who is doing what — do not wait for enable_execute. A draft task graph shows the user what will run before they commit. Update it whenever the team or scope changes. By the time you set enable_execute, task_graph should already reflect the final plan.
 Define exactly which agents run and in what order. IDs: t1, t2, … (unique strings).
 Tasks with empty depends_on start immediately; tasks that share depends_on run in parallel once deps complete.
-MODEL PER TASK — required on every task. Judge each task's relative complexity and pick the model that fits, the way a tech lead assigns work; do not default everything to one model. Listed cheapest to most expensive, with price per million tokens (input/output) — the ladder is strictly ordered by both capability and cost:
-- haiku  ($1/$5)   — trivial, mechanical, or read-only scans (e.g. a one-line copy change, the test runner, a quick checklist audit).
-- sonnet ($3/$15)  — the standard choice for most real coding and code review.
-- opus   ($5/$25)  — the hardest, most critical, or most failure-sensitive work: architecturally tricky or security-sensitive code, and the most rigorous reviews where a miss is expensive.
-- fable  ($10/$50) — the most capable model available, and the most expensive: roughly 2x opus and 3x sonnet. Reserve it for genuinely hard, long-horizon work where opus is not enough. It is never the cheap option — do not reach for it to move fast on routine edits.
-A 5-task plan will usually span 2–3 different models. Weigh cost against stakes: spend up the ladder where correctness matters, and save with haiku/sonnet where it does not. Most tasks should be sonnet or below; every fable task should be one you could justify at 10x the cost of haiku.
-EFFORT PER TASK — optional, omit to use the model's default. Controls how hard the model thinks before answering: 'low' (routine or mechanical), 'high' (most real coding and review), 'xhigh' (the hardest coding and agentic work), 'max' (only when correctness matters far more than cost). Prefer raising effort on a cheaper model over jumping up the model ladder — high effort on sonnet costs far less than opus or fable and is often just as good. Effort is ignored automatically on haiku, which does not support it.
+ROUTING HINTS PER TASK — describe the work; Swarm's deterministic router selects the provider, concrete model, effort, fallback, and approval state. Set intent to planning, coding, execution, review, research, or validation; scope to small, medium, or large; and risk to low, medium, high, or critical when this improves the recommendation. model_preference is optional and advisory only; use a familiar alias such as "opus", "fable", or "codex", never invent a concrete provider model ID. For coder tasks, set write_scope to the narrow repo-relative files or globs expected to change. A broad or missing scope can prevent execution.
 
 Builtin agents:
 - coder:    writes/changes code. Use MULTIPLE coders in parallel for clearly independent sub-tasks.
@@ -367,35 +356,51 @@ function contextNote(estimatedTokens: number, exchangeCount: number): string {
 // Converts a raw tool-call argument object into a typed PmResponse.
 // Used by both the subprocess path (reads PM_OUTPUT_PATH) and the direct API path.
 
-// Normalise the PM's model choice (friendly alias or full id) to a canonical model
-// id the driver can pass to `--model`. Returns undefined for anything unrecognised so
-// the agent falls back to its configured default.
+// Normalise an advisory PM preference to a catalog model. The PM cannot inject a
+// future or arbitrary provider model ID; deterministic routing selects the route.
 export function normalizeModel(raw: unknown): string | undefined {
   if (typeof raw !== 'string' || !raw.trim()) {
     return undefined;
   }
   const s = raw.trim().toLowerCase();
+  let candidate: string;
   if (s.includes('opus')) {
-    return 'claude-opus-4-8';
+    candidate = 'claude-opus-4-8';
+  } else if (s.includes('fable')) {
+    candidate = 'claude-fable-5';
+  } else if (s.includes('sonnet-5') || s.includes('sonnet 5')) {
+    candidate = 'claude-sonnet-5';
+  } else if (s.includes('sonnet')) {
+    candidate = 'claude-sonnet-4-6';
+  } else if (s.includes('haiku')) {
+    candidate = 'claude-haiku-4-5-20251001';
+  } else if (s === 'codex' || s === 'gpt') {
+    candidate = 'gpt-5.3-codex';
+  } else {
+    candidate = s;
   }
-  if (s.includes('fable')) {
-    return 'claude-fable-5';
-  }
-  // Sonnet 5 must be matched before the generic 'sonnet', or the full id
-  // 'claude-sonnet-5' would resolve to Sonnet 4.6.
-  if (s.includes('sonnet-5') || s.includes('sonnet 5')) {
-    return 'claude-sonnet-5';
-  }
-  if (s.includes('sonnet')) {
-    return 'claude-sonnet-4-6';
-  }
-  if (s.includes('haiku')) {
-    return 'claude-haiku-4-5-20251001';
-  }
-  return s.startsWith('claude-') ? s : undefined;
+  return getProviderModel(candidate) ? candidate : undefined;
 }
 
-export function parsePmData(data: Record<string, unknown>): PmResponse {
+function defaultPmRoutingContext(): PmRoutingContext {
+  return { providerAvailability: getProviderSelection().availability };
+}
+
+function modelPreference(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return undefined;
+  }
+  return normalizeModel(raw) ?? raw.trim().toLowerCase().slice(0, 200);
+}
+
+function stringArray(raw: unknown): string[] | undefined {
+  return Array.isArray(raw) ? raw.filter((value): value is string => typeof value === 'string') : undefined;
+}
+
+export function parsePmData(
+  data: Record<string, unknown>,
+  routingContext: PmRoutingContext = defaultPmRoutingContext(),
+): PmResponse {
   const cu = (data.charter_updates ?? {}) as Record<string, unknown>;
   const rv = cu.resolved_question as { index: number; answer: string } | undefined;
 
@@ -436,7 +441,7 @@ export function parsePmData(data: Record<string, unknown>): PmResponse {
 
   let taskGraph: TaskGraphEntry[] | undefined;
   if (Array.isArray(data.task_graph)) {
-    const entries = (data.task_graph as Array<Record<string, unknown>>)
+    const entries: PmTaskGraphEntry[] = (data.task_graph as Array<Record<string, unknown>>)
       .filter(
         e =>
           e &&
@@ -446,13 +451,18 @@ export function parsePmData(data: Record<string, unknown>): PmResponse {
       )
       .map(e => ({
         id: String(e.id),
-        assignee: String(e.assignee) as TaskGraphEntry['assignee'],
+        assignee: String(e.assignee),
         title: String(e.title),
         depends_on: Array.isArray(e.depends_on) ? e.depends_on.map(String) : [],
-        model: normalizeModel(e.model),
+        intent: typeof e.intent === 'string' ? e.intent as PmTaskGraphEntry['intent'] : undefined,
+        scope: typeof e.scope === 'string' ? e.scope as PmTaskGraphEntry['scope'] : undefined,
+        risk: typeof e.risk === 'string' ? e.risk as PmTaskGraphEntry['risk'] : undefined,
+        modelPreference: modelPreference(e.model_preference ?? e.model),
+        writeScope: stringArray(e.write_scope),
+        // These legacy fields are overwritten from the authoritative route below.
         effort: normalizeEffort(e.effort),
       }));
-    if (entries.length > 0) taskGraph = entries;
+    if (entries.length > 0) taskGraph = routePmTaskGraph(entries, routingContext);
   }
 
   return {
@@ -553,22 +563,17 @@ const SUBMIT_PM_TOOL: Anthropic.Tool = {
             assignee: { type: 'string' },
             title: { type: 'string' },
             depends_on: { type: 'array', items: { type: 'string' } },
-            // Keep model/effort in lockstep with pm/mcp-server.ts SUBMIT_TOOL —
-            // this copy silently lacked both, so on the api-key driver the PM
-            // could never assign per-task models or reasoning effort at all.
-            effort: {
-              type: 'string',
-              enum: ['low', 'medium', 'high', 'xhigh', 'max'],
-              description:
-                "OPTIONAL. How hard the model should think on THIS task. Omit to use the model's own default. 'low' for routine/mechanical work, 'high' for most real work, 'xhigh' for the hardest coding and agentic tasks, 'max' only when correctness matters far more than cost. Raising effort on a cheaper model is often better value than moving up to a pricier one. Ignored automatically on haiku, which does not support it.",
-            },
-            model: {
+            intent: { type: 'string', enum: ['planning', 'coding', 'execution', 'review', 'research', 'validation'] },
+            scope: { type: 'string', enum: ['small', 'medium', 'large'] },
+            risk: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
+            model_preference: {
               type: 'string',
               description:
-                "REQUIRED. The Claude model this agent should run on, chosen by THIS task's complexity. The ladder runs cheapest to most expensive, in both cost and capability: 'haiku' ($1/$5 per Mtok — trivial, mechanical, or read-only scans), 'sonnet' ($3/$15 — the standard choice for most coding and review), 'opus' ($5/$25 — hardest / most critical reasoning, security-sensitive or architecturally tricky code, the most rigorous reviews), or 'fable' ($10/$50 — the most capable model AND the most expensive, ~2x opus; reserve for genuinely hard long-horizon work where opus is not enough, never as a fast/cheap option). Pick deliberately per task — do not default everything to one model.",
+                'Optional advisory model preference. Use aliases only; deterministic routing remains authoritative.',
             },
+            write_scope: { type: 'array', items: { type: 'string' } },
           },
-          required: ['id', 'assignee', 'title', 'depends_on', 'model'],
+          required: ['id', 'assignee', 'title', 'depends_on'],
         },
       },
       suggest_compact: { type: 'boolean' },
@@ -618,9 +623,10 @@ export const PM_RESPONSE_SCHEMA = SUBMIT_PM_TOOL.input_schema as Record<string, 
 export async function runPmInference(
   driver: Pick<AgentDriver, 'runPm'>,
   request: Omit<PmInferenceRequest, 'outputSchema'>,
+  routingContext?: PmRoutingContext,
 ): Promise<PmResponse> {
   const result = await driver.runPm({ ...request, outputSchema: PM_RESPONSE_SCHEMA });
-  return parsePmData(result.data);
+  return parsePmData(result.data, routingContext);
 }
 
 // ─── Direct API path (api-key mode only) ─────────────────────────────────────
@@ -955,6 +961,7 @@ export async function runPmMessage(
   const pmSystemPrompt = builtinInstr.pm?.trim()
     ? `${PM_SYSTEM}\n\n## Additional instructions\n${builtinInstr.pm}`
     : PM_SYSTEM;
+  const routingContext = defaultPmRoutingContext();
 
   // One PM call for a given conversation prompt. The provider driver owns its
   // transport and structured-output mechanism; parsing stays shared so Claude,
@@ -966,7 +973,7 @@ export async function runPmMessage(
       projectRoot,
       onChunk,
       onThinking,
-    });
+    }, routingContext);
 
   // ── Research loop ──────────────────────────────────────────────────────────
   // Most turns make exactly one call and return — zero extra latency, no scout.

@@ -188,6 +188,9 @@ export function validateTaskGraph(raw: unknown): Validation<void> {
       if (routeError) {
         return fail(routeError);
       }
+      if (entry.assignee === 'coder' && (entry.route as { writeScope: unknown[] }).writeScope.length === 0) {
+        return fail(`${at}.route.writeScope: coder routes require at least one declared path`);
+      }
     }
   }
   // Second pass: dependencies reference known ids, and the graph is acyclic.

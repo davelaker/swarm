@@ -9,13 +9,10 @@ test('normalizeModel resolves friendly aliases to canonical ids', () => {
   assert.equal(normalizeModel('fable'), 'claude-fable-5');
 });
 
-test('normalizeModel matches sonnet 5 before the generic sonnet', () => {
-  // The generic 'sonnet' branch would swallow these and silently downgrade the
-  // task to Sonnet 4.6 — the ordering in normalizeModel is what prevents it.
-  assert.equal(normalizeModel('sonnet 5'), 'claude-sonnet-5');
-  assert.equal(normalizeModel('sonnet-5'), 'claude-sonnet-5');
-  assert.equal(normalizeModel('claude-sonnet-5'), 'claude-sonnet-5');
-  assert.equal(normalizeModel('Sonnet 5'), 'claude-sonnet-5');
+test('normalizeModel accepts catalog-backed Codex aliases', () => {
+  assert.equal(normalizeModel('codex'), 'gpt-5.3-codex');
+  assert.equal(normalizeModel('gpt'), 'gpt-5.3-codex');
+  assert.equal(normalizeModel('gpt-5.4'), 'gpt-5.4');
 });
 
 test('normalizeModel is case- and whitespace-insensitive', () => {
@@ -23,8 +20,9 @@ test('normalizeModel is case- and whitespace-insensitive', () => {
   assert.equal(normalizeModel('Fable'), 'claude-fable-5');
 });
 
-test('normalizeModel passes through unknown claude- ids and rejects the rest', () => {
-  assert.equal(normalizeModel('claude-something-new'), 'claude-something-new');
+test('normalizeModel rejects unsupported concrete provider ids', () => {
+  assert.equal(normalizeModel('claude-something-new'), undefined);
+  assert.equal(normalizeModel('claude-sonnet-5'), undefined);
   assert.equal(normalizeModel(''), undefined);
   assert.equal(normalizeModel('   '), undefined);
   assert.equal(normalizeModel('gpt-4'), undefined);

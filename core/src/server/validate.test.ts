@@ -123,3 +123,11 @@ test('rejects unsafe write scope from an execute payload', () => {
   } }]);
   assert.deepEqual(result, { ok: false, error: 'taskGraph[0].route.writeScope: must contain safe repo-relative path globs' });
 });
+
+test('rejects routed coder tasks without a broker write scope', () => {
+  const result = validateTaskGraph([{ id: 't1', assignee: 'coder', title: 'Change a file', route: {
+    provider: 'openai', model: 'gpt-5.3-codex', rationale: 'No declared files.', fallback: null,
+    requiresConfirmation: false, writeScope: [],
+  } }]);
+  assert.deepEqual(result, { ok: false, error: 'taskGraph[0].route.writeScope: coder routes require at least one declared path' });
+});
