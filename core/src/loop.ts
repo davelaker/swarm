@@ -588,6 +588,102 @@ function cleanupWorktree(taskId: string, worktreePath: string): void {
   }
 }
 
+// ─── Runnable batch selection ────────────────────────────────────────────────
+//
+// A task graph can contain agents backed by different providers. Provider choice
+// does not affect scheduling safety: write scopes do. Read-only tasks may always
+// share a batch, while possible writers may share a batch only when both declare
+// scopes that can be proven disjoint. We deliberately treat legacy/missing and
+// empty writer scopes as unknown, so an older task graph cannot accidentally
+// gain parallel write access merely by being upgraded to this scheduler.
+
+function isPotentialWriter(task: Task): boolean {
+  if (task.assignee === 'coder') {
+    return true;
+  }
+
+  // Marketplace agents can be granted write access. Built-in non-coder agents
+  // are read-only/deterministic, unless a future route explicitly declares a
+  // write scope for one of them.
+  return !BUILTIN_ASSIGNEES.has(task.assignee) || Boolean(task.route?.writeScope.length);
+}
+
+function declaredWriteScope(task: Task): readonly string[] | null {
+  if (!isPotentialWriter(task) || !task.route?.writeScope.length) {
+    return null;
+  }
+  return task.route.writeScope;
+}
+
+function literalScopeRoot(scope: string): string {
+  const segments = scope.replace(/^\.\//, '').split('/');
+  const literal: string[] = [];
+  for (const segment of segments) {
+    if (/[?*[{]/.test(segment)) {
+      break;
+    }
+    literal.push(segment);
+  }
+  return literal.join('/');
+}
+
+function pathContains(parent: string, child: string): boolean {
+  return parent === child || child.startsWith(`${parent}/`);
+}
+
+/**
+ * Returns true unless two safe repo-relative glob scopes are clearly disjoint.
+ * It intentionally does not try to fully implement glob intersection: any glob
+ * with a common literal directory prefix might overlap and must serialize.
+ */
+export function writeScopesMayOverlap(
+  first: readonly string[],
+  second: readonly string[],
+): boolean {
+  if (!first.length || !second.length) {
+    return true;
+  }
+
+  return first.some(firstScope =>
+    second.some(secondScope => {
+      const firstRoot = literalScopeRoot(firstScope);
+      const secondRoot = literalScopeRoot(secondScope);
+      if (!firstRoot || !secondRoot) {
+        return true;
+      }
+      return pathContains(firstRoot, secondRoot) || pathContains(secondRoot, firstRoot);
+    }),
+  );
+}
+
+/** Returns a safe concurrent subset of already dependency-ready tasks. */
+export function selectRunnableBatch(runnable: readonly Task[]): Task[] {
+  const selected: Task[] = [];
+  const selectedWriterScopes: Array<readonly string[] | null> = [];
+
+  for (const task of runnable) {
+    const scope = declaredWriteScope(task);
+    if (isPotentialWriter(task)) {
+      const conflicts = selectedWriterScopes.some(
+        selectedScope =>
+          selectedScope === null || scope === null || writeScopesMayOverlap(selectedScope, scope),
+      );
+      if (conflicts) {
+        continue;
+      }
+      selectedWriterScopes.push(scope);
+    }
+    selected.push(task);
+  }
+
+  return selected;
+}
+
+/** Gates and reviews become runnable only after every declared producer is complete. */
+export function dependenciesAreComplete(task: Task, completedTaskIds: ReadonlySet<string>): boolean {
+  return task.depends_on.every(dependency => completedTaskIds.has(dependency));
+}
+
 // ─── Main loop ────────────────────────────────────────────────────────────────
 
 export async function runLoop(): Promise<LoopResult> {
@@ -711,7 +807,7 @@ export async function runLoop(): Promise<LoopResult> {
       state.tasks.filter(t => t.status === 'done' || t.status === 'skipped').map(t => t.id),
     );
     const runnable = state.tasks.filter(
-      t => t.status === 'pending' && t.depends_on.every(dep => doneIds.has(dep)),
+      t => t.status === 'pending' && dependenciesAreComplete(t, doneIds),
     );
     const inProg = state.tasks.filter(t => t.status === 'in_progress');
 
@@ -756,8 +852,12 @@ export async function runLoop(): Promise<LoopResult> {
       return r;
     }
 
-    // ── Dispatch all runnable tasks in parallel ───────────────────────────────
-    await Promise.all(runnable.map(task => dispatchOne(task)));
+    // ── Dispatch a write-safe batch in parallel ───────────────────────────────
+    // Tasks in this batch may use different providers. Dependencies were checked
+    // above; this additional gate only prevents concurrent possible writes whose
+    // declared scopes overlap (or cannot be proven disjoint).
+    const batch = selectRunnableBatch(runnable);
+    await Promise.all(batch.map(task => dispatchOne(task)));
   }
 
   return { status: 'failed', totalCostUsd: totalCost, message: 'Loop safety ceiling reached.' };
