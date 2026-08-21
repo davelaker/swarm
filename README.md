@@ -28,6 +28,7 @@ workflow you want:
 ```sh
 swarm ask "why is this test flaky?"
 swarm plan "move sessions to SQLite"
+swarm quick "add email validation to login"
 swarm do "fix the reconnect banner"
 swarm swarm "replace the authorization layer"
 swarm "review the reconnect flow"
