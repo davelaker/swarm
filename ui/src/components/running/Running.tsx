@@ -1330,7 +1330,13 @@ function QuickTaskRunView({
   onAbort: () => void;
 }) {
   const revisionKey = state.tasks.map(task => `${task.id}:${task.status}`).join('|');
-  const changedFiles = useQuickTaskDiff(true, revisionKey, state.status === 'running');
+  const implementationTaskId = state.tasks.find(task => task.assignee === 'coder')?.id ?? 't_quick';
+  const changedFiles = useQuickTaskDiff(
+    true,
+    implementationTaskId,
+    revisionKey,
+    state.status === 'running',
+  );
   const agentSteps = Object.fromEntries(
     Object.entries(state.agents).map(([agent, value]) => [agent, value.active ? value.step : '']),
   );

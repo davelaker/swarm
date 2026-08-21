@@ -44,6 +44,7 @@ function parseChangedFiles(value: unknown): QuickTaskFileChange[] {
 
 export function useQuickTaskDiff(
   active: boolean,
+  taskId: string,
   revisionKey: string,
   polling: boolean,
 ): QuickTaskFileChange[] {
@@ -56,7 +57,7 @@ export function useQuickTaskDiff(
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | null = null;
     const load = () => {
-      fetch('/run/diff/structured', { signal: controller.signal })
+      fetch(`/run/task-diff?task=${encodeURIComponent(taskId)}`, { signal: controller.signal })
         .then(response =>
           response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`)),
         )
@@ -79,7 +80,7 @@ export function useQuickTaskDiff(
         clearTimeout(timer);
       }
     };
-  }, [active, polling, revisionKey]);
+  }, [active, polling, revisionKey, taskId]);
 
   return result?.key === revisionKey ? result.files : [];
 }
