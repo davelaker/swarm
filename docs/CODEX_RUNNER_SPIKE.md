@@ -1,8 +1,8 @@
-# Codex runner proof-of-contract (MP-04)
+# Codex runner proof-of-contract and adopted boundary (MP-04)
 
 This record is deliberately separate from the execution plan. It captures the
-go/no-go boundary for a future Codex driver without claiming that the driver
-exists.
+transport proof, the original native-write rejection, and the boundary ultimately
+adopted for the Codex driver.
 
 ## Proven transport contract
 
@@ -36,7 +36,7 @@ through the per-run overrides and instructed Codex to call `submit_result`.
 It returned a schema-valid final response but did **not** create the MCP result
 artifact. That is not treated as a successful MCP proof.
 
-## Permission-broker constraint — driver is blocked
+## Original permission-broker constraint
 
 Codex `exec` currently exposes its native filesystem and shell tools under the
 selected sandbox. Its documented CLI has no per-invocation tool allowlist or
@@ -49,13 +49,29 @@ The failed `result-server` artifact above additionally means this CLI version's
 per-run MCP tool invocation needs a dedicated, isolated interoperability proof
 before it can be relied on for structured result submission.
 
-Therefore MP-04 **does not authorise MP-05** yet. A Codex driver must not be
-implemented until one of these is established:
+That result correctly rejected native Codex writes as a Swarm execution mode.
+The original options were:
 
 1. Codex provides a supported per-run way to disable native mutating tools and
    expose only Swarm's permission proxy; or
-2. Swarm adopts and verifies an equivalent enforcement boundary that constrains
-   Codex native writes and shell commands to the task's declared scope.
+2. Swarm adopts an equivalently enforced boundary.
 
 The existing `workspace-write` sandbox is necessary isolation, but it is not a
 substitute for Swarm's task-level permission broker.
+
+## Adopted implementation (MP-05, 2026-08-21)
+
+Swarm adopted a stricter design than a native-write equivalence: **Codex is read-only for
+every role.** It cannot mutate the repository through native tools or MCP. For a coder task
+it returns a schema-constrained unified patch proposal with a full base Git SHA and an exact
+changed-path list. Swarm-owned code then:
+
+1. rejects malformed, binary, renamed, unsafe, secret, metadata, stale-base, or
+   out-of-scope proposals;
+2. asks the existing permission broker to approve the exact patch metadata; and
+3. rechecks the base and patch immediately before applying the exact diff.
+
+This broker-mediated patch boundary preserves a single mutation authority while allowing
+Codex to contribute coding work. It is stronger than a writable worktree followed by
+post-run inspection. Native-write Codex remains deferred until an OS-enforced,
+path-restricted container/VM design is proven.

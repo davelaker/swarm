@@ -504,8 +504,8 @@ not an excavation. (The same Agent SDK code runs as a local subprocess *or* in a
 sandboxed container — same code, different box.)
 
 > **This seam is built: `core/src/drivers/`.** The `AgentDriver` interface
-> (`drivers/types.ts`) is the narrow dispatch boundary — `runCoder()`, `runTester()`,
-> `runSecurity()`. Two implementations sit behind it:
+> (`drivers/types.ts`) is the narrow dispatch boundary for worker and planning roles.
+> Three implementations sit behind it:
 >
 > - **`api-key` driver** (`drivers/api-key.ts`): direct `@anthropic-ai/sdk` with manual
 >   tool loops. Requires `ANTHROPIC_API_KEY`.
@@ -514,11 +514,21 @@ sandboxed container — same code, different box.)
 >   `--output-format json`, `--json-schema`, `--allowedTools`, `--max-budget-usd`,
 >   `--system-prompt`, and `--no-session-persistence`. Auth is via the user's Max plan
 >   subscription (OAuth, not an API key).
-> - **`drivers/index.ts`** auto-detects: `SWARM_DRIVER=api-key` → api-key; else
->   `ANTHROPIC_API_KEY` set → api-key; else `claude` CLI available → agent-sdk; else
->   helpful error listing both options.
+> - **`codex` driver** (`drivers/codex.ts`): invokes a local signed-in `codex` CLI in
+>   read-only mode. A Codex coder may return only a schema-constrained unified patch;
+>   Swarm validates the base revision and declared path scope, requests permission-broker
+>   approval, revalidates, and applies the exact patch itself. Codex is never given native
+>   repository write permission.
+> - **Provider selection** safely detects only CLI/API-key presence. `SWARM_ENABLED_PROVIDERS`
+>   limits providers; `SWARM_DEFAULT_PROVIDER=auto|anthropic|openai` chooses a default.
+>   Explicit unavailable providers fail closed. The route is selected per task, is visible
+>   with a rationale in the Planning UX, may be overridden to a compatible available model
+>   before execution, and is immutable after the task starts.
 >
-> Swapping to a sandboxed container in Phase 4.5 is a change behind this interface,
+> Codex native writes remain intentionally unavailable. A future native-write mode must
+> first prove an OS-enforced container/VM boundary with path-restricted writable mounts,
+> no ambient credentials, default-deny network, auditing, and deterministic cleanup.
+> Swapping to that sandboxed boundary in Phase 4.5 is a change behind this interface,
 > not an excavation.
 
 ### Principle 3 — State access behind a repository interface

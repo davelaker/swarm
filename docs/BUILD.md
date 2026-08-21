@@ -39,14 +39,14 @@
 
 ---
 
-## The dual-driver layer (added between Phase 2 and Phase 3)
+## The multi-provider driver layer
 
 After Phase 2 was complete, research into the Claude Agent SDK billing model (see
 `DESIGN.md` §7.4) led to a new abstraction layer: `core/src/drivers/`. This is an
 extension of **Principle 2** (the narrow orchestrator↔worker boundary).
 
-The `AgentDriver` interface (`drivers/types.ts`) defines `runCoder()`, `runTester()`,
-`runSecurity()`. Two implementations sit behind it:
+The `AgentDriver` interface (`drivers/types.ts`) defines the worker and planning roles.
+Three implementations sit behind it:
 
 - **`api-key` driver** — `@anthropic-ai/sdk` with manual tool loops. Requires
   `ANTHROPIC_API_KEY`. Straightforward REST billing.
@@ -55,9 +55,21 @@ The `AgentDriver` interface (`drivers/types.ts`) defines `runCoder()`, `runTeste
   `cost_usd` field), `--json-schema` (validated structured output), `--allowedTools`
   (physical enforcement of tool scope — not prompting), `--max-budget-usd` (per-dispatch
   C4 cap), and `--no-session-persistence`. Draws from the separate Agent SDK billing pool.
+- **`codex` driver** — local `codex` CLI. Requires a signed-in Codex CLI. It is strictly
+  read-only: a coder returns a schema-constrained unified patch, then Swarm validates its
+  base revision and declared path scope, requests broker approval, and applies the exact
+  patch itself. Codex never receives native repository write tools.
 
-`drivers/index.ts` auto-detects: `SWARM_DRIVER=api-key` overrides; else
-`ANTHROPIC_API_KEY` → api-key; else `claude` CLI available → agent-sdk; else error.
+Provider discovery safely reports CLI/API-key presence only; it does not inspect credentials
+or provider configuration. `SWARM_ENABLED_PROVIDERS` limits available providers and
+`SWARM_DEFAULT_PROVIDER` chooses `auto`, `anthropic`, or `openai`. Routes are selected per
+task, so independent work may use different providers. Explicit unavailable selections fail
+closed. The Planning UX allows a compatible available-route override before execution and
+locks it when the task starts.
+
+The OpenAI integration currently requires the local Codex CLI even if an `OPENAI_API_KEY`
+exists. A native-write Codex mode and an OpenAI API-only driver are deliberately out of scope
+until an equivalently enforced sandbox boundary is proven.
 
 **Why this matters for Phase 3:** The `agent-sdk` driver runs agents as subprocesses,
 not in-process. The server cannot observe agent progress via in-process callbacks. The

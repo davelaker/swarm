@@ -5,9 +5,9 @@ single-tenant multi-agent coding system** — a swarm of role-specialised AI age
 coordinated by a Project Manager agent through a shared blackboard, with a path to becoming
 a hosted product.
 
-> Status: **Phases 0–4 complete; Phase 6's Agent SDK migration shipped (June 2026).**
-> The engine, live SSE dashboard, and real Claude planning conversation all work
-> end-to-end; see [`ROADMAP.md`](ROADMAP.md) for what's shipped vs planned. This corpus
+> Status: **The local engine, planning UX, Claude/Codex routing, and heterogeneous
+> scheduler are implemented.** Broader execution isolation and marketplace work remain
+> on the roadmap; see [`ROADMAP.md`](ROADMAP.md) for what's shipped vs planned. This corpus
 > is the durable design record — read it for the *why*, not just the *what*.
 
 ## The lifecycle this design covers
@@ -29,8 +29,9 @@ launch  →  brainstorm (Planning)  →  Charter + approval gate  →  execute (
 | [`CATALOG.md`](CATALOG.md) | Routing contracts for the default team + the first ten hireable specialists. |
 | [`NEGOTIATOR.md`](NEGOTIATOR.md) | The conflict-resolution agent and its hard safety guardrail. |
 | [`MEMORY.md`](MEMORY.md) | The memory layer: living docs vs `CLAUDE.md` learnings (the delineation), session recall at intake, live service context. |
-| [`BUILD.md`](BUILD.md) | The phased implementation roadmap (risk-ordered), and where the four seams go in. |
+| [`BUILD.md`](BUILD.md) | The phased implementation roadmap (risk-ordered), provider-driver boundary, and where the four seams go in. |
 | [`MULTI_PROVIDER_ROUTING_PLAN.md`](MULTI_PROVIDER_ROUTING_PLAN.md) | Living, small-agent execution plan for Codex/GPT support, per-task provider routing, and heterogeneous swarms. |
+| [`CODEX_RUNNER_SPIKE.md`](CODEX_RUNNER_SPIKE.md) | The Codex transport proof and the adopted read-only, broker-mediated patch boundary. |
 | [`THREATS.md`](THREATS.md) | Adversarial review: trust model, attack surfaces, and a finding register with severities — read alongside the docs it corrects. |
 | [`CONTROLS.md`](CONTROLS.md) | The designed security controls that close the threat findings: **C1** untrusted-content & egress, **C2** gate fail-closed, **C3** in-loop approval, **C4** spend control. (Architectural fixes for A1/A3/A5 live inline in the docs they correct.) |
 
@@ -45,11 +46,11 @@ launch  →  brainstorm (Planning)  →  Charter + approval gate  →  execute (
 | **4** Planning mode | ✅ Complete | Real Claude PM conversation (`core/src/pm/`) with structured charter output via a dedicated MCP tool, Scout research rounds, GitHub-issue seeding. |
 | **4.5–6** | 🔄 Partial | Phase 6's Agent SDK migration shipped (June 2026); remaining productisation and security debt tracked in [`ROADMAP.md`](ROADMAP.md). |
 
-A **dual-driver abstraction layer** was added in `core/src/drivers/` between Phases 2 and 3,
-behind the `AgentDriver` interface: `agent-sdk` (the default — TypeScript Agent SDK
-`query()` with typed message streaming) and `api-key` (direct Anthropic SDK);
-`SWARM_USE_CLI=1` falls back to the legacy `claude -p` spawn path. See `DESIGN.md` §8
-Principle 2 for details.
+A provider-neutral driver layer in `core/src/drivers/` now supports Claude Agent SDK,
+Anthropic API, and a read-only Codex CLI driver. Routes are selected per task and can mix
+providers in one run. Codex coder changes are broker-mediated patch proposals, not native
+writes. See [`../README.md`](../README.md), [`DESIGN.md`](DESIGN.md) §8 Principle 2, and the
+[multi-provider plan](MULTI_PROVIDER_ROUTING_PLAN.md) for the safety and routing contract.
 
 ---
 
