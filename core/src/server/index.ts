@@ -43,6 +43,7 @@ import { runNew, checkGitClean } from '../commands/new.js';
 import { pauseRun, resumeRun, abortRun } from '../loop-control.js';
 import { getConfigOptional } from '../config.js';
 import { getDriverMode } from '../drivers/index.js';
+import { getProviderSelection, listProviderModels } from '../providers/index.js';
 import { steerLiveSession } from '../drivers/agent-sdk.js';
 import { requestPermission, resolvePermission } from '../drivers/permission-broker.js';
 import { loadRoster, saveRoster } from '../state/roster.js';
@@ -476,7 +477,33 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
-      res.end(JSON.stringify({ playwright }));
+      // Capability discovery reports availability only. It deliberately does not
+      // inspect credentials, CLI configuration, account state, or command output.
+      // The planning UI uses this to omit routes that could not be dispatched.
+      const selection = getProviderSelection();
+      const providers = selection.availability.map(availability => {
+        // The current OpenAI integration is a local Codex CLI driver. An API key
+        // alone must not make an OpenAI route selectable until that driver exists.
+        const selectable =
+          availability.enabled &&
+          availability.availableAuthModes.length > 0 &&
+          (availability.provider !== 'openai' || availability.cliAvailable);
+        return {
+          provider: availability.provider,
+          available: selectable,
+          availableAuthModes: availability.availableAuthModes,
+          models: selectable
+            ? listProviderModels(availability.provider).map(model => ({
+                id: model.id,
+                label: model.label,
+                tier: model.tier,
+                capabilities: model.capabilities,
+                reasoningEfforts: model.reasoningEfforts,
+              }))
+            : [],
+        };
+      });
+      res.end(JSON.stringify({ playwright, providers }));
     })();
     return;
   }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { usePlanningSession } from '../../hooks/usePlanningSession';
 import { useContextFiles } from '../../hooks/useContextFiles';
@@ -11,7 +11,13 @@ import { ReadinessPanel } from './ReadinessPanel';
 import { useReadiness } from '../../hooks/useReadiness';
 import type { ServerStatus, RunCharter, TaskGraphEntry } from '../../App';
 import { forecastFromRoles, forecastFromTasks, formatForecastTime } from '../../data/forecast';
-import { modelMeta, isUpgrade, MODEL_CHOICES } from '../../data/models';
+import {
+  modelMeta,
+  isUpgrade,
+  selectableModels,
+  type AvailableProvider,
+  type ReasoningEffort,
+} from '../../data/models';
 import { useAgentDefaults } from '../../hooks/useAgentDefaults';
 import type { CharterData, SessionSnapshot } from '../../types';
 
@@ -20,17 +26,34 @@ import type { CharterData, SessionSnapshot } from '../../types';
 // override dropdown so the user confirms or reverts before continuing.
 function ModelPlan({
   taskGraph,
-  onSetTaskModel,
+  onSetTaskRoute,
 }: {
   taskGraph: TaskGraphEntry[];
-  onSetTaskModel?: (taskId: string, model: string) => void;
+  onSetTaskRoute?: (
+    taskId: string,
+    route: { provider: 'anthropic' | 'openai'; model: string; reasoningEffort?: ReasoningEffort },
+  ) => void;
 }) {
   const defaultModelFor = useAgentDefaults();
+  const [providers, setProviders] = useState<AvailableProvider[] | null>(null);
+  useEffect(() => {
+    fetch('/capabilities')
+      .then(r => (r.ok ? r.json() : {}))
+      .then((data: { providers?: AvailableProvider[] }) =>
+        setProviders(Array.isArray(data.providers) ? data.providers : []),
+      )
+      .catch(() => setProviders([]));
+  }, []);
   const tasks = taskGraph.filter(t => t.assignee);
   if (tasks.length === 0) {
     return null;
   }
-  const upgrades = tasks.filter(t => isUpgrade(t.model, defaultModelFor(t.assignee)));
+  const upgrades = tasks.filter(t =>
+    isUpgrade(t.route?.model ?? t.model, defaultModelFor(t.assignee)),
+  );
+  const availableNames = providers
+    ?.filter(provider => provider.available)
+    .map(provider => (provider.provider === 'openai' ? 'OpenAI / Codex' : 'Anthropic'));
 
   return (
     <div className="plan-models">
@@ -41,13 +64,34 @@ function ModelPlan({
           executing, or override below.
         </div>
       )}
+      {providers && (
+        <div className="plan-provider-status" aria-label="Detected providers">
+          <span>Available providers:</span>{' '}
+          {availableNames?.length
+            ? availableNames.join(' · ')
+            : 'none detected — routes are locked'}
+        </div>
+      )}
       <div className="plan-models-list">
         {tasks.map(t => {
           const def = defaultModelFor(t.assignee);
-          const chosen = t.model ?? def;
+          const chosen = t.route?.model ?? t.model ?? def;
           const meta = modelMeta(chosen);
-          const upgraded = isUpgrade(t.model, def);
+          const upgraded = isUpgrade(t.route?.model ?? t.model, def);
           const p = resolveAgentPersona(t.assignee);
+          const models = providers ? selectableModels(providers, t.assignee) : [];
+          const chosenModel = models.find(model => model.id === chosen);
+          const effort = t.route?.reasoningEffort ?? t.effort;
+          const fallback = t.route?.fallback;
+          const routeUnavailable = Boolean(t.route && !chosenModel);
+          const selectedProvider = providers?.find(
+            provider => provider.provider === (t.route?.provider ?? chosenModel?.provider),
+          );
+          const costClass = selectedProvider?.availableAuthModes.includes('subscription')
+            ? 'Subscription quota'
+            : selectedProvider?.availableAuthModes.includes('api-key')
+              ? 'API-metered'
+              : null;
           return (
             <div key={t.id} className={`plan-model-row${upgraded ? ' upgraded' : ''}`}>
               <span className="plan-model-agent">
@@ -59,21 +103,86 @@ function ModelPlan({
                   ↑ {modelMeta(def)?.label ?? '—'} →
                 </span>
               )}
-              <select
-                className="plan-model-select"
-                value={t.model ?? ''}
-                style={meta ? { color: meta.color } : undefined}
-                onChange={e => onSetTaskModel?.(t.id, e.target.value)}
-                disabled={!onSetTaskModel}
-                title="Override the model for this task"
-              >
-                <option value="">Default ({modelMeta(def)?.label ?? 'default'})</option>
-                {MODEL_CHOICES.map(m => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
+              <div className="plan-route-controls">
+                <select
+                  className="plan-model-select"
+                  value={chosen ?? ''}
+                  style={meta ? { color: meta.color } : undefined}
+                  onChange={e => {
+                    const next = models.find(model => model.id === e.target.value);
+                    if (!next) return;
+                    const nextEffort = next.reasoningEfforts.includes(effort as ReasoningEffort)
+                      ? (effort as ReasoningEffort)
+                      : next.reasoningEfforts.includes('medium')
+                        ? 'medium'
+                        : next.reasoningEfforts[0];
+                    onSetTaskRoute?.(t.id, {
+                      provider: next.provider,
+                      model: next.id,
+                      ...(nextEffort ? { reasoningEffort: nextEffort } : {}),
+                    });
+                  }}
+                  disabled={!onSetTaskRoute || providers === null || models.length === 0}
+                  title={
+                    routeUnavailable
+                      ? 'The recommended route is unavailable; select an available alternative'
+                      : 'Override the route for this task'
+                  }
+                >
+                  <option value={chosen ?? ''}>
+                    {chosenModel?.label ?? modelMeta(chosen)?.label ?? 'Unavailable model'}
                   </option>
-                ))}
-              </select>
+                  {models
+                    .filter(model => model.id !== chosen)
+                    .map(model => (
+                      <option key={model.id} value={model.id}>
+                        {model.provider === 'openai' ? 'OpenAI · ' : 'Anthropic · '}
+                        {model.label}
+                      </option>
+                    ))}
+                </select>
+                {chosenModel?.reasoningEfforts.length ? (
+                  <select
+                    className="plan-effort-select"
+                    value={effort ?? ''}
+                    onChange={e =>
+                      onSetTaskRoute?.(t.id, {
+                        provider: chosenModel.provider,
+                        model: chosenModel.id,
+                        ...(e.target.value
+                          ? { reasoningEffort: e.target.value as ReasoningEffort }
+                          : {}),
+                      })
+                    }
+                    disabled={!onSetTaskRoute || routeUnavailable}
+                    title="Reasoning effort"
+                  >
+                    {chosenModel.reasoningEfforts.map(level => (
+                      <option key={level} value={level}>
+                        {level}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+              </div>
+              {t.route && (
+                <div className="plan-route-detail">
+                  <span>{t.route.rationale}</span>
+                  {fallback && (
+                    <span>
+                      Fallback: {fallback.model}
+                      {fallback.reasoningEffort ? ` / ${fallback.reasoningEffort}` : ''}
+                    </span>
+                  )}
+                  {costClass && <span>Cost class: {costClass}</span>}
+                  {t.route.requiresConfirmation && (
+                    <span className="plan-route-confirm">Cost confirmation required</span>
+                  )}
+                  {routeUnavailable && (
+                    <span className="plan-route-unavailable">Route unavailable</span>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
@@ -87,13 +196,16 @@ function PlanReadyCallout({
   team,
   taskGraph,
   onExecute,
-  onSetTaskModel,
+  onSetTaskRoute,
 }: {
   charter: CharterData;
   team: string[];
   taskGraph?: TaskGraphEntry[];
   onExecute?: () => void;
-  onSetTaskModel?: (taskId: string, model: string) => void;
+  onSetTaskRoute?: (
+    taskId: string,
+    route: { provider: 'anthropic' | 'openai'; model: string; reasoningEffort?: ReasoningEffort },
+  ) => void;
 }) {
   const readiness = useReadiness();
   // Prefer the PM's actual task graph (with per-task models) for the forecast; fall back to
@@ -152,7 +264,7 @@ function PlanReadyCallout({
         loading={readiness.loading}
       />
       {taskGraph && taskGraph.length > 0 && (
-        <ModelPlan taskGraph={taskGraph} onSetTaskModel={onSetTaskModel} />
+        <ModelPlan taskGraph={taskGraph} onSetTaskRoute={onSetTaskRoute} />
       )}
       <div className="plan-ready-actions">
         {canExecute && (
@@ -340,7 +452,7 @@ function HireCallout({
 }
 
 interface PlanningProps {
-  onExecute?: () => void;
+  onExecute?: (goal: string, charter: RunCharter, team: string[]) => void;
   onExecutable: (
     v: boolean,
     goal?: string,
@@ -414,6 +526,28 @@ export function Planning({
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const executePlan = useCallback(() => {
+    const taskGraph = (session.taskGraph ?? []).map(task =>
+      task.route?.requiresConfirmation
+        ? { ...task, route: { ...task.route, requiresConfirmation: false } }
+        : task,
+    );
+    const charter: RunCharter = {
+      constraints: session.charter.constraints.map(item => item.text),
+      nongoals: session.charter.nongoals.map(item => item.text),
+      questions: session.charter.questions.map(item => item.text),
+      branchMode: session.branchMode,
+      branchName: session.branchName,
+      taskGraph,
+      ...(session.deploymentInfo ? { deploymentInfo: session.deploymentInfo } : {}),
+    };
+    // Clicking Execute is the explicit local confirmation for all cost-class
+    // warnings shown immediately above. The submitted charter clears only that
+    // acknowledgement flag; routes themselves remain immutable after start.
+    onExecutable(true, session.charter.goal, charter, session.team);
+    onExecute?.(session.charter.goal, charter, session.team);
+  }, [onExecutable, onExecute, session]);
 
   // When App asks us to start a fresh session (after a run completes), call
   // newSession(). The planNextKey increments each time — skip the initial 0.
@@ -700,8 +834,8 @@ export function Planning({
                 charter={session.charter}
                 team={session.team}
                 taskGraph={session.taskGraph}
-                onExecute={onExecute}
-                onSetTaskModel={session.setTaskModel}
+                onExecute={executePlan}
+                onSetTaskRoute={session.setTaskRoute}
               />
             )}
           </div>

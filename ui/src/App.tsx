@@ -20,6 +20,22 @@ export interface TaskGraphEntry {
   title: string;
   depends_on: string[];
   model?: string; // PM-chosen model for this task (canonical id, e.g. claude-opus-4-8)
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  route?: TaskRoute;
+}
+
+export interface TaskRoute {
+  provider: 'anthropic' | 'openai';
+  model: string;
+  reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  rationale: string;
+  fallback: {
+    provider: 'anthropic' | 'openai';
+    model: string;
+    reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  } | null;
+  requiresConfirmation: boolean;
+  writeScope: string[];
 }
 
 export interface RunCharter {
@@ -313,7 +329,7 @@ export function App() {
   );
 
   const goExecute = useCallback(
-    () => startRun(runGoal, runCharter, runTeam),
+    (goal = runGoal, charter = runCharter, team = runTeam) => startRun(goal, charter, team),
     [startRun, runGoal, runCharter, runTeam],
   );
 

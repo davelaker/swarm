@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { ActivityEntry, CharterData, ChatMessage, SessionSnapshot } from '../types';
 import type { RunCharter, TaskGraphEntry } from '../App';
+import type { ReasoningEffort } from '../data/models';
 
 function now(): string {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -862,16 +863,46 @@ export function usePlanningSession(
     setState(prev => ({ ...prev, charter: { ...prev.charter, nongoals: items } }));
   }, []);
 
-  // Override the PM's model choice for a task (model='' resets to the agent default).
-  // Persists into charter.taskGraph, which is what Execute sends to the run.
-  const setTaskModel = useCallback((taskId: string, model: string) => {
-    setState(prev => ({
-      ...prev,
-      taskGraph: (prev.taskGraph ?? []).map(t =>
-        t.id === taskId ? { ...t, model: model || undefined } : t,
-      ),
-    }));
-  }, []);
+  // Override the PM's route before execution. The route's rationale explicitly
+  // records that this is a user choice; executing later acknowledges any cost
+  // confirmation gate. Once submitted, core state makes the route immutable.
+  const setTaskRoute = useCallback(
+    (
+      taskId: string,
+      nextRoute: {
+        provider: 'anthropic' | 'openai';
+        model: string;
+        reasoningEffort?: ReasoningEffort;
+      },
+    ) => {
+      setState(prev => ({
+        ...prev,
+        taskGraph: (prev.taskGraph ?? []).map(t =>
+          t.id === taskId
+            ? {
+                ...t,
+                model: nextRoute.model,
+                ...(nextRoute.reasoningEffort ? { effort: nextRoute.reasoningEffort } : {}),
+                route: {
+                  provider: nextRoute.provider,
+                  model: nextRoute.model,
+                  ...(nextRoute.reasoningEffort
+                    ? { reasoningEffort: nextRoute.reasoningEffort }
+                    : {}),
+                  rationale: `User override selected ${nextRoute.model}.`,
+                  fallback: null,
+                  // Every manual route change receives an explicit Execute-time
+                  // acknowledgement; the user never silently upgrades spend.
+                  requiresConfirmation: true,
+                  writeScope: t.route?.writeScope ?? [],
+                },
+              }
+            : t,
+        ),
+      }));
+    },
+    [],
+  );
 
   return {
     ...state,
@@ -884,7 +915,7 @@ export function usePlanningSession(
     setBranchName,
     setConstraints,
     setNongoals,
-    setTaskModel,
+    setTaskRoute,
     dismissHire,
   };
 }

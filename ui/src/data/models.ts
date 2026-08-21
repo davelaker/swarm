@@ -9,6 +9,8 @@ interface ModelMeta {
 // Order matters — `find` takes the first match, so more specific ids come first
 // ('sonnet-5' before the generic 'sonnet').
 const MODELS: { match: string; meta: ModelMeta }[] = [
+  { match: 'gpt-5.4', meta: { label: 'GPT-5.4', color: '#21a6a1' } },
+  { match: 'codex', meta: { label: 'GPT Codex', color: '#21a6a1' } },
   { match: 'opus', meta: { label: 'Opus', color: '#a585f5' } },
   { match: 'fable', meta: { label: 'Fable', color: '#e8a93a' } },
   { match: 'sonnet-5', meta: { label: 'Sonnet 5', color: '#4d8df4' } },
@@ -54,4 +56,44 @@ export const MODEL_CHOICES: { id: string; label: string }[] = [
   { id: 'claude-sonnet-5', label: 'Sonnet 5' },
   { id: 'claude-opus-4-8', label: 'Opus' },
   { id: 'claude-fable-5', label: 'Fable' },
+  { id: 'gpt-5.3-codex', label: 'GPT-5.3 Codex' },
+  { id: 'gpt-5.4', label: 'GPT-5.4' },
 ];
+
+export type RoutingCapability = 'coding' | 'planning' | 'review';
+export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+export interface AvailableModel {
+  id: string;
+  label: string;
+  tier: 'fast' | 'standard' | 'frontier';
+  capabilities: RoutingCapability[];
+  reasoningEfforts: ReasoningEffort[];
+}
+
+export interface AvailableProvider {
+  provider: 'anthropic' | 'openai';
+  available: boolean;
+  availableAuthModes: Array<'subscription' | 'api-key'>;
+  models: AvailableModel[];
+}
+
+export function taskCapability(assignee: string): RoutingCapability {
+  return assignee === 'tester' || assignee === 'security' || assignee === 'reviewer'
+    ? 'review'
+    : 'coding';
+}
+
+export function selectableModels(
+  providers: AvailableProvider[],
+  assignee: string,
+): Array<AvailableModel & { provider: AvailableProvider['provider'] }> {
+  const capability = taskCapability(assignee);
+  return providers.flatMap(provider =>
+    provider.available
+      ? provider.models
+          .filter(model => model.capabilities.includes(capability))
+          .map(model => ({ ...model, provider: provider.provider }))
+      : [],
+  );
+}
