@@ -82,6 +82,13 @@ test('classifyIntake selects the expected execution shape for representative req
       expectedSignals: ['migration', 'destructive_change'],
     },
     {
+      name: 'delete wording with permanence escalates to coordinated run',
+      request: 'Delete old sessions permanently after the rollout',
+      expectedShape: 'coordinated_run',
+      expectedConfidence: 'medium',
+      expectedSignals: ['migration', 'destructive_change'],
+    },
+    {
       name: 'empty request asks for clarification via plan',
       request: '   ',
       expectedShape: 'plan',
@@ -128,4 +135,21 @@ test('explicit requested shape is applied independently of slash-prefix text', (
 
   assert.equal(decision.shape, 'plan');
   assert.deepEqual(decision.riskSignals, ['explicit_plan_request']);
+});
+
+test('structured quick-task requests still escalate when the wording is destructive', () => {
+  const decision = classifyIntakeInput({
+    instruction: 'delete old sessions permanently',
+    requestedShape: 'quick_task',
+  });
+
+  assert.equal(decision.shape, 'coordinated_run');
+  assert.equal(decision.confidence, 'medium');
+  assert.deepEqual(decision.riskSignals, ['destructive_change', 'explicit_quick_task']);
+});
+
+test('ordinary remove wording does not trigger destructive escalation', () => {
+  const decision = classifyIntake('Remove the stale CSS class from the reconnect banner');
+  assert.equal(decision.shape, 'quick_task');
+  assert.deepEqual(decision.riskSignals, []);
 });

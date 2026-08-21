@@ -56,6 +56,11 @@ const DESTRUCTIVE_PATTERNS = [
   /\b(remove .* permanently|destructive|irreversible|rm -rf)\b/i,
 ] as const;
 
+const DESTRUCTIVE_DELETE_TARGET_PATTERNS = [
+  /\bdelete\b(?:\s+\w+){0,6}\s+\b(permanently|forever)\b/i,
+  /\bdelete\b(?:\s+the)?(?:\s+(?:old|existing|legacy))?(?:\s+\w+){0,3}\s+\b(data|rows|records|table|tables|history)\b/i,
+] as const;
+
 const BROAD_REFACTOR_PATTERNS = [
   /\b(refactor the whole|across the codebase|entire codebase|replace the .* layer)\b/i,
   /\b(overhaul|rewrite|re-architect|new subsystem|permission model|authorization layer)\b/i,
@@ -80,7 +85,7 @@ function collectRiskSignals(requestText: string): IntakeRiskSignal[] {
   if (hasPattern(requestText, MIGRATION_PATTERNS)) {
     signals.push('migration');
   }
-  if (hasPattern(requestText, DESTRUCTIVE_PATTERNS)) {
+  if (hasDestructiveWording(requestText)) {
     signals.push('destructive_change');
   }
   if (hasPattern(requestText, BROAD_REFACTOR_PATTERNS)) {
@@ -124,9 +129,14 @@ function isHighRisk(signals: readonly IntakeRiskSignal[]): boolean {
 
 function impliesWrites(requestText: string): boolean {
   return isQuickTaskRequest(requestText)
-    || hasPattern(requestText, DESTRUCTIVE_PATTERNS)
+    || hasDestructiveWording(requestText)
     || hasPattern(requestText, MIGRATION_PATTERNS)
     || hasPattern(requestText, BROAD_REFACTOR_PATTERNS);
+}
+
+function hasDestructiveWording(requestText: string): boolean {
+  return hasPattern(requestText, DESTRUCTIVE_PATTERNS)
+    || hasPattern(requestText, DESTRUCTIVE_DELETE_TARGET_PATTERNS);
 }
 
 function withExplicitRiskSignal(
