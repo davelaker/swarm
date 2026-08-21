@@ -91,6 +91,7 @@ export function App() {
   const [runDone, setRunDone] = useState(false);
   const [planNextKey, setPlanNextKey] = useState(0);
   const [projectRoot, setProjectRoot] = useState<string | null>(null);
+  const [runConnectionKey, setRunConnectionKey] = useState(0);
   const [showSwitcher, setShowSwitcher] = useState(false);
   const [isInitiating, setIsInitiating] = useState(false);
   const [historicalSession, setHistoricalSession] = useState<SessionSnapshot | null>(null);
@@ -116,7 +117,7 @@ export function App() {
   // The live run connection lives HERE, above the surface switch: switching
   // tabs must never close the SSE stream, wipe live transcripts/spend, or —
   // worst of all — hide a pending permission request until it auto-denies.
-  const run = useRealRun(projectRoot);
+  const run = useRealRun(projectRoot ? `${projectRoot}:${runConnectionKey}` : projectRoot);
   useRunNotifications(run.state?.status ?? 'running', run.state?.pendingPermission != null);
 
   // Single server probe — retries every 3s, also reads project name when up. Hits the
@@ -352,33 +353,9 @@ export function App() {
     setRunCharter(null);
     setRunTeam([]);
     setRunDone(false);
-    setIsInitiating(true);
+    setIsInitiating(false);
+    setRunConnectionKey(key => key + 1);
     setSurface('running');
-
-    const events = new EventSource('/events');
-    const finish = () => {
-      setIsInitiating(false);
-      events.close();
-    };
-    const timer = setTimeout(finish, 20_000);
-    events.onmessage = event => {
-      try {
-        const message = JSON.parse(event.data) as { type?: string; reason?: string };
-        if (message.type === 'task.created' || message.type === 'run.classified') {
-          clearTimeout(timer);
-          finish();
-        } else if (message.type === 'run.blocked') {
-          clearTimeout(timer);
-          finish();
-        }
-      } catch {
-        // Ignore malformed events; the normal run connection remains authoritative.
-      }
-    };
-    events.onerror = () => {
-      clearTimeout(timer);
-      finish();
-    };
 
     return { status: 'started' };
   }, []);
