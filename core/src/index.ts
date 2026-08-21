@@ -114,7 +114,8 @@ async function runLegacyCommand(
 
     case 'check': {
       await deps.runCheck();
-      return { exitCode: process.exitCode ?? 0, exitProcess: false };
+      const exitCode = typeof process.exitCode === 'number' ? process.exitCode : 0;
+      return { exitCode, exitProcess: false };
     }
 
     case 'status': {
