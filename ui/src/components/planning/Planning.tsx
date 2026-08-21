@@ -22,6 +22,7 @@ import {
   type ReasoningEffort,
 } from '../../data/models';
 import type { ExecutionShape, IntakeDecision } from '../../data/intake';
+import type { QuickTaskStartResult } from '../../data/quickTask';
 import { useAgentDefaults } from '../../hooks/useAgentDefaults';
 import type { CharterData, SessionSnapshot } from '../../types';
 
@@ -466,6 +467,7 @@ function HireCallout({
 
 interface PlanningProps {
   onExecute?: (goal: string, charter: RunCharter, team: string[]) => void;
+  onQuickTask?: (instruction: string) => Promise<QuickTaskStartResult>;
   onExecutable: (
     v: boolean,
     goal?: string,
@@ -490,6 +492,9 @@ interface PendingIntake {
   text: string;
   sessionKey: number;
   requestedShape?: ExecutionShape;
+  startingQuickTask?: boolean;
+  quickTaskEscalation?: string;
+  quickTaskError?: string;
 }
 
 function IntakeStatusCard({
@@ -508,6 +513,66 @@ function IntakeStatusCard({
   onContinue: () => void;
 }) {
   const requestedShape = pending.requestedShape;
+
+  if (pending.startingQuickTask) {
+    return (
+      <div className="intake-card intake-status-card" role="status" aria-live="polite">
+        <div>
+          <p className="intake-card-kicker">Preparing quick task</p>
+          <p className="intake-card-action">
+            Establishing a narrow write scope, focused checks, and an executable route.
+          </p>
+        </div>
+        <div className="intake-loading-bar" aria-hidden="true" />
+      </div>
+    );
+  }
+
+  if (pending.quickTaskEscalation) {
+    return (
+      <div className="intake-card intake-status-card" role="alert">
+        <div>
+          <p className="intake-card-kicker">Quick task needs a broader workflow</p>
+          <p className="intake-card-action">{pending.quickTaskEscalation}</p>
+        </div>
+        <div className="intake-actions">
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => onChooseShape('coordinated_run')}
+          >
+            Review coordinated workflow
+          </button>
+          <button type="button" className="intake-choice-toggle" onClick={onContinue}>
+            Continue planning
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (pending.quickTaskError) {
+    return (
+      <div className="intake-card intake-status-card" role="alert">
+        <div>
+          <p className="intake-card-kicker">Quick task could not start</p>
+          <p className="intake-card-action">{pending.quickTaskError}</p>
+        </div>
+        <div className="intake-actions">
+          <button type="button" className="btn primary" onClick={onContinue}>
+            Continue planning
+          </button>
+          <button
+            type="button"
+            className="intake-choice-toggle"
+            onClick={() => onChooseShape('quick_task')}
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (serverDown) {
     return (
@@ -578,6 +643,7 @@ function IntakeStatusCard({
 
 export function Planning({
   onExecute,
+  onQuickTask,
   onExecutable,
   onNewSession,
   onHire,
@@ -755,19 +821,69 @@ export function Planning({
   }, [activePendingIntake, session.send]);
 
   const acceptIntakeDecision = useCallback(
-    (decision: IntakeDecision) => {
+    async (decision: IntakeDecision) => {
       if (!activePendingIntake) {
         return;
       }
       const text = activePendingIntake.text;
+      if (decision.shape === 'quick_task' && onQuickTask) {
+        setPendingIntake(previous =>
+          previous
+            ? {
+                ...previous,
+                startingQuickTask: true,
+                quickTaskEscalation: undefined,
+                quickTaskError: undefined,
+              }
+            : previous,
+        );
+        try {
+          const result = await onQuickTask(text);
+          if (result.status === 'started') {
+            setPendingIntake(null);
+          } else {
+            setPendingIntake(previous =>
+              previous
+                ? {
+                    ...previous,
+                    startingQuickTask: false,
+                    quickTaskEscalation: result.escalationReason,
+                  }
+                : previous,
+            );
+          }
+        } catch (error) {
+          setPendingIntake(previous =>
+            previous
+              ? {
+                  ...previous,
+                  startingQuickTask: false,
+                  quickTaskError:
+                    error instanceof Error ? error.message : 'Quick task failed to start.',
+                }
+              : previous,
+          );
+        }
+        return;
+      }
       setPendingIntake(null);
       session.send(text, decision.shape);
     },
-    [activePendingIntake, session.send],
+    [activePendingIntake, onQuickTask, session.send],
   );
 
   const chooseIntakeShape = useCallback((shape: ExecutionShape) => {
-    setPendingIntake(prev => (prev ? { ...prev, requestedShape: shape } : prev));
+    setPendingIntake(previous =>
+      previous
+        ? {
+            ...previous,
+            requestedShape: shape,
+            startingQuickTask: false,
+            quickTaskEscalation: undefined,
+            quickTaskError: undefined,
+          }
+        : previous,
+    );
   }, []);
 
   const handleSend = () => {

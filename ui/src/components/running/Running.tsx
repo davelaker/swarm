@@ -1,7 +1,10 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import type React from 'react';
 import { useRunSimulation } from '../../hooks/useRunSimulation';
-import type { RealRun } from '../../hooks/useRealRun';
+import type { RealRun, RealRunState } from '../../hooks/useRealRun';
+import { useQuickTaskDiff } from '../../hooks/useQuickTaskDiff';
+import { QuickTaskCard } from '../quick-task/QuickTaskCard';
+import { projectQuickTaskCard } from '../../data/quickTaskRuntime';
 import { NotifyToggle } from './NotifyToggle';
 import { TaskGraph } from './TaskGraph';
 import { AgentsPanel } from './AgentsPanel';
@@ -1315,6 +1318,58 @@ function HistoricalRunView({ session }: { session: SessionSnapshot }) {
   );
 }
 
+function QuickTaskRunView({
+  state,
+  onReview,
+  onFullRun,
+  onAbort,
+}: {
+  state: RealRunState;
+  onReview: () => void;
+  onFullRun: () => void;
+  onAbort: () => void;
+}) {
+  const revisionKey = state.tasks.map(task => `${task.id}:${task.status}`).join('|');
+  const changedFiles = useQuickTaskDiff(true, revisionKey, state.status === 'running');
+  const agentSteps = Object.fromEntries(
+    Object.entries(state.agents).map(([agent, value]) => [agent, value.active ? value.step : '']),
+  );
+  const card = projectQuickTaskCard({
+    project: state.project,
+    status: state.status,
+    tasks: state.tasks,
+    findings: state.findings,
+    taskActivity: state.taskActivity,
+    agentSteps,
+    spend: state.spend,
+    metadata: {
+      request: state.goal,
+      declaredWriteScope: state.quickTask?.declaredWriteScope ?? [],
+      verificationCommands: state.quickTask?.verificationCommands ?? [],
+      route: state.quickTask?.route,
+    },
+    changedFiles,
+  });
+
+  return (
+    <div className="quick-task-surface">
+      <QuickTaskCard
+        state={card}
+        defaultDetailsOpen={false}
+        onAction={selected => {
+          if (selected.id === 'review-diff') {
+            onReview();
+          } else if (selected.id === 'full-run') {
+            onFullRun();
+          } else if (selected.id === 'cancel-run') {
+            onAbort();
+          }
+        }}
+      />
+    </div>
+  );
+}
+
 // ─── Running: real backend or server-down screen ──────────────────────────────
 
 export function Running({
@@ -1339,6 +1394,7 @@ export function Running({
   // Owned here (not in RunView) so the diff stays open across a review-fix run, which
   // briefly empties the task list and would otherwise remount RunView and close it.
   const [showChanges, setShowChanges] = useState(false);
+  const [expandedQuickGoal, setExpandedQuickGoal] = useState<string | null>(null);
   const toggleShowChanges = useCallback(() => setShowChanges(v => !v), []);
 
   // Notify parent once when the run transitions to done.
@@ -1454,6 +1510,18 @@ export function Running({
   const pause = () => fetch('/run/pause', { method: 'POST' }).catch(() => {});
   const abort = () => fetch('/run/abort', { method: 'POST' }).catch(() => {});
   const resume = () => fetch('/run/resume', { method: 'POST' }).catch(() => {});
+
+  const showFullQuickRun = expandedQuickGoal === state.goal;
+  if (state.executionShape === 'quick_task' && !showChanges && !showFullQuickRun) {
+    return (
+      <QuickTaskRunView
+        state={state}
+        onReview={() => setShowChanges(true)}
+        onFullRun={() => setExpandedQuickGoal(state.goal)}
+        onAbort={abort}
+      />
+    );
+  }
 
   return (
     <>

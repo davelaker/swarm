@@ -15,6 +15,9 @@ export type QuickTaskFileStatus = 'added' | 'modified' | 'deleted' | 'renamed';
 export type QuickTaskCheckStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped';
 export type QuickTaskActivityTone = 'neutral' | 'success' | 'warning' | 'error';
 
+export type QuickTaskStartResult =
+  { status: 'started' } | { status: 'escalated'; escalationReason: string; riskSignals: string[] };
+
 export interface QuickTaskAction {
   id: string;
   label: string;
@@ -47,7 +50,7 @@ export interface QuickTaskActivityEntry {
 
 export interface QuickTaskRouteSummary {
   model: string;
-  effort: 'low' | 'medium' | 'high';
+  effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   provider: 'anthropic' | 'openai';
 }
 
@@ -137,7 +140,10 @@ export const QUICK_TASK_STAGE_LABELS: Record<QuickTaskStage, string> = {
   cancelled: 'Cancelled',
 };
 
-export const QUICK_TASK_STAGE_TONES: Record<QuickTaskStage, 'neutral' | 'info' | 'success' | 'warning' | 'danger'> = {
+export const QUICK_TASK_STAGE_TONES: Record<
+  QuickTaskStage,
+  'neutral' | 'info' | 'success' | 'warning' | 'danger'
+> = {
   draft: 'neutral',
   awaiting_approval: 'info',
   executing: 'info',
@@ -272,7 +278,10 @@ export const QUICK_TASK_DEMO_STATES: QuickTaskCardState[] = [
     runDetails: {
       runLabel: 'qt_1042',
       route: { provider: 'openai', model: 'GPT-5.4', effort: 'low' },
-      writeScope: ['ui/src/hooks/useReconnect.ts', 'ui/src/components/common/StaleServerBanner.tsx'],
+      writeScope: [
+        'ui/src/hooks/useReconnect.ts',
+        'ui/src/components/common/StaleServerBanner.tsx',
+      ],
       verificationCommands: ['npm run typecheck', 'npm test -- reconnect'],
       estimatedCost: '$0.12',
       activity: [
@@ -325,11 +334,18 @@ export const QUICK_TASK_DEMO_STATES: QuickTaskCardState[] = [
     runDetails: {
       runLabel: 'qt_1042',
       route: { provider: 'openai', model: 'GPT-5.4', effort: 'low' },
-      writeScope: ['ui/src/hooks/useReconnect.ts', 'ui/src/components/common/StaleServerBanner.tsx'],
+      writeScope: [
+        'ui/src/hooks/useReconnect.ts',
+        'ui/src/components/common/StaleServerBanner.tsx',
+      ],
       verificationCommands: ['npm run typecheck', 'npm test -- reconnect'],
       estimatedCost: '$0.14',
       activity: [
-        { id: 'checks', label: 'Running focused checks', detail: 'Typecheck passed, tests still running.' },
+        {
+          id: 'checks',
+          label: 'Running focused checks',
+          detail: 'Typecheck passed, tests still running.',
+        },
       ],
     },
     currentStep: 'Running reconnect tests',
@@ -368,12 +384,20 @@ export const QUICK_TASK_DEMO_STATES: QuickTaskCardState[] = [
     runDetails: {
       runLabel: 'qt_1042',
       route: { provider: 'openai', model: 'GPT-5.4', effort: 'low' },
-      writeScope: ['ui/src/hooks/useReconnect.ts', 'ui/src/components/common/StaleServerBanner.tsx'],
+      writeScope: [
+        'ui/src/hooks/useReconnect.ts',
+        'ui/src/components/common/StaleServerBanner.tsx',
+      ],
       verificationCommands: ['npm run typecheck', 'npm test -- reconnect'],
       estimatedCost: '$0.14',
       activity: [
-        { id: 'type', label: 'Typecheck passed', detail: 'No type regressions.' , tone: 'success'},
-        { id: 'test', label: 'Tests passed', detail: 'Reconnect banner clears after recovery.', tone: 'success' },
+        { id: 'type', label: 'Typecheck passed', detail: 'No type regressions.', tone: 'success' },
+        {
+          id: 'test',
+          label: 'Tests passed',
+          detail: 'Reconnect banner clears after recovery.',
+          tone: 'success',
+        },
       ],
     },
     scopeLabel: 'Ready to land',
@@ -410,11 +434,19 @@ export const QUICK_TASK_DEMO_STATES: QuickTaskCardState[] = [
     runDetails: {
       runLabel: 'qt_1042',
       route: { provider: 'openai', model: 'GPT-5.4', effort: 'low' },
-      writeScope: ['ui/src/hooks/useReconnect.ts', 'ui/src/components/common/StaleServerBanner.tsx'],
+      writeScope: [
+        'ui/src/hooks/useReconnect.ts',
+        'ui/src/components/common/StaleServerBanner.tsx',
+      ],
       verificationCommands: ['npm run typecheck', 'npm test -- reconnect'],
       estimatedCost: '$0.14',
       activity: [
-        { id: 'commit', label: 'Committed', detail: '1 file group committed on branch swarm/reconnect-banner.', tone: 'success' },
+        {
+          id: 'commit',
+          label: 'Committed',
+          detail: '1 file group committed on branch swarm/reconnect-banner.',
+          tone: 'success',
+        },
       ],
     },
     scopeLabel: 'Landed',
@@ -436,7 +468,12 @@ export const QUICK_TASK_DEMO_STATES: QuickTaskCardState[] = [
     verification: [],
     actions: [
       { id: 'plan', label: 'Review expanded plan', priority: 'primary', intent: 'escalate' },
-      { id: 'readonly', label: 'Keep investigating read-only', priority: 'secondary', intent: 'review' },
+      {
+        id: 'readonly',
+        label: 'Keep investigating read-only',
+        priority: 'secondary',
+        intent: 'review',
+      },
       { id: 'stop', label: 'Stop', priority: 'secondary', intent: 'dismiss' },
     ],
     runDetails: {
@@ -454,7 +491,8 @@ export const QUICK_TASK_DEMO_STATES: QuickTaskCardState[] = [
         },
       ],
     },
-    escalationReason: 'Expected a UI-only fix but discovered backend session lifecycle and persisted reconnect state.',
+    escalationReason:
+      'Expected a UI-only fix but discovered backend session lifecycle and persisted reconnect state.',
     scopeLabel: 'Escalation required',
   },
   {
@@ -473,7 +511,12 @@ export const QUICK_TASK_DEMO_STATES: QuickTaskCardState[] = [
     ],
     verification: [
       { id: 'typecheck', label: 'Typecheck', status: 'passed', detail: 'Completed in 3.4s.' },
-      { id: 'test', label: 'Reconnect tests', status: 'failed', detail: 'Banner still flashes after retry loop.' },
+      {
+        id: 'test',
+        label: 'Reconnect tests',
+        status: 'failed',
+        detail: 'Banner still flashes after retry loop.',
+      },
     ],
     actions: [
       { id: 'diff', label: 'Review failure', priority: 'secondary', intent: 'review' },
@@ -486,7 +529,12 @@ export const QUICK_TASK_DEMO_STATES: QuickTaskCardState[] = [
       verificationCommands: ['npm run typecheck', 'npm test -- reconnect'],
       estimatedCost: '$0.18',
       activity: [
-        { id: 'fail', label: 'Verification failed', detail: 'A retry timing edge case still reproduces.', tone: 'error' },
+        {
+          id: 'fail',
+          label: 'Verification failed',
+          detail: 'A retry timing edge case still reproduces.',
+          tone: 'error',
+        },
       ],
     },
     escalationReason: 'Reconnect tests still fail under repeated socket flaps.',
@@ -506,7 +554,14 @@ export const QUICK_TASK_DEMO_STATES: QuickTaskCardState[] = [
       writeScope: ['ui/src/hooks/useReconnect.ts'],
       verificationCommands: ['npm run typecheck'],
       estimatedCost: '$0.03',
-      activity: [{ id: 'cancel', label: 'Cancelled', detail: 'User stopped the run before execution.', tone: 'neutral' }],
+      activity: [
+        {
+          id: 'cancel',
+          label: 'Cancelled',
+          detail: 'User stopped the run before execution.',
+          tone: 'neutral',
+        },
+      ],
     },
     scopeLabel: 'No changes applied',
   },

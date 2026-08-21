@@ -11,6 +11,7 @@ import { PermissionGate } from './components/running/PermissionGate';
 import { useRealRun } from './hooks/useRealRun';
 import { useRunNotifications } from './hooks/useRunNotifications';
 import { IconGitHub, IconFolder } from './components/common/icons';
+import type { QuickTaskStartResult } from './data/quickTask';
 
 export type ServerStatus = 'probing' | 'up' | 'down';
 
@@ -316,6 +317,73 @@ export function App() {
       });
   }, []);
 
+  const startQuickTask = useCallback(async (instruction: string): Promise<QuickTaskStartResult> => {
+    setExecuteError(null);
+    const response = await fetch('/run/quick-task', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instruction }),
+    });
+    const body = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      status?: string;
+      goal?: string;
+      escalationReason?: string;
+      riskSignals?: unknown;
+    };
+    if (!response.ok) {
+      throw new Error(body.error ?? `HTTP ${response.status}`);
+    }
+    if (body.status === 'escalated') {
+      return {
+        status: 'escalated',
+        escalationReason:
+          body.escalationReason ?? 'Quick task preflight requires a broader workflow.',
+        riskSignals: Array.isArray(body.riskSignals)
+          ? body.riskSignals.filter((signal): signal is string => typeof signal === 'string')
+          : [],
+      };
+    }
+    if (body.status !== 'started' || !body.goal) {
+      throw new Error('Quick task server returned an invalid start response.');
+    }
+
+    setRunGoal(body.goal);
+    setRunCharter(null);
+    setRunTeam([]);
+    setIsInitiating(true);
+    setSurface('running');
+
+    const events = new EventSource('/events');
+    const finish = () => {
+      setIsInitiating(false);
+      events.close();
+    };
+    const timer = setTimeout(finish, 20_000);
+    events.onmessage = event => {
+      try {
+        const message = JSON.parse(event.data) as { type?: string; reason?: string };
+        if (message.type === 'task.created' || message.type === 'run.classified') {
+          clearTimeout(timer);
+          finish();
+        } else if (message.type === 'run.blocked') {
+          clearTimeout(timer);
+          finish();
+          setExecuteError(message.reason ?? 'Quick task was blocked before it could start.');
+          setSurface('planning');
+        }
+      } catch {
+        // Ignore malformed events; the normal run connection remains authoritative.
+      }
+    };
+    events.onerror = () => {
+      clearTimeout(timer);
+      finish();
+    };
+
+    return { status: 'started' };
+  }, []);
+
   const handleExecutable = useCallback(
     (v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => {
       setExecutable(v);
@@ -584,6 +652,7 @@ export function App() {
         >
           <Planning
             onExecute={goExecute}
+            onQuickTask={startQuickTask}
             onExecutable={handleExecutable}
             onNewSession={() => {
               setRunGoal('');

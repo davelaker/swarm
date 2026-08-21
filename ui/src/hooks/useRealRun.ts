@@ -10,6 +10,8 @@ import type {
   RunStatus,
   PermissionRequest,
 } from '../types';
+import type { ExecutionShape } from '../data/intake';
+import type { QuickTaskRouteSummary } from '../data/quickTask';
 
 interface ServerTask {
   id: string;
@@ -27,6 +29,12 @@ interface ServerTask {
   cost_usd?: number; // accumulated agent cost for this task
 }
 
+interface ServerQuickTaskMetadata {
+  declaredWriteScope: string[];
+  verificationCommands: string[];
+  acceptanceCriteria: string[];
+}
+
 interface ServerState {
   project: string;
   goal: string;
@@ -35,10 +43,33 @@ interface ServerState {
   tasks: ServerTask[];
   log: Array<{ ts: string; actor: string; event: string }>;
   branchName?: string;
+  executionShape?: ExecutionShape;
+  charter?: {
+    quickTask?: ServerQuickTaskMetadata;
+    taskGraph?: Array<{
+      route?: {
+        provider: 'anthropic' | 'openai';
+        model: string;
+        reasoningEffort?: QuickTaskRouteSummary['effort'];
+      };
+    }>;
+  };
 }
 
 type SwarmEvent =
-  | { type: 'run.classified'; tier: string; tasks: ServerTask[] }
+  | {
+      type: 'run.classified';
+      tier: string;
+      tasks: ServerTask[];
+      goal?: string;
+      executionShape?: ExecutionShape;
+      quickTask?: ServerQuickTaskMetadata;
+      route?: {
+        provider: 'anthropic' | 'openai';
+        model: string;
+        reasoningEffort?: QuickTaskRouteSummary['effort'];
+      };
+    }
   | { type: 'task.created'; task: ServerTask }
   | { type: 'task.status_changed'; task_id: string; status: string; skip_reason?: string }
   | { type: 'agent.started'; agent_id: string }
@@ -157,7 +188,14 @@ function initAgents(): Record<string, AgentState> {
 
 export interface RealRunState {
   project: string;
+  goal: string;
   tier: string;
+  executionShape?: ExecutionShape;
+  quickTask?: {
+    declaredWriteScope: string[];
+    verificationCommands: string[];
+    route?: QuickTaskRouteSummary;
+  };
   tasks: Task[];
   agents: Record<string, AgentState>;
   taskActivity: Record<string, ActivityEntry[]>; // transcript per task id (thinking + tool steps)
@@ -293,7 +331,24 @@ export function useRealRun(resetKey?: string | null): RealRun {
         // the spend readout to $0 and destroyed the activity log mid-run.
         setState(prev => ({
           project: snap.project,
+          goal: snap.goal,
           tier: snap.tier,
+          executionShape: snap.executionShape,
+          quickTask: snap.charter?.quickTask
+            ? {
+                declaredWriteScope: snap.charter.quickTask.declaredWriteScope,
+                verificationCommands: snap.charter.quickTask.verificationCommands,
+                ...(snap.charter.taskGraph?.[0]?.route
+                  ? {
+                      route: {
+                        provider: snap.charter.taskGraph[0].route.provider,
+                        model: snap.charter.taskGraph[0].route.model,
+                        effort: snap.charter.taskGraph[0].route.reasoningEffort ?? 'medium',
+                      },
+                    }
+                  : {}),
+              }
+            : undefined,
           tasks,
           agents,
           taskActivity: prev?.taskActivity ?? {},
@@ -398,7 +453,24 @@ function applyEvent(prev: RealRunState, ev: SwarmEvent): RealRunState {
       // New run starting — wipe all stale data from the previous run.
       return {
         ...prev,
+        goal: ev.goal ?? prev.goal,
         tier: ev.tier,
+        executionShape: ev.executionShape,
+        quickTask: ev.quickTask
+          ? {
+              declaredWriteScope: ev.quickTask.declaredWriteScope,
+              verificationCommands: ev.quickTask.verificationCommands,
+              ...(ev.route
+                ? {
+                    route: {
+                      provider: ev.route.provider,
+                      model: ev.route.model,
+                      effort: ev.route.reasoningEffort ?? 'medium',
+                    },
+                  }
+                : {}),
+            }
+          : undefined,
         tasks: ev.tasks.map(t => adaptTask(t, lanes.get(t.id) ?? 0)),
         findings: [],
         pmMsgs: [],

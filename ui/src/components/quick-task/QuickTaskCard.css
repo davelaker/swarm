@@ -6,9 +6,24 @@
   border: 1px solid color-mix(in srgb, var(--blue) 18%, var(--border));
   border-radius: 10px;
   background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--blue) 14%, transparent), transparent 36%),
+    radial-gradient(
+      circle at top right,
+      color-mix(in srgb, var(--blue) 14%, transparent),
+      transparent 36%
+    ),
     linear-gradient(180deg, color-mix(in srgb, var(--bg-2) 84%, var(--blue-d)) 0%, var(--bg-1) 100%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.quick-task-surface {
+  height: 100%;
+  overflow: auto;
+  padding: clamp(18px, 5vw, 64px);
+}
+
+.quick-task-surface > .quick-task-card {
+  width: min(860px, 100%);
+  margin: 0 auto;
 }
 
 .quick-task-head,
