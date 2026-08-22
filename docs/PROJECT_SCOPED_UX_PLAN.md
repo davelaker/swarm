@@ -5,6 +5,8 @@
 > and targeted usability improvements  
 > Primary invariant: every project-bound surface displays data from exactly one canonical
 > project root
+> Implementation baseline: `741cc80dc47013a84e830b92773c85b216391113` (`main`, recorded
+> 2026-08-21 before implementation began)
 
 ## 1. Purpose
 
