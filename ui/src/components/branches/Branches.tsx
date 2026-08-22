@@ -1,20 +1,125 @@
-import { useState, useEffect, useCallback } from 'react';
+/* eslint-disable react-refresh/only-export-components */
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { SwarmBranch, BranchCommit } from '../../types';
 import { IconTrash } from '../common/icons';
+
+const DEFAULT_VISIBLE_MERGED_BRANCHES = 25;
+type BranchStatusFilter = 'all' | 'open' | 'merged' | 'current';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function timeAgo(iso: string): string {
-  if (!iso) return '';
+  if (!iso) {
+    return '';
+  }
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60_000);
-  if (m < 1) return 'just now';
-  if (m < 60) return `${m}m ago`;
+  if (m < 1) {
+    return 'just now';
+  }
+  if (m < 60) {
+    return `${m}m ago`;
+  }
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
+  if (h < 24) {
+    return `${h}h ago`;
+  }
   const d = Math.floor(h / 24);
-  if (d < 30) return `${d}d ago`;
+  if (d < 30) {
+    return `${d}d ago`;
+  }
   return new Date(iso).toLocaleDateString();
+}
+
+function branchActivityTimestamp(branch: SwarmBranch): number {
+  const stamp = Date.parse(branch.lastCommit.date);
+  if (Number.isNaN(stamp)) {
+    return 0;
+  }
+  return stamp;
+}
+
+export function sortBranchesByActivity(branches: SwarmBranch[]): SwarmBranch[] {
+  return [...branches].sort((left, right) => {
+    if (left.isCurrent !== right.isCurrent) {
+      return left.isCurrent ? -1 : 1;
+    }
+    const byActivity = branchActivityTimestamp(right) - branchActivityTimestamp(left);
+    if (byActivity !== 0) {
+      return byActivity;
+    }
+    return left.shortName.localeCompare(right.shortName);
+  });
+}
+
+function matchesBranchStatus(branch: SwarmBranch, status: BranchStatusFilter): boolean {
+  if (status === 'current') {
+    return branch.isCurrent;
+  }
+  if (status === 'open') {
+    return !branch.merged;
+  }
+  if (status === 'merged') {
+    return branch.merged;
+  }
+  return true;
+}
+
+function matchesBranchSearch(branch: SwarmBranch, search: string): boolean {
+  if (!search) {
+    return true;
+  }
+  const needle = search.toLowerCase();
+  const prTitle = branch.pr?.title?.toLowerCase() ?? '';
+  const prNumber = branch.pr ? String(branch.pr.number) : '';
+  return [
+    branch.name.toLowerCase(),
+    branch.shortName.toLowerCase(),
+    branch.lastCommit.message.toLowerCase(),
+    branch.lastCommit.hash.toLowerCase(),
+    prTitle,
+    prNumber,
+  ].some(field => field.includes(needle));
+}
+
+export function filterBranches(
+  branches: SwarmBranch[],
+  search: string,
+  status: BranchStatusFilter,
+): SwarmBranch[] {
+  const normalizedSearch = search.trim().toLowerCase();
+  return sortBranchesByActivity(branches).filter(branch => {
+    return matchesBranchStatus(branch, status) && matchesBranchSearch(branch, normalizedSearch);
+  });
+}
+
+export function projectBranchSections(
+  branches: SwarmBranch[],
+  search: string,
+  status: BranchStatusFilter,
+  mergedExpanded: boolean,
+  mergedVisibleCount = DEFAULT_VISIBLE_MERGED_BRANCHES,
+) {
+  const filtered = filterBranches(branches, search, status);
+  const openBranches = filtered.filter(branch => !branch.merged);
+  const mergedBranches = filtered.filter(branch => branch.merged);
+  const hasActiveFilters = search.trim().length > 0 || status !== 'all';
+  const showMergedBranches = hasActiveFilters || mergedExpanded;
+  const visibleMergedBranches = showMergedBranches
+    ? mergedBranches.slice(0, mergedVisibleCount)
+    : [];
+  const hiddenMergedCount = showMergedBranches
+    ? Math.max(mergedBranches.length - visibleMergedBranches.length, 0)
+    : mergedBranches.length;
+
+  return {
+    openBranches,
+    mergedBranches,
+    visibleMergedBranches,
+    hiddenMergedCount,
+    hasActiveFilters,
+    showMergedBranches,
+  };
 }
 
 // ─── Delete confirmation ───────────────────────────────────────────────────────
@@ -357,15 +462,21 @@ function DeleteMergedDialog({
 // ─── Status chip ──────────────────────────────────────────────────────────────
 
 function BranchStatus({ branch }: { branch: SwarmBranch }) {
-  if (branch.isCurrent) return <span className="vchip complete">CURRENT</span>;
-  if (branch.merged) return <span className="vchip pass">MERGED</span>;
+  if (branch.isCurrent) {
+    return <span className="vchip complete">CURRENT</span>;
+  }
+  if (branch.merged) {
+    return <span className="vchip pass">MERGED</span>;
+  }
   return <span className="vchip changes">OPEN</span>;
 }
 
 // ─── PR chip ─────────────────────────────────────────────────────────────────
 
 function PrChip({ pr }: { pr: SwarmBranch['pr'] }) {
-  if (!pr) return null;
+  if (!pr) {
+    return null;
+  }
   const cls = pr.state === 'merged' ? 'pass' : pr.state === 'open' ? 'changes' : 'fail';
   return (
     <a
@@ -441,6 +552,72 @@ function CommitRow({
   );
 }
 
+function BranchOverflowMenu({ branch, onDelete }: { branch: SwarmBranch; onDelete: () => void }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (!rootRef.current?.contains(target)) {
+        setOpen(false);
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="branch-row-menu" onClick={event => event.stopPropagation()}>
+      <button
+        type="button"
+        className="branch-row-menu-trigger"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Actions for branch ${branch.shortName}`}
+        onClick={() => setOpen(current => !current)}
+      >
+        Actions ▾
+      </button>
+      {open && (
+        <div
+          className="branch-row-menu-popover"
+          role="menu"
+          aria-label={`Branch actions for ${branch.shortName}`}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="branch-row-menu-item danger"
+            onClick={() => {
+              setOpen(false);
+              onDelete();
+            }}
+          >
+            <IconTrash />
+            Delete branch
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Branch card ─────────────────────────────────────────────────────────────
 
 function BranchCard({
@@ -471,11 +648,15 @@ function BranchCard({
       return;
     }
     setExpanded(true);
-    if (commits !== null) return; // already fetched
+    if (commits !== null) {
+      return;
+    }
     setLoading(true);
     fetch(`/branches/commits?branch=${encodeURIComponent(branch.name)}`)
       .then(r => {
-        if (!r.ok) throw new Error(`${r.status}`);
+        if (!r.ok) {
+          throw new Error(`${r.status}`);
+        }
         return r.json();
       })
       .then((d: { commits: BranchCommit[] }) => setCommits(d.commits))
@@ -586,27 +767,7 @@ function BranchCard({
               </span>
             )}
             {!branch.isCurrent && (
-              <button
-                onClick={e => {
-                  e.stopPropagation();
-                  setConfirmDelete(true);
-                }}
-                title={`Delete branch ${branch.shortName}`}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  background: 'transparent',
-                  border: 'none',
-                  padding: '2px 4px',
-                  marginLeft: 2,
-                  cursor: 'pointer',
-                  color: 'var(--tx-3)',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.color = 'var(--red)')}
-                onMouseLeave={e => (e.currentTarget.style.color = 'var(--tx-3)')}
-              >
-                <IconTrash />
-              </button>
+              <BranchOverflowMenu branch={branch} onDelete={() => setConfirmDelete(true)} />
             )}
           </div>
 
@@ -755,19 +916,27 @@ export function Branches() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastFetched, setLastFetched] = useState<number | null>(null);
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<BranchStatusFilter>('all');
+  const [mergedExpanded, setMergedExpanded] = useState(false);
+  const [mergedVisibleCount, setMergedVisibleCount] = useState(DEFAULT_VISIBLE_MERGED_BRANCHES);
 
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
     fetch('/branches')
       .then(r => {
-        if (!r.ok) throw new Error(`${r.status}`);
+        if (!r.ok) {
+          throw new Error(`${r.status}`);
+        }
         return r.json();
       })
       .then((d: { branches: SwarmBranch[]; defaultBranch: string; repoUrl?: string | null }) => {
         setBranches(d.branches);
         setDefaultBranch(d.defaultBranch);
-        if (d.repoUrl !== undefined) setRepoUrl(d.repoUrl ?? null);
+        if (d.repoUrl !== undefined) {
+          setRepoUrl(d.repoUrl ?? null);
+        }
         setLastFetched(Date.now());
       })
       .catch((e: Error) => setError(e.message))
@@ -776,18 +945,33 @@ export function Branches() {
 
   // Load on mount and refresh every 30s
   useEffect(() => {
-    load();
+    const id = window.setTimeout(() => {
+      load();
+    }, 0);
+    return () => window.clearTimeout(id);
   }, [load]);
   useEffect(() => {
     const id = setInterval(load, 30_000);
     return () => clearInterval(id);
   }, [load]);
 
-  const open = branches.filter(b => !b.merged);
-  const merged = branches.filter(b => b.merged);
+  const {
+    openBranches,
+    mergedBranches,
+    visibleMergedBranches,
+    hiddenMergedCount,
+    hasActiveFilters,
+    showMergedBranches,
+  } = projectBranchSections(branches, search, status, mergedExpanded, mergedVisibleCount);
+
   // The current branch can't be deleted even if merged — git refuses to drop HEAD.
-  const mergedDeletable = merged.filter(b => !b.isCurrent);
+  const mergedDeletable = mergedBranches.filter(b => !b.isCurrent);
   const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const hasResults = openBranches.length > 0 || mergedBranches.length > 0;
+  const showMergedToggle = mergedBranches.length > 0 && !hasActiveFilters;
+  const mergedSummaryLabel = hasActiveFilters
+    ? `Merged matches — ${mergedBranches.length}`
+    : `Merged — ${mergedBranches.length}`;
 
   return (
     <div
@@ -872,7 +1056,59 @@ export function Branches() {
 
         {!loading && !error && branches.length === 0 && <EmptyState />}
 
-        {open.length > 0 && (
+        {!error && branches.length > 0 && (
+          <section className="branches-toolbar" aria-label="Branch filters">
+            <label className="search" style={{ marginLeft: 0, minWidth: 0, flex: '1 1 260px' }}>
+              <span aria-hidden="true">⌕</span>
+              <input
+                type="search"
+                value={search}
+                onChange={event => {
+                  setSearch(event.target.value);
+                  setMergedVisibleCount(DEFAULT_VISIBLE_MERGED_BRANCHES);
+                }}
+                placeholder="Search branch, commit, or PR"
+                aria-label="Search branches"
+              />
+            </label>
+            <label className="branches-filter">
+              <span>Status</span>
+              <select
+                value={status}
+                onChange={event => {
+                  setStatus(event.target.value as BranchStatusFilter);
+                  setMergedVisibleCount(DEFAULT_VISIBLE_MERGED_BRANCHES);
+                }}
+              >
+                <option value="all">All branches</option>
+                <option value="open">Open only</option>
+                <option value="merged">Merged only</option>
+                <option value="current">Current branch</option>
+              </select>
+            </label>
+            {(search || status !== 'all') && (
+              <button
+                type="button"
+                className="branches-clear-filters"
+                onClick={() => {
+                  setSearch('');
+                  setStatus('all');
+                  setMergedVisibleCount(DEFAULT_VISIBLE_MERGED_BRANCHES);
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </section>
+        )}
+
+        {!loading && !error && branches.length > 0 && !hasResults && (
+          <div className="branches-empty-results" role="status">
+            No branches match the current filters.
+          </div>
+        )}
+
+        {openBranches.length > 0 && (
           <section>
             <div
               style={{
@@ -884,10 +1120,10 @@ export function Branches() {
                 marginBottom: 10,
               }}
             >
-              Open — {open.length}
+              Open — {openBranches.length}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {open.map(b => (
+              {openBranches.map(b => (
                 <BranchCard
                   key={b.name}
                   branch={b}
@@ -900,7 +1136,7 @@ export function Branches() {
           </section>
         )}
 
-        {merged.length > 0 && (
+        {mergedBranches.length > 0 && (
           <section>
             <div
               style={{
@@ -908,19 +1144,29 @@ export function Branches() {
                 alignItems: 'center',
                 gap: 10,
                 marginBottom: 10,
+                flexWrap: 'wrap',
               }}
             >
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  letterSpacing: '0.08em',
-                  textTransform: 'uppercase',
-                  color: 'var(--tx-3)',
+              <button
+                type="button"
+                className="branches-section-toggle"
+                onClick={() => {
+                  if (hasActiveFilters) {
+                    return;
+                  }
+                  setMergedExpanded(current => !current);
                 }}
+                aria-expanded={showMergedBranches}
+                disabled={hasActiveFilters}
               >
-                Merged — {merged.length}
-              </span>
+                {showMergedToggle ? (showMergedBranches ? '▾' : '▸') : '•'} {mergedSummaryLabel}
+              </button>
+              {showMergedToggle && hiddenMergedCount > 0 && (
+                <span className="branches-section-meta">{hiddenMergedCount} hidden</span>
+              )}
+              {hasActiveFilters && (
+                <span className="branches-section-meta">Showing filtered matches</span>
+              )}
               <span style={{ flex: 1 }} />
               {mergedDeletable.length > 0 && (
                 <button
@@ -941,17 +1187,31 @@ export function Branches() {
                 </button>
               )}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {merged.map(b => (
-                <BranchCard
-                  key={b.name}
-                  branch={b}
-                  repoUrl={repoUrl}
-                  defaultBranch={defaultBranch}
-                  onDeleted={load}
-                />
-              ))}
-            </div>
+            {showMergedBranches && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {visibleMergedBranches.map(b => (
+                  <BranchCard
+                    key={b.name}
+                    branch={b}
+                    repoUrl={repoUrl}
+                    defaultBranch={defaultBranch}
+                    onDeleted={load}
+                  />
+                ))}
+                {hiddenMergedCount > 0 && (
+                  <button
+                    type="button"
+                    className="branches-show-more"
+                    onClick={() =>
+                      setMergedVisibleCount(current => current + DEFAULT_VISIBLE_MERGED_BRANCHES)
+                    }
+                  >
+                    Show {Math.min(DEFAULT_VISIBLE_MERGED_BRANCHES, hiddenMergedCount)} more merged
+                    branches
+                  </button>
+                )}
+              </div>
+            )}
           </section>
         )}
       </div>
