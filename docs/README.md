@@ -32,6 +32,7 @@ launch  →  brainstorm (Planning)  →  Charter + approval gate  →  execute (
 | [`MEMORY.md`](MEMORY.md) | The memory layer: living docs vs `CLAUDE.md` learnings (the delineation), session recall at intake, live service context. |
 | [`BUILD.md`](BUILD.md) | The phased implementation roadmap (risk-ordered), provider-driver boundary, and where the four seams go in. |
 | [`MULTI_PROVIDER_ROUTING_PLAN.md`](MULTI_PROVIDER_ROUTING_PLAN.md) | Living, small-agent execution plan for Codex/GPT support, per-task provider routing, and heterogeneous swarms. |
+| [`PROJECT_SCOPED_UX_PLAN.md`](PROJECT_SCOPED_UX_PLAN.md) | Implementation plan for atomic project scoping across every dashboard surface, truthful historical sessions, model-policy clarity, and targeted populated-workspace UX improvements. |
 | [`CODEX_RUNNER_SPIKE.md`](CODEX_RUNNER_SPIKE.md) | The Codex transport proof and the adopted read-only, broker-mediated patch boundary. |
 | [`THREATS.md`](THREATS.md) | Adversarial review: trust model, attack surfaces, and a finding register with severities — read alongside the docs it corrects. |
 | [`CONTROLS.md`](CONTROLS.md) | The designed security controls that close the threat findings: **C1** untrusted-content & egress, **C2** gate fail-closed, **C3** in-loop approval, **C4** spend control. (Architectural fixes for A1/A3/A5 live inline in the docs they correct.) |
