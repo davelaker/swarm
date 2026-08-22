@@ -1,10 +1,62 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useSessionHistory } from '../../hooks/useSessionHistory';
 import type { SessionMeta, SessionSnapshot } from '../../types';
+import type { ProjectClient } from '../../project/projectClient';
 
 interface SessionsPanelProps {
   onSelectSession: (session: SessionSnapshot) => void;
   activeSessionId?: string;
+  projectClient: ProjectClient;
+}
+
+type SessionStatusFilter = 'all' | 'passing' | 'needs-attention';
+
+function sessionBranchLabel(branchName?: string): string {
+  return branchName ? branchName.replace(/^swarm\//, '') : 'Not recorded';
+}
+
+function sessionMatchesStatus(session: SessionMeta, status: SessionStatusFilter): boolean {
+  if (status === 'passing') {
+    return session.failCount === 0;
+  }
+  if (status === 'needs-attention') {
+    return session.failCount > 0;
+  }
+  return true;
+}
+
+function sessionMatchesSearch(session: SessionMeta, search: string): boolean {
+  if (!search) {
+    return true;
+  }
+  return [session.goal, session.project, session.tier, sessionBranchLabel(session.branchName)]
+    .join(' ')
+    .toLowerCase()
+    .includes(search);
+}
+
+function sessionMatchesBranch(session: SessionMeta, branchFilter: string): boolean {
+  if (!branchFilter) {
+    return true;
+  }
+  return sessionBranchLabel(session.branchName).toLowerCase().includes(branchFilter);
+}
+
+export function filterSessions(
+  sessions: SessionMeta[],
+  search: string,
+  status: SessionStatusFilter,
+  branch: string,
+): SessionMeta[] {
+  const normalizedSearch = search.trim().toLowerCase();
+  const normalizedBranch = branch.trim().toLowerCase();
+  return sessions.filter(session => {
+    return (
+      sessionMatchesStatus(session, status) &&
+      sessionMatchesSearch(session, normalizedSearch) &&
+      sessionMatchesBranch(session, normalizedBranch)
+    );
+  });
 }
 
 function tierColor(tier: string): string {
@@ -111,6 +163,26 @@ function SessionRow({
           {formatDate(s.savedAt)}
         </span>
       </div>
+      {active && (
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            alignSelf: 'flex-start',
+            padding: '2px 7px',
+            borderRadius: 999,
+            border: '1px solid rgba(245,160,55,0.28)',
+            background: 'var(--amber-d)',
+            color: 'var(--amber)',
+            fontSize: 10,
+            fontFamily: 'var(--mono)',
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+          }}
+        >
+          Archived snapshot
+        </div>
+      )}
       <span
         style={{
           fontSize: 12,
@@ -142,10 +214,22 @@ function SessionRow({
   );
 }
 
-export function SessionsPanel({ onSelectSession, activeSessionId }: SessionsPanelProps) {
-  const { sessions, loading, error, refresh, loadSession } = useSessionHistory();
+export function SessionsPanel({
+  onSelectSession,
+  activeSessionId,
+  projectClient,
+}: SessionsPanelProps) {
+  const { sessions, loading, error, refresh, loadSession } = useSessionHistory(projectClient);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<SessionStatusFilter>('all');
+  const [branchFilter, setBranchFilter] = useState('');
+  const filteredSessions = useMemo(
+    () => filterSessions(sessions, search, status, branchFilter),
+    [sessions, search, status, branchFilter],
+  );
+  const hasFilters = search.trim().length > 0 || branchFilter.trim().length > 0 || status !== 'all';
 
   const handleLoad = (id: string) => {
     setLoadingId(id);
@@ -182,8 +266,26 @@ export function SessionsPanel({ onSelectSession, activeSessionId }: SessionsPane
         >
           Session History
         </span>
+        <span
+          style={{
+            marginLeft: 8,
+            padding: '3px 8px',
+            borderRadius: 999,
+            border: '1px solid var(--border)',
+            background: 'var(--bg-2)',
+            color: 'var(--tx-2)',
+            fontSize: 10,
+            fontFamily: 'var(--mono)',
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+          }}
+          title={projectClient.project.projectRoot}
+        >
+          Current project: {projectClient.project.projectName}
+        </span>
+        <span className="spacer" />
         <button
-          onClick={refresh}
+          onClick={() => refresh()}
           style={{
             fontSize: 11,
             color: 'var(--tx-3)',
@@ -195,6 +297,88 @@ export function SessionsPanel({ onSelectSession, activeSessionId }: SessionsPane
           ↺
         </button>
       </div>
+
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 10,
+          padding: '12px 16px',
+          borderBottom: '1px solid var(--border)',
+          background: 'color-mix(in srgb, var(--bg-1) 82%, transparent)',
+        }}
+      >
+        <label className="search" style={{ marginLeft: 0, minWidth: 0, flex: '1 1 220px' }}>
+          <span aria-hidden="true">Search</span>
+          <input
+            type="search"
+            value={search}
+            onChange={event => setSearch(event.target.value)}
+            placeholder="Goal, branch, or tier"
+            aria-label="Search session history"
+          />
+        </label>
+        <label className="branches-filter">
+          <span>Status</span>
+          <select
+            value={status}
+            onChange={event => setStatus(event.target.value as SessionStatusFilter)}
+            aria-label="Filter sessions by status"
+          >
+            <option value="all">All sessions</option>
+            <option value="passing">Passing</option>
+            <option value="needs-attention">Needs attention</option>
+          </select>
+        </label>
+        <label className="branches-filter">
+          <span>Branch</span>
+          <input
+            type="search"
+            value={branchFilter}
+            onChange={event => setBranchFilter(event.target.value)}
+            placeholder="Branch name"
+            aria-label="Filter sessions by branch"
+            style={{
+              height: 30,
+              padding: '0 10px',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--r-sm)',
+              background: 'var(--bg-1)',
+              color: 'var(--tx-1)',
+              minWidth: 120,
+            }}
+          />
+        </label>
+        {hasFilters && (
+          <button
+            type="button"
+            className="branches-clear-filters"
+            onClick={() => {
+              setSearch('');
+              setStatus('all');
+              setBranchFilter('');
+            }}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      {activeSessionId && (
+        <div
+          style={{
+            padding: '10px 16px',
+            borderBottom: '1px solid rgba(245,160,55,0.2)',
+            background: 'var(--amber-d)',
+            color: 'var(--amber)',
+            fontSize: 11,
+            fontFamily: 'var(--mono)',
+            letterSpacing: '0.04em',
+          }}
+        >
+          ARCHIVED MODE: Running and Planning are showing a saved, read-only session snapshot.
+        </div>
+      )}
 
       {/* Error */}
       {(error || loadErr) && (
@@ -213,7 +397,7 @@ export function SessionsPanel({ onSelectSession, activeSessionId }: SessionsPane
 
       {/* Session list */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {loading && sessions.length === 0 && (
+        {loading && filteredSessions.length === 0 && (
           <div
             style={{
               padding: 32,
@@ -257,7 +441,21 @@ export function SessionsPanel({ onSelectSession, activeSessionId }: SessionsPane
           </div>
         )}
 
-        {sessions.map(s => (
+        {!loading && sessions.length > 0 && filteredSessions.length === 0 && (
+          <div
+            style={{
+              padding: 32,
+              textAlign: 'center',
+              color: 'var(--tx-3)',
+              fontFamily: 'var(--mono)',
+              fontSize: 12,
+            }}
+          >
+            No archived sessions match the current filters.
+          </div>
+        )}
+
+        {filteredSessions.map(s => (
           <SessionRow
             key={s.id}
             s={s}
@@ -283,7 +481,8 @@ export function SessionsPanel({ onSelectSession, activeSessionId }: SessionsPane
 
       <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)', flexShrink: 0 }}>
         <p style={{ margin: 0, fontSize: 11, color: 'var(--tx-3)', lineHeight: 1.5 }}>
-          Click a session to view it in Running and Planning tabs.
+          Select a session to inspect it in archived Planning and Running. Re-opening creates a
+          new editable plan instead of mutating the saved record.
         </p>
       </div>
     </div>

@@ -12,6 +12,7 @@ import {
 import { ToolGlyph } from '../common/ToolIcon';
 import { IconLock, IconChevronLeft } from '../common/icons';
 import { CONNECTOR_BY_ID } from '../../data/connectors';
+import { modelMeta } from '../../data/models';
 import type { ConnectorSens } from '../../data/connectors';
 
 type PermMode = 'allow' | 'ask' | 'deny';
@@ -474,7 +475,7 @@ export function AgentPage({ a, hired, projectName, onClose, onConfirm }: AgentPa
 
           {/* Model */}
           <div className="dsec">
-            <div className="dsec-label">Model</div>
+            <div className="dsec-label">Agent model preference</div>
             <select className="sel" value={model} onChange={e => setModel(e.target.value)}>
               {MODELS.map(m => (
                 <option key={m.id} value={m.id}>
@@ -482,6 +483,10 @@ export function AgentPage({ a, hired, projectName, onClose, onConfirm }: AgentPa
                 </option>
               ))}
             </select>
+            <div className="helper">
+              This specialist prefers {modelMeta(model)?.label ?? model}. Project model policy
+              controls availability, and Planning shows the effective route before execution.
+            </div>
           </div>
 
           {/* Footer: review + action */}

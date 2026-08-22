@@ -10,6 +10,7 @@ import { CONNECTOR_BY_ID } from '../../data/connectors';
 import { Switch } from '../common/Switch';
 import { IconLock, IconTrash } from '../common/icons';
 import type { Sensitivity } from '../../types';
+import { modelMeta } from '../../data/models';
 
 interface MyTeamProps {
   team: HiredAgent[];
@@ -185,7 +186,7 @@ export function MyTeam({
                   <RoleChip role={a.role} />
                   <ScorecardInline card={scorecards[h.id]} />
                   <span className="mono" style={{ color: 'var(--tx-3)' }}>
-                    {h.model}
+                    Prefers {modelMeta(h.model)?.label ?? h.model}
                   </span>
                 </div>
               </div>

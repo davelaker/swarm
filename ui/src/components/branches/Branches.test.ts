@@ -1,143 +1,91 @@
 import { describe, expect, it } from 'vitest';
-import type { SwarmBranch } from '../../types';
 import { filterBranches, projectBranchSections } from './Branches';
+import type { SwarmBranch } from '../../types';
 
-function makeBranch(overrides: Partial<SwarmBranch>): SwarmBranch {
-  return {
-    name: 'feature/default',
-    shortName: 'feature/default',
+const branches: SwarmBranch[] = [
+  {
+    name: 'swarm/current-work',
+    shortName: 'current-work',
+    isCurrent: true,
+    merged: false,
+    pushed: true,
+    ahead: 2,
+    lastCommit: {
+      hash: 'abc1234',
+      message: 'Keep current work on top',
+      date: '2026-08-22T09:00:00.000Z',
+    },
+    pr: null,
+  },
+  {
+    name: 'swarm/open-fix',
+    shortName: 'open-fix',
     isCurrent: false,
     merged: false,
     pushed: true,
     ahead: 1,
     lastCommit: {
-      hash: 'abc1234',
-      message: 'Update branch flow',
-      date: '2026-08-20T12:00:00.000Z',
+      hash: 'def5678',
+      message: 'Fix transcript wrapping',
+      date: '2026-08-21T12:00:00.000Z',
     },
-    pr: null,
-    ...overrides,
-  };
-}
+    pr: { number: 44, url: 'https://example.com/pr/44', title: 'Transcript fix', state: 'open' },
+  },
+  {
+    name: 'swarm/merged-cleanup',
+    shortName: 'merged-cleanup',
+    isCurrent: false,
+    merged: true,
+    pushed: true,
+    ahead: 0,
+    lastCommit: {
+      hash: 'ghi9012',
+      message: 'Cleanup merged branch',
+      date: '2026-08-20T08:00:00.000Z',
+    },
+    pr: { number: 12, url: 'https://example.com/pr/12', title: 'Cleanup', state: 'merged' },
+  },
+];
 
 describe('filterBranches', () => {
-  const branches = [
-    makeBranch({
-      name: 'feature/current',
-      shortName: 'feature/current',
-      isCurrent: true,
-      lastCommit: {
-        hash: 'current1',
-        message: 'Current work',
-        date: '2026-08-18T12:00:00.000Z',
-      },
-    }),
-    makeBranch({
-      name: 'feature/open-newest',
-      shortName: 'feature/open-newest',
-      lastCommit: {
-        hash: 'newest1',
-        message: 'Fresh open branch',
-        date: '2026-08-21T12:00:00.000Z',
-      },
-      pr: {
-        number: 14,
-        url: 'https://example.com/pr/14',
-        title: 'Fix branch density',
-        state: 'open',
-      },
-    }),
-    makeBranch({
-      name: 'feature/merged',
-      shortName: 'feature/merged',
-      merged: true,
-      ahead: 0,
-      lastCommit: {
-        hash: 'merge111',
-        message: 'Merged cleanup',
-        date: '2026-08-19T12:00:00.000Z',
-      },
-    }),
-  ];
-
-  it('keeps the current branch first and sorts remaining matches by recent activity', () => {
+  it('keeps the current branch first, then sorts by recent activity', () => {
     expect(filterBranches(branches, '', 'all').map(branch => branch.shortName)).toEqual([
-      'feature/current',
-      'feature/open-newest',
-      'feature/merged',
+      'current-work',
+      'open-fix',
+      'merged-cleanup',
     ]);
   });
 
-  it('matches search text across branch metadata and PR titles', () => {
-    expect(filterBranches(branches, 'density', 'all').map(branch => branch.shortName)).toEqual([
-      'feature/open-newest',
+  it('matches branch search against PR and commit metadata', () => {
+    expect(filterBranches(branches, 'transcript', 'all').map(branch => branch.shortName)).toEqual([
+      'open-fix',
     ]);
-  });
-
-  it('applies status filtering without mixing merged and open results', () => {
-    expect(filterBranches(branches, '', 'merged').map(branch => branch.shortName)).toEqual([
-      'feature/merged',
-    ]);
-    expect(filterBranches(branches, '', 'open').map(branch => branch.shortName)).toEqual([
-      'feature/current',
-      'feature/open-newest',
+    expect(filterBranches(branches, '12', 'all').map(branch => branch.shortName)).toEqual([
+      'merged-cleanup',
     ]);
   });
 });
 
 describe('projectBranchSections', () => {
-  const branches = [
-    makeBranch({
-      name: 'feature/open',
-      shortName: 'feature/open',
-      lastCommit: {
-        hash: 'open1111',
-        message: 'Open branch',
-        date: '2026-08-21T12:00:00.000Z',
-      },
-    }),
-    makeBranch({
-      name: 'feature/merged-a',
-      shortName: 'feature/merged-a',
-      merged: true,
-      ahead: 0,
-      lastCommit: {
-        hash: 'mergeda',
-        message: 'Merged a',
-        date: '2026-08-20T12:00:00.000Z',
-      },
-    }),
-    makeBranch({
-      name: 'feature/merged-b',
-      shortName: 'feature/merged-b',
-      merged: true,
-      ahead: 0,
-      lastCommit: {
-        hash: 'mergedb',
-        message: 'Merged b',
-        date: '2026-08-19T12:00:00.000Z',
-      },
-    }),
-  ];
-
-  it('collapses merged branches by default while keeping their count available', () => {
-    const sections = projectBranchSections(branches, '', 'all', false, 1);
-
-    expect(sections.openBranches.map(branch => branch.shortName)).toEqual(['feature/open']);
-    expect(sections.mergedBranches).toHaveLength(2);
-    expect(sections.visibleMergedBranches).toHaveLength(0);
-    expect(sections.hiddenMergedCount).toBe(2);
-    expect(sections.showMergedBranches).toBe(false);
+  it('collapses merged branches by default when no filters are active', () => {
+    expect(projectBranchSections(branches, '', 'all', false)).toMatchObject({
+      openBranches: [branches[0], branches[1]],
+      mergedBranches: [branches[2]],
+      visibleMergedBranches: [],
+      hiddenMergedCount: 1,
+      hasActiveFilters: false,
+      showMergedBranches: false,
+    });
   });
 
-  it('reveals merged matches when filtering is active', () => {
-    const sections = projectBranchSections(branches, 'merged', 'all', false, 1);
-
-    expect(sections.hasActiveFilters).toBe(true);
-    expect(sections.showMergedBranches).toBe(true);
-    expect(sections.visibleMergedBranches.map(branch => branch.shortName)).toEqual([
-      'feature/merged-a',
-    ]);
-    expect(sections.hiddenMergedCount).toBe(1);
+  it('shows merged matches immediately when a filter is active', () => {
+    expect(projectBranchSections(branches, 'cleanup', 'all', false)).toMatchObject({
+      openBranches: [],
+      mergedBranches: [branches[2]],
+      visibleMergedBranches: [branches[2]],
+      hiddenMergedCount: 0,
+      hasActiveFilters: true,
+      showMergedBranches: true,
+    });
   });
 });

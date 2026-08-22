@@ -13,6 +13,7 @@ import { ChangesPanel } from './ChangesPanel';
 import { InboxPanel } from './InboxPanel';
 import { Message } from '../planning/Message';
 import { IconSend } from '../common/icons';
+import { resolveAgentPersona } from '../../data/personas';
 import type {
   RunStatus,
   SessionSnapshot,
@@ -23,6 +24,8 @@ import type {
   ChatMessage,
   PermissionRequest,
 } from '../../types';
+
+const RUN_DISPATCH_RE = /^→\s+(\w+)\s+\[([^\]]+)\]:\s*(.+)$/s;
 
 // ─── Drag-to-resize ──────────────────────────────────────────────────────────
 
@@ -106,6 +109,7 @@ interface RunViewProps {
   showChanges: boolean;
   onToggleShowChanges: () => void;
   pendingPermission?: PermissionRequest | null;
+  archived?: boolean;
 }
 
 // ─── Run summary strip ────────────────────────────────────────────────────────
@@ -693,11 +697,13 @@ function PmChat({
   status,
   open,
   onToggle,
+  archived = false,
 }: {
   pmMsgs: RunViewProps['pmMsgs'];
   status: RunStatus;
   open: boolean;
   onToggle: () => void;
+  archived?: boolean;
 }) {
   const chatRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -716,7 +722,7 @@ function PmChat({
     ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
   }, [draft, open]);
 
-  const disabled = status === 'done' || status === 'aborted';
+  const disabled = archived || status === 'done' || status === 'aborted';
 
   const send = () => {
     const text = draft.trim();
@@ -747,7 +753,7 @@ function PmChat({
             marginTop: 8,
           }}
         >
-          PM Chat
+          {archived ? 'Transcript' : 'PM Chat'}
         </span>
         {pmMsgs.length > 0 && (
           <span
@@ -772,7 +778,20 @@ function PmChat({
   return (
     <div className="run-chat">
       <div className="panel-head">
-        <span>PM Chat</span>
+        <span>{archived ? 'Transcript' : 'PM Chat'}</span>
+        {archived && (
+          <span
+            style={{
+              marginLeft: 8,
+              fontSize: 10,
+              fontFamily: 'var(--mono)',
+              color: 'var(--amber)',
+              letterSpacing: '0.08em',
+            }}
+          >
+            ARCHIVED
+          </span>
+        )}
         <button
           onClick={onToggle}
           title="Collapse PM Chat"
@@ -801,42 +820,157 @@ function PmChat({
                 padding: '2px 0',
               }}
             >
-              PM messages will appear here…
+              {archived ? 'No transcript recorded for this archived session.' : 'PM messages will appear here…'}
             </span>
           )}
           {pmMsgs.map((m, i) => (
-            <Message key={i} m={m} />
+            <TranscriptMessage key={i} m={m} />
           ))}
         </div>
-        <div className="composer">
-          <div className="composer-row">
-            <textarea
-              ref={taRef}
-              value={draft}
-              onChange={e => setDraft(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  send();
+        {!archived && (
+          <div className="composer">
+            <div className="composer-row">
+              <textarea
+                ref={taRef}
+                value={draft}
+                onChange={e => setDraft(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
+                placeholder={
+                  disabled ? 'Run complete.' : 'Message the PM — pause the run to intervene…'
                 }
-              }}
-              placeholder={
-                disabled ? 'Run complete.' : 'Message the PM — pause the run to intervene…'
-              }
-              disabled={disabled || busy}
-            />
-            <button
-              className="send-btn"
-              onClick={send}
-              disabled={!draft.trim() || disabled || busy}
-              title="Send (Enter)"
-            >
-              <IconSend />
-            </button>
+                disabled={disabled || busy}
+              />
+              <button
+                className="send-btn"
+                onClick={send}
+                disabled={!draft.trim() || disabled || busy}
+                title="Send (Enter)"
+              >
+                <IconSend />
+              </button>
+            </div>
+            {!disabled && <div className="hint">Enter to send · Shift+Enter for newline</div>}
           </div>
-          {!disabled && <div className="hint">Enter to send · Shift+Enter for newline</div>}
-        </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+function TranscriptMessage({ m }: { m: ChatMessage }) {
+  const match = m.from === 'pm' ? m.text.match(RUN_DISPATCH_RE) : null;
+  if (!match) {
+    return <Message m={m} />;
+  }
+  return <ExpandableDispatchMessage message={m} match={match} />;
+}
+
+function ExpandableDispatchMessage({
+  message,
+  match,
+}: {
+  message: ChatMessage;
+  match: RegExpMatchArray;
+}) {
+  const [, agentId, taskId, rawDesc] = match;
+  const desc = rawDesc.trim().replace(/^"([\s\S]*)"$/, '$1');
+  const [expanded, setExpanded] = useState(false);
+  const persona = resolveAgentPersona(agentId);
+  const long = desc.length > 120 || desc.includes('\n');
+
+  return (
+    <div
+      className="anim-in"
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 7,
+        padding: '5px 16px 5px 12px',
+        borderLeft: `2px solid ${persona.color}33`,
+      }}
+    >
+      <span
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: '50%',
+          background: persona.color,
+          flexShrink: 0,
+          marginTop: 6,
+        }}
+      />
+      <span
+        style={{
+          fontFamily: 'var(--mono)',
+          fontSize: 11,
+          fontWeight: 600,
+          color: persona.color,
+          flexShrink: 0,
+        }}
+      >
+        {persona.name}
+      </span>
+      <span
+        style={{
+          fontFamily: 'var(--mono)',
+          fontSize: 10,
+          color: 'var(--tx-3)',
+          flexShrink: 0,
+          marginTop: 1,
+        }}
+      >
+        [{taskId}]
+      </span>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div
+          style={{
+            fontFamily: 'var(--mono)',
+            fontSize: 11,
+            color: 'var(--tx-2)',
+            whiteSpace: expanded ? 'pre-wrap' : 'nowrap',
+            overflow: 'hidden',
+            textOverflow: expanded ? 'clip' : 'ellipsis',
+          }}
+        >
+          {desc}
+        </div>
+        {long && (
+          <button
+            type="button"
+            onClick={() => setExpanded(current => !current)}
+            style={{
+              marginTop: 4,
+              padding: 0,
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--blue)',
+              fontSize: 10,
+              fontFamily: 'var(--mono)',
+              cursor: 'pointer',
+            }}
+          >
+            {expanded ? 'Show less' : 'Show full task'}
+          </button>
+        )}
+      </div>
+      {message.time && (
+        <span
+          style={{
+            fontFamily: 'var(--mono)',
+            fontSize: 10,
+            color: 'var(--tx-3)',
+            flexShrink: 0,
+            marginTop: 1,
+          }}
+        >
+          {message.time}
+        </span>
+      )}
     </div>
   );
 }
@@ -863,6 +997,7 @@ function RunView({
   showChanges,
   onToggleShowChanges,
   pendingPermission = null,
+  archived = false,
 }: RunViewProps) {
   // ── Hover-to-highlight ────────────────────────────────────────────────────
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
@@ -933,41 +1068,46 @@ function RunView({
   const agentSteps = Object.fromEntries(
     Object.entries(agents).map(([k, v]) => [k, v.active ? v.step : '']),
   );
+  const spendPct = spendCap > 0 ? Math.min(100, (spend / spendCap) * 100) : 0;
 
   return (
     <div className="run" style={{ gridTemplateColumns: gridCols }}>
       <div className="run-head">
-        <span className="pname">{project}</span>
-        <span className={`badge ${tierColour}`}>{tier.toUpperCase()}</span>
-        {branchName && (
-          <span className="run-branch" title={branchName}>
-            ⎇ {branchName.replace(/^swarm\//, '')}
+        <div className="run-head-main">
+          <span className="pname">{project}</span>
+          <span className={`badge ${tierColour}`}>{tier.toUpperCase()}</span>
+          {archived && <span className="badge grey">ARCHIVED</span>}
+          {branchName && (
+            <span className="run-branch" title={branchName}>
+              ⎇ {branchName.replace(/^swarm\//, '')}
+            </span>
+          )}
+          <span className={`run-status ${cls}`}>
+            <span className="rdot" />
+            {archived ? 'completed snapshot' : label}
           </span>
-        )}
-        <span className={`run-status ${cls}`}>
-          <span className="rdot" />
-          {label}
-        </span>
-        <NotifyToggle />
-        <div className="spacer" />
-        <RunControls
-          status={status}
-          tasks={tasks}
-          onPause={onPause}
-          onAbort={onAbort}
-          onToggleChanges={onToggleShowChanges}
-          showChanges={showChanges}
-          onPrCreated={onPrCreated}
-          alreadyPushed={alreadyPushed}
-          branchName={branchName}
-        />
-        <div className="spend">
-          <div className="spend-top">
-            <span className="amt">${spend.toFixed(2)}</span>
-            <span className="cap">/ ${spendCap.toFixed(2)}</span>
-          </div>
-          <div className="spend-bar">
-            <i style={{ width: `${Math.min(100, (spend / spendCap) * 100)}%` }} />
+          <NotifyToggle />
+        </div>
+        <div className="run-head-side">
+          <RunControls
+            status={status}
+            tasks={tasks}
+            onPause={onPause}
+            onAbort={onAbort}
+            onToggleChanges={onToggleShowChanges}
+            showChanges={showChanges}
+            onPrCreated={onPrCreated}
+            alreadyPushed={alreadyPushed}
+            branchName={branchName}
+          />
+          <div className="spend">
+            <div className="spend-top">
+              <span className="amt">${spend.toFixed(2)}</span>
+              {spendCap > 0 && <span className="cap">/ ${spendCap.toFixed(2)}</span>}
+            </div>
+            <div className="spend-bar">
+              <i style={{ width: `${spendPct}%` }} />
+            </div>
           </div>
         </div>
       </div>
@@ -1035,7 +1175,13 @@ function RunView({
         </>
       )}
 
-      <PmChat pmMsgs={pmMsgs} status={status} open={effectiveChatOpen} onToggle={toggleChat} />
+      <PmChat
+        pmMsgs={pmMsgs}
+        status={status}
+        open={effectiveChatOpen}
+        onToggle={toggleChat}
+        archived={archived}
+      />
     </div>
   );
 }
@@ -1314,6 +1460,7 @@ function HistoricalRunView({ session }: { session: SessionSnapshot }) {
       alreadyPushed={true}
       branchName={session.branchName}
       elapsedMs={session.elapsedMs ?? null}
+      archived={true}
     />
   );
 }

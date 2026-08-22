@@ -4,6 +4,7 @@ import { PERSONAS } from '../../data/personas';
 import { AgentIcon, RoleChip, LockBadge } from './shared';
 import { ToolGlyph } from '../common/ToolIcon';
 import { IconLock, IconChevronLeft } from '../common/icons';
+import { modelMeta } from '../../data/models';
 
 // Cheapest → most expensive, matching the cost ladder in data/models.ts.
 const MODELS = [
@@ -188,7 +189,7 @@ export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
           </div>
 
           <div className="dsec">
-            <div className="dsec-label">Model</div>
+            <div className="dsec-label">Agent model preference</div>
             <select className="sel" value={model} onChange={e => handleModelChange(e.target.value)}>
               {MODELS.map(m => (
                 <option key={m.id} value={m.id}>
@@ -196,6 +197,10 @@ export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
                 </option>
               ))}
             </select>
+            <div className="helper">
+              This agent prefers {modelMeta(model)?.label ?? model}. Project model policy still
+              decides availability, and Planning shows the effective route for each task.
+            </div>
           </div>
 
           <div className="dsec">

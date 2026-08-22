@@ -25,6 +25,7 @@ import type { ExecutionShape, IntakeDecision } from '../../data/intake';
 import type { QuickTaskStartResult } from '../../data/quickTask';
 import { useAgentDefaults } from '../../hooks/useAgentDefaults';
 import type { CharterData, SessionSnapshot } from '../../types';
+import type { ProjectEnvelope } from '../../project/types';
 
 // The per-task model plan shown at the Execute gate: each agent's model, with the
 // PM's upgrades over the agent default flagged (more capable → costs more) and an
@@ -490,6 +491,7 @@ interface PlanningProps {
   runBlockedReason?: string | null;
   historicalSession?: SessionSnapshot;
   modelPolicy?: ModelPolicySnapshot | null;
+  project: ProjectEnvelope;
 }
 
 interface PendingIntake {
@@ -499,6 +501,52 @@ interface PendingIntake {
   startingQuickTask?: boolean;
   quickTaskEscalation?: string;
   quickTaskError?: string;
+}
+
+interface HistoricalPlanningSection {
+  label: string;
+  value: 'not-recorded' | 'reconstructed' | string[];
+}
+
+interface HistoricalPlanningView {
+  goal: { text: string; source: 'recorded' | 'reconstructed' };
+  team: { id: string; source: 'recorded' | 'reconstructed' }[];
+  branch: string | null;
+  sections: HistoricalPlanningSection[];
+  messages: Array<{ from: 'pm' | 'you'; text: string }>;
+}
+
+export function projectHistoricalPlanningView(
+  session: SessionSnapshot,
+): HistoricalPlanningView {
+  const charter = session.charter;
+  const uniqueTeam = [...new Set(session.tasks.map(task => task.assignee).filter(Boolean))];
+  return {
+    goal: {
+      text: session.goal || 'Reconstructed from saved session metadata.',
+      source: session.goal ? 'recorded' : 'reconstructed',
+    },
+    team: uniqueTeam.map(id => ({ id, source: 'reconstructed' as const })),
+    branch: session.branchName ? session.branchName.replace(/^swarm\//, '') : null,
+    sections: [
+      {
+        label: 'Constraints',
+        value: charter?.constraints?.length ? charter.constraints : 'not-recorded',
+      },
+      {
+        label: 'Non-goals',
+        value: charter?.nongoals?.length ? charter.nongoals : 'not-recorded',
+      },
+      {
+        label: 'Open questions',
+        value: charter?.questions?.length ? charter.questions : 'not-recorded',
+      },
+    ],
+    messages: (charter?.planningHistory ?? []).map(message => ({
+      from: message.from,
+      text: message.text,
+    })),
+  };
 }
 
 function IntakeStatusCard({
@@ -661,20 +709,9 @@ export function Planning({
   runBlockedReason,
   historicalSession,
   modelPolicy,
+  project,
 }: PlanningProps) {
-  // Derive project name synchronously from localStorage (source of truth for active root).
-  // This avoids a race with App.tsx's auto-sync: if the server has been restarted and
-  // still points at the old project, a /state fetch would return the wrong name before
-  // the auto-sync fires. Reading localStorage directly is always instantaneous and correct.
-  const [projectName] = useState<string | undefined>(() => {
-    try {
-      const root = localStorage.getItem('swarm-active-root');
-      if (root) {return root.split('/').filter(Boolean).pop() ?? undefined;}
-    } catch {
-      /* private mode */
-    }
-    return undefined;
-  });
+  const projectName = project.projectName;
 
   // Consume the one-shot switch flag set by ProjectSwitcher before reload.
   const [justSwitchedPath] = useState<string | null>(() => {
@@ -692,7 +729,7 @@ export function Planning({
 
   const session = usePlanningSession(
     onExecutable,
-    projectName ?? 'default',
+    project,
     recapMessage,
     runBlockedReason,
   );
@@ -937,17 +974,7 @@ export function Planning({
 
   // ─── Historical mode — frozen snapshot, no interaction ──────────────────────
   if (historicalSession) {
-    const hc = historicalSession.charter;
-    const historicalCharter = {
-      goal: historicalSession.goal,
-      constraints: (hc?.constraints ?? []).map(t => ({ text: t })),
-      nongoals: (hc?.nongoals ?? []).map(t => ({ text: t })),
-      questions: (hc?.questions ?? []).map(t => ({ text: t, resolved: true })),
-    };
-    const historicalMessages = (hc?.planningHistory ?? []).map(m => ({
-      from: m.from as 'pm' | 'you',
-      text: m.text,
-    }));
+    const historicalView = projectHistoricalPlanningView(historicalSession);
     const savedAt = new Date(historicalSession.savedAt).toLocaleString([], {
       month: 'short',
       day: 'numeric',
@@ -956,28 +983,139 @@ export function Planning({
     });
     return (
       <div className="plan">
-        <Charter
-          charter={historicalCharter}
-          team={[]}
-          phase={'ready' as const}
-          projectName={projectName}
-          projectMd={context.projectMd}
-          contextFiles={context.contextFiles}
-        />
+        <div className="plan-left">
+          <div className="panel-head">
+            <span>Archived Charter</span>
+            <span className="spacer" />
+            <span className="badge grey">ARCHIVED</span>
+          </div>
+          <div className="charter">
+            <h2>{historicalView.goal.text.replace(/[.,].*$/, '').trim().slice(0, 48) || 'Archived session'}</h2>
+            <div className="sub">
+              {projectName ?? historicalSession.project} · read-only snapshot · saved {savedAt}
+            </div>
+
+            <div
+              style={{
+                marginBottom: 18,
+                padding: '10px 12px',
+                borderRadius: 10,
+                border: '1px solid rgba(245,160,55,0.24)',
+                background: 'var(--amber-d)',
+                color: 'var(--amber)',
+                fontSize: 12,
+                lineHeight: 1.5,
+              }}
+            >
+              Archived sessions preserve what was recorded at run time. Missing historical fields
+              are labelled <strong>Not recorded</strong>; values derived from the completed run are
+              labelled <strong>Reconstructed</strong>.
+            </div>
+
+            <div className="csec">
+              <div className="csec-label">
+                <span className="num">01</span> Goal
+                <span className="field-req">saved</span>
+              </div>
+              <div className="goal-text anim-in">{historicalView.goal.text}</div>
+              {historicalView.goal.source === 'reconstructed' && (
+                <div className="empty">Reconstructed from saved session metadata.</div>
+              )}
+            </div>
+
+            {historicalView.sections.map((section, index) => (
+              <div className="csec" key={section.label}>
+                <div className="csec-label">
+                  <span className="num">{String(index + 2).padStart(2, '0')}</span> {section.label}
+                  <span className="field-opt">archived</span>
+                </div>
+                {Array.isArray(section.value) ? (
+                  <div className="clist">
+                    {section.value.map(item => (
+                      <div className="crow anim-in" key={item}>
+                        <span className="mark">•</span>
+                        <span>{item}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : section.value === 'reconstructed' ? (
+                  <div className="empty">Reconstructed</div>
+                ) : (
+                  <div className="empty">Not recorded</div>
+                )}
+              </div>
+            ))}
+
+            <div className="csec">
+              <div className="csec-label">
+                <span className="num">05</span> Recommended team
+                <span className="field-req">reconstructed</span>
+              </div>
+              {historicalView.team.length > 0 ? (
+                <div className="team-chips">
+                  {historicalView.team.map(member => {
+                    const persona = resolveAgentPersona(member.id);
+                    return (
+                      <span key={member.id} className="agent-chip anim-in">
+                        <span className="pdot" style={{ background: persona.color }} />
+                        {persona.name}
+                        <span className="model-badge" style={{ color: 'var(--tx-3)', borderColor: 'var(--border)' }}>
+                          Reconstructed
+                        </span>
+                      </span>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="empty">Not recorded</div>
+              )}
+            </div>
+
+            <div className="csec">
+              <div className="csec-label">
+                <span className="num">06</span> Branch
+                <span className="field-opt">archived</span>
+              </div>
+              {historicalView.branch ? (
+                <div className="branch-mode-row anim-in">
+                  <span className="branch-mode-chip" data-mode="branch">
+                    ⎇ {historicalView.branch}
+                  </span>
+                  <span className="branch-hint">Saved branch from the completed run.</span>
+                </div>
+              ) : (
+                <div className="empty">Not recorded</div>
+              )}
+            </div>
+          </div>
+        </div>
         <div className="plan-right">
           <div className="panel-head">
-            <span style={{ color: 'var(--amber)' }}>⏱ Archived · {savedAt}</span>
+            <span style={{ color: 'var(--amber)' }}>ARCHIVED TRANSCRIPT · {savedAt}</span>
             <span className="spacer" />
-            {historicalSession.branchName && (
-              <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--tx-3)' }}>
-                {historicalSession.branchName.replace(/^swarm\//, '')}
-              </span>
-            )}
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--tx-3)' }}>
+              read-only
+            </span>
           </div>
           <div className="chat">
             <div className="chat-scroll">
-              {historicalMessages.length > 0 ? (
-                historicalMessages.map((m, i) => <Message key={i} m={m} />)
+              <div
+                style={{
+                  marginBottom: 14,
+                  padding: '10px 12px',
+                  borderRadius: 10,
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-2)',
+                  color: 'var(--tx-2)',
+                  fontSize: 12,
+                  lineHeight: 1.55,
+                }}
+              >
+                Historical mode does not stream new PM turns. Use Re-open in Planning to seed a
+                fresh editable plan from this archived record.
+              </div>
+              {historicalView.messages.length > 0 ? (
+                historicalView.messages.map((m, i) => <Message key={i} m={m} />)
               ) : (
                 <div
                   style={{
@@ -988,7 +1126,7 @@ export function Planning({
                     textAlign: 'center',
                   }}
                 >
-                  No planning conversation recorded for this session.
+                  Planning conversation: Not recorded for this session.
                 </div>
               )}
             </div>

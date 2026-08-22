@@ -122,9 +122,26 @@ export function ModelPolicyModal({
         </div>
         <div className="modal-body">
           <p className="model-policy-copy" id={bodyId}>
-            Checked models stay available for new routes. The PM default must stay enabled and can
-            only be chosen from planning-capable models.
+            Model policy controls which models stay available to Swarm and which planning-capable
+            model is the project default for new PM turns.
           </p>
+          <div className="model-policy-legend">
+            <div>
+              <strong>Available model</strong>: Swarm may route new work to it.
+            </div>
+            <div>
+              <strong>Project default</strong>: the PM uses it for planning unless a task needs a
+              different effective route.
+            </div>
+            <div>
+              <strong>Agent preference</strong>: set per agent in My Team and used as that agent's
+              baseline.
+            </div>
+            <div>
+              <strong>Effective route</strong>: the concrete model shown at Execute time for a
+              specific task.
+            </div>
+          </div>
           <div className="model-policy-groups">
             {groups.map(group => (
               <fieldset key={group.provider} className="model-policy-group" disabled={pending}>
@@ -153,7 +170,12 @@ export function ModelPolicyModal({
                             }
                           />
                           <span className="model-policy-model">
-                            <span className="model-policy-model-label">{model.label}</span>
+                            <span className="model-policy-model-label">
+                              {model.label}
+                              {draft.defaultModelId === model.id && (
+                                <span className="model-policy-row-badge">Project default</span>
+                              )}
+                            </span>
                             <span className="model-policy-model-meta">
                               {model.tier} tier
                               {model.planningCapable ? ' · planning-ready' : ' · coder/reviewer only'}
@@ -173,7 +195,7 @@ export function ModelPolicyModal({
                               })
                             }
                           />
-                          <span>{model.planningCapable ? 'Default PM model' : 'Unavailable for PM'}</span>
+                          <span>{model.planningCapable ? 'Project default' : 'Unavailable for PM'}</span>
                         </label>
                       </div>
                     );
@@ -198,7 +220,8 @@ export function ModelPolicyModal({
             </div>
           ) : (
             <p className="model-policy-note" id={noteId}>
-              {helperCopy}
+              {helperCopy ??
+                'Agent preference lives in My Team. The effective task route is shown in Planning before you Execute.'}
             </p>
           )}
         </div>
