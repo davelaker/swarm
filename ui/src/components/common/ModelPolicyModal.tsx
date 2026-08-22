@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import type { ServerStatus } from '../../App';
 import {
   createModelPolicyDraft,
@@ -41,6 +41,8 @@ export function ModelPolicyModal({
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const onCloseRef = useRef(onClose);
   const pendingRef = useRef(pending);
+  const [collapsedProviders, setCollapsedProviders] = useState<string[]>([]);
+  const [activeProviderNotice, setActiveProviderNotice] = useState<string | null>(null);
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -48,7 +50,8 @@ export function ModelPolicyModal({
   }, [onClose, pending]);
 
   useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeButtonRef.current?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -107,7 +110,9 @@ export function ModelPolicyModal({
             <div className="modal-title" id={titleId}>
               Model policy
             </div>
-            <div className="modal-sub">Choose which local models Swarm may route and which one the PM prefers.</div>
+            <div className="modal-sub">
+              Choose which local models Swarm may route and which one the PM prefers.
+            </div>
           </div>
           <button
             ref={closeButtonRef}
@@ -143,66 +148,155 @@ export function ModelPolicyModal({
             </div>
           </div>
           <div className="model-policy-groups">
-            {groups.map(group => (
-              <fieldset key={group.provider} className="model-policy-group" disabled={pending}>
-                <legend>{group.label}</legend>
-                <div className="model-policy-list">
-                  {group.models.map(model => {
-                    const enabled = model.enabled;
-                    const isOnlyEnabled = enabled && draft.enabledModelIds.length === 1;
-                    return (
-                      <div
-                        key={model.id}
-                        className={`model-policy-row${enabled ? ' enabled' : ''}${
-                          model.planningCapable ? '' : ' not-planning'
-                        }`}
+            {groups.map(group => {
+              const modelsId = `${titleId}-${group.provider}-models`;
+              const reasonId = `${titleId}-${group.provider}-reason`;
+              const expanded = group.policyEnabled && !collapsedProviders.includes(group.provider);
+              const providerToggleReason = !group.available
+                ? group.unavailableReason
+                : !group.canDisable && group.policyEnabled
+                  ? 'At least one provider must remain enabled.'
+                  : null;
+              return (
+                <fieldset key={group.provider} className="model-policy-group" disabled={pending}>
+                  <legend className="sr-only">{group.label}</legend>
+                  <div className={`model-policy-provider${group.available ? '' : ' unavailable'}`}>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={group.policyEnabled}
+                      aria-disabled={!group.available || (!group.canDisable && group.policyEnabled)}
+                      aria-describedby={providerToggleReason ? reasonId : undefined}
+                      className="model-policy-provider-toggle"
+                      title={providerToggleReason ?? `Enable or disable ${group.label}`}
+                      onClick={() => {
+                        if (!group.available) {
+                          setActiveProviderNotice(group.provider);
+                          return;
+                        }
+                        if (group.policyEnabled && !group.canDisable) {
+                          return;
+                        }
+                        setActiveProviderNotice(null);
+                        setCollapsedProviders(current =>
+                          group.policyEnabled
+                            ? [...new Set([...current, group.provider])]
+                            : current.filter(provider => provider !== group.provider),
+                        );
+                        dispatch({
+                          type: group.policyEnabled ? 'disable-provider' : 'enable-provider',
+                          provider: group.provider,
+                        });
+                      }}
+                    >
+                      <span className="model-policy-switch" aria-hidden="true">
+                        <span />
+                      </span>
+                      <span className="model-policy-provider-copy">
+                        <strong>{group.label}</strong>
+                        <span>
+                          {group.available
+                            ? group.policyEnabled
+                              ? `${group.models.filter(model => model.enabled).length} models enabled`
+                              : 'Available · off'
+                            : 'Unavailable'}
+                        </span>
+                      </span>
+                    </button>
+                    {group.policyEnabled ? (
+                      <button
+                        type="button"
+                        className="model-policy-disclosure"
+                        aria-expanded={expanded}
+                        aria-controls={modelsId}
+                        aria-label={`${expanded ? 'Hide' : 'Show'} ${group.label} model options`}
+                        onClick={() =>
+                          setCollapsedProviders(current =>
+                            expanded
+                              ? [...new Set([...current, group.provider])]
+                              : current.filter(provider => provider !== group.provider),
+                          )
+                        }
                       >
-                        <label className="model-policy-enable">
-                          <input
-                            type="checkbox"
-                            checked={enabled}
-                            disabled={pending || isOnlyEnabled}
-                            onChange={() =>
-                              dispatch({
-                                type: 'toggle-model',
-                                modelId: model.id,
-                              })
-                            }
-                          />
-                          <span className="model-policy-model">
-                            <span className="model-policy-model-label">
-                              {model.label}
-                              {draft.defaultModelId === model.id && (
-                                <span className="model-policy-row-badge">Project default</span>
-                              )}
-                            </span>
-                            <span className="model-policy-model-meta">
-                              {model.tier} tier
-                              {model.planningCapable ? ' · planning-ready' : ' · coder/reviewer only'}
-                            </span>
-                          </span>
-                        </label>
-                        <label className="model-policy-default">
-                          <input
-                            type="radio"
-                            name="default-planning-model"
-                            checked={draft.defaultModelId === model.id}
-                            disabled={pending || !enabled || !model.planningCapable}
-                            onChange={() =>
-                              dispatch({
-                                type: 'select-default',
-                                modelId: model.id,
-                              })
-                            }
-                          />
-                          <span>{model.planningCapable ? 'Project default' : 'Unavailable for PM'}</span>
-                        </label>
-                      </div>
-                    );
-                  })}
-                </div>
-              </fieldset>
-            ))}
+                        <span aria-hidden="true">{expanded ? '−' : '+'}</span>
+                      </button>
+                    ) : null}
+                  </div>
+                  {providerToggleReason ? (
+                    <div
+                      id={reasonId}
+                      className={`model-policy-provider-reason${
+                        activeProviderNotice === group.provider ? ' visible' : ''
+                      }`}
+                      role={activeProviderNotice === group.provider ? 'tooltip' : undefined}
+                    >
+                      {providerToggleReason}
+                    </div>
+                  ) : null}
+                  {expanded ? (
+                    <div className="model-policy-list" id={modelsId}>
+                      {group.models.map(model => {
+                        const enabled = model.enabled;
+                        const isOnlyEnabled = enabled && draft.enabledModelIds.length === 1;
+                        return (
+                          <div
+                            key={model.id}
+                            className={`model-policy-row${enabled ? ' enabled' : ''}${
+                              model.planningCapable ? '' : ' not-planning'
+                            }`}
+                          >
+                            <label className="model-policy-enable">
+                              <input
+                                type="checkbox"
+                                checked={enabled}
+                                disabled={pending || isOnlyEnabled}
+                                onChange={() =>
+                                  dispatch({
+                                    type: 'toggle-model',
+                                    modelId: model.id,
+                                  })
+                                }
+                              />
+                              <span className="model-policy-model">
+                                <span className="model-policy-model-label">
+                                  {model.label}
+                                  {draft.defaultModelId === model.id && (
+                                    <span className="model-policy-row-badge">Project default</span>
+                                  )}
+                                </span>
+                                <span className="model-policy-model-meta">
+                                  {model.tier} tier
+                                  {model.planningCapable
+                                    ? ' · planning-ready'
+                                    : ' · coder/reviewer only'}
+                                </span>
+                              </span>
+                            </label>
+                            <label className="model-policy-default">
+                              <input
+                                type="radio"
+                                name="default-planning-model"
+                                checked={draft.defaultModelId === model.id}
+                                disabled={pending || !enabled || !model.planningCapable}
+                                onChange={() =>
+                                  dispatch({
+                                    type: 'select-default',
+                                    modelId: model.id,
+                                  })
+                                }
+                              />
+                              <span>
+                                {model.planningCapable ? 'Project default' : 'Unavailable for PM'}
+                              </span>
+                            </label>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </fieldset>
+              );
+            })}
           </div>
           {activeError ? (
             <div className="model-policy-error" id={errorId} role="alert">

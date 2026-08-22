@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import {
   getProviderModel,
   listProviderModels,
@@ -8,6 +7,7 @@ import {
 } from './catalog.js';
 import {
   discoverProviderAvailability,
+  probeCliCommand,
   resolveProviderSelection,
   type CliProbe,
   type ProviderAvailability,
@@ -35,15 +35,6 @@ export interface ModelPolicyProvider {
 
 let policyOverride: ProviderModelPolicy | null = null;
 let revision = 0;
-
-function commandIsAvailable(command: string): boolean {
-  try {
-    execFileSync(command, ['--version'], { stdio: 'ignore', timeout: 5_000 });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export function providerModelPolicyRevision(): number {
   return revision;
@@ -128,7 +119,7 @@ function initialProviderSelection(env: NodeJS.ProcessEnv, probe: CliProbe): Prov
 
 export function defaultProviderModelPolicy(
   env: NodeJS.ProcessEnv = process.env,
-  probe: CliProbe = commandIsAvailable,
+  probe: CliProbe = probeCliCommand,
 ): ProviderModelPolicy {
   const selection = initialProviderSelection(env, probe);
   const executable = listExecutableModels(selection.availability);
@@ -146,7 +137,7 @@ export function defaultProviderModelPolicy(
 
 export function getProviderModelPolicy(
   env: NodeJS.ProcessEnv = process.env,
-  probe: CliProbe = commandIsAvailable,
+  probe: CliProbe = probeCliCommand,
 ): ProviderModelPolicy {
   return policyOverride ?? defaultProviderModelPolicy(env, probe);
 }
@@ -186,7 +177,7 @@ function assertPolicyIsValid(
 export function setProviderModelPolicy(
   input: { enabledModelIds: readonly string[]; defaultModelId?: string },
   env: NodeJS.ProcessEnv = process.env,
-  probe: CliProbe = commandIsAvailable,
+  probe: CliProbe = probeCliCommand,
 ): ProviderModelPolicy {
   const enabledModelIds = normalizeEnabledModelIds(input.enabledModelIds);
   const requestedDefault = input.defaultModelId?.trim();
@@ -204,7 +195,7 @@ export function setProviderModelPolicy(
 
 export function modelPolicyProviders(
   env: NodeJS.ProcessEnv = process.env,
-  probe: CliProbe = commandIsAvailable,
+  probe: CliProbe = probeCliCommand,
 ): readonly ModelPolicyProvider[] {
   const availability = discoverProviderAvailability(env, probe);
   return availability.map((provider) => ({
@@ -221,7 +212,7 @@ export function modelPolicyProviders(
 
 export function resolveProviderSelectionFromModelPolicy(
   env: NodeJS.ProcessEnv = process.env,
-  probe: CliProbe = commandIsAvailable,
+  probe: CliProbe = probeCliCommand,
 ): ProviderSelection {
   const availability = discoverProviderAvailability(env, probe);
   const policy = getProviderModelPolicy(env, probe);

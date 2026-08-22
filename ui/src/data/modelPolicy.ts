@@ -35,6 +35,8 @@ export interface ModelPolicyControlState {
 
 export type ModelPolicyDraftAction =
   | { type: 'reset'; draft: ModelPolicyDraft }
+  | { type: 'enable-provider'; provider: AvailableProvider['provider'] }
+  | { type: 'disable-provider'; provider: AvailableProvider['provider'] }
   | { type: 'toggle-model'; modelId: string }
   | { type: 'select-default'; modelId: string };
 
@@ -46,6 +48,10 @@ export interface ModelPolicyGroupedModel extends AvailableModel {
 export interface ModelPolicyGroup {
   provider: AvailableProvider['provider'];
   label: string;
+  available: boolean;
+  policyEnabled: boolean;
+  canDisable: boolean;
+  unavailableReason: string | null;
   models: ModelPolicyGroupedModel[];
 }
 
@@ -257,7 +263,10 @@ export function modelPolicyValidation(input: {
   if (!input.defaultModelId) {
     return 'Choose a default PM model.';
   }
-  if (!input.enabledModelIds.includes(input.defaultModelId) || !planningIds.includes(input.defaultModelId)) {
+  if (
+    !input.enabledModelIds.includes(input.defaultModelId) ||
+    !planningIds.includes(input.defaultModelId)
+  ) {
     return 'The default PM model must stay enabled.';
   }
   return null;
@@ -333,6 +342,42 @@ export function reduceModelPolicyDraft(
     };
   }
 
+  if (action.type === 'enable-provider') {
+    const providerModelIds =
+      providers
+        .find(provider => provider.provider === action.provider)
+        ?.models.map(model => model.id) ?? [];
+    const enabledModelIds = uniqueModelIds([...state.enabledModelIds, ...providerModelIds]);
+    return {
+      enabledModelIds,
+      defaultModelId: normalizeDefaultModelId({
+        providers,
+        enabledModelIds,
+        requestedDefaultModelId: state.defaultModelId,
+      }),
+    };
+  }
+
+  if (action.type === 'disable-provider') {
+    const providerModelIds = new Set(
+      providers
+        .find(provider => provider.provider === action.provider)
+        ?.models.map(model => model.id) ?? [],
+    );
+    const enabledModelIds = state.enabledModelIds.filter(modelId => !providerModelIds.has(modelId));
+    if (enabledModelIds.length === 0) {
+      return state;
+    }
+    return {
+      enabledModelIds,
+      defaultModelId: normalizeDefaultModelId({
+        providers,
+        enabledModelIds,
+        requestedDefaultModelId: state.defaultModelId,
+      }),
+    };
+  }
+
   if (state.enabledModelIds.includes(action.modelId) && state.enabledModelIds.length === 1) {
     return state;
   }
@@ -351,21 +396,47 @@ export function reduceModelPolicyDraft(
   };
 }
 
+function modelPolicyProviderLabel(provider: AvailableProvider['provider']): string {
+  return provider === 'anthropic' ? 'Claude' : 'OpenAI / Codex';
+}
+
+function providerUnavailableReason(provider: ModelPolicyProvider): string | null {
+  if (provider.available) {
+    return null;
+  }
+  const label = modelPolicyProviderLabel(provider.provider);
+  if (provider.enabled === false) {
+    return `${label} is disabled by SWARM_ENABLED_PROVIDERS.`;
+  }
+  if (!provider.cliAvailable && !provider.apiKeyConfigured) {
+    return provider.provider === 'anthropic'
+      ? 'Claude CLI was not detected and no Anthropic API key is configured.'
+      : 'Codex CLI was not detected and no OpenAI API key is configured.';
+  }
+  return `No compatible local transport is available for ${label}.`;
+}
+
 export function modelPolicyGroups(
   providers: ModelPolicyProvider[],
   enabledModelIds: string[],
 ): ModelPolicyGroup[] {
-  return providers
-    .filter(provider => provider.available || provider.models.length > 0)
-    .map(provider => ({
+  return providers.map(provider => {
+    const providerModelIds = new Set(provider.models.map(model => model.id));
+    const policyEnabled = enabledModelIds.some(modelId => providerModelIds.has(modelId));
+    return {
       provider: provider.provider,
-      label: provider.provider === 'openai' ? 'OpenAI / Codex' : 'Anthropic',
+      label: modelPolicyProviderLabel(provider.provider),
+      available: provider.available,
+      policyEnabled,
+      canDisable: policyEnabled && enabledModelIds.some(modelId => !providerModelIds.has(modelId)),
+      unavailableReason: providerUnavailableReason(provider),
       models: provider.models.map(model => ({
         ...model,
         enabled: enabledModelIds.includes(model.id),
         planningCapable: model.capabilities.includes('planning'),
       })),
-    }));
+    };
+  });
 }
 
 export function modelPolicySaveState(input: {

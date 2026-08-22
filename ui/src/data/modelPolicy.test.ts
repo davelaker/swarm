@@ -137,6 +137,40 @@ describe('reduceModelPolicyDraft', () => {
     });
   });
 
+  it('enables and disables a provider as one coarse-grained choice', () => {
+    const gptOnly = createModelPolicyDraft(
+      snapshot({ enabledModelIds: ['gpt-5.4'], defaultModelId: 'gpt-5.4' }),
+    );
+    const withClaude = reduceModelPolicyDraft(providers, gptOnly, {
+      type: 'enable-provider',
+      provider: 'anthropic',
+    });
+
+    expect(withClaude).toEqual({
+      enabledModelIds: ['gpt-5.4', 'claude-haiku-4-5-20251001', 'claude-sonnet-4-6'],
+      defaultModelId: 'gpt-5.4',
+    });
+    expect(
+      reduceModelPolicyDraft(providers, withClaude, {
+        type: 'disable-provider',
+        provider: 'anthropic',
+      }),
+    ).toEqual(gptOnly);
+  });
+
+  it('does not disable the last enabled provider', () => {
+    const gptOnly = createModelPolicyDraft(
+      snapshot({ enabledModelIds: ['gpt-5.4'], defaultModelId: 'gpt-5.4' }),
+    );
+
+    expect(
+      reduceModelPolicyDraft(providers, gptOnly, {
+        type: 'disable-provider',
+        provider: 'openai',
+      }),
+    ).toEqual(gptOnly);
+  });
+
   it('ignores attempts to select a disabled or non-planning default', () => {
     const draft = createModelPolicyDraft(snapshot());
 
@@ -182,7 +216,11 @@ describe('selectors and validation', () => {
     expect(modelPolicyGroups(providers, ['claude-sonnet-4-6', 'gpt-5.4'])).toEqual([
       {
         provider: 'anthropic',
-        label: 'Anthropic',
+        label: 'Claude',
+        available: true,
+        policyEnabled: true,
+        canDisable: true,
+        unavailableReason: null,
         models: [
           {
             id: 'claude-haiku-4-5-20251001',
@@ -207,6 +245,10 @@ describe('selectors and validation', () => {
       {
         provider: 'openai',
         label: 'OpenAI / Codex',
+        available: true,
+        policyEnabled: true,
+        canDisable: true,
+        unavailableReason: null,
         models: [
           {
             id: 'gpt-5.4',
@@ -214,6 +256,45 @@ describe('selectors and validation', () => {
             tier: 'standard',
             capabilities: ['coding', 'planning', 'review'],
             reasoningEfforts: ['low', 'medium'],
+            enabled: true,
+            planningCapable: true,
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('keeps an unavailable Claude provider as one collapsed entry with a reason', () => {
+    const unavailableClaude: ModelPolicyProvider = {
+      provider: 'anthropic',
+      available: false,
+      enabled: true,
+      cliAvailable: false,
+      apiKeyConfigured: false,
+      availableAuthModes: [],
+      models: [],
+    };
+
+    expect(modelPolicyGroups([unavailableClaude, providers[1]], ['gpt-5.4'])).toEqual([
+      {
+        provider: 'anthropic',
+        label: 'Claude',
+        available: false,
+        policyEnabled: false,
+        canDisable: false,
+        unavailableReason: 'Claude CLI was not detected and no Anthropic API key is configured.',
+        models: [],
+      },
+      {
+        provider: 'openai',
+        label: 'OpenAI / Codex',
+        available: true,
+        policyEnabled: true,
+        canDisable: false,
+        unavailableReason: null,
+        models: [
+          {
+            ...providers[1].models[0],
             enabled: true,
             planningCapable: true,
           },
@@ -231,10 +312,7 @@ describe('selectors and validation', () => {
     });
 
     expect(
-      modelPolicyPreferenceState(
-        snapshot({ enabledModelIds: ['claude-sonnet-4-6'] }),
-        'gpt-5.4',
-      ),
+      modelPolicyPreferenceState(snapshot({ enabledModelIds: ['claude-sonnet-4-6'] }), 'gpt-5.4'),
     ).toMatchObject({
       modelId: 'gpt-5.4',
       status: 'disabled',

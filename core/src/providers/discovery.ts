@@ -26,16 +26,46 @@ export interface ProviderDiscoveryInput {
 
 export type CliProbe = (command: string) => boolean;
 
+interface CommandRunOptions {
+  stdio: 'ignore';
+  timeout: number;
+}
+
+type CommandRunner = (file: string, args: string[], options: CommandRunOptions) => unknown;
+
 const PROVIDER_PRECEDENCE: readonly ProviderId[] = ['anthropic', 'openai'];
 
-function commandIsAvailable(command: string): boolean {
+const runCommand: CommandRunner = (file, args, options) => execFileSync(file, args, options);
+
+export function probeCliCommand(
+  command: string,
+  options: { shell?: string; run?: CommandRunner } = {},
+): boolean {
+  const run = options.run ?? runCommand;
+  const runOptions: CommandRunOptions = { stdio: 'ignore', timeout: 5_000 };
   try {
     // --version is deliberately the only command run: it establishes that the
     // executable is usable without querying, logging, or exposing credentials.
-    execFileSync(command, ['--version'], { stdio: 'ignore', timeout: 5_000 });
+    run(command, ['--version'], runOptions);
     return true;
   } catch {
-    return false;
+    const shell = options.shell ?? process.env.SHELL;
+    if (!shell) {
+      return false;
+    }
+    try {
+      // Desktop and managed runtimes often inherit a minimal PATH. A login
+      // shell restores user-managed CLI locations (for example nvm) while the
+      // positional parameter keeps the executable name out of shell source.
+      run(
+        shell,
+        ['-lic', '"$1" --version >/dev/null 2>&1', 'swarm-provider-probe', command],
+        runOptions,
+      );
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
@@ -73,7 +103,7 @@ function availableAuthModes(cliAvailable: boolean, apiKeyConfigured: boolean): r
  */
 export function discoverProviderAvailability(
   env: NodeJS.ProcessEnv = process.env,
-  probe: CliProbe = commandIsAvailable,
+  probe: CliProbe = probeCliCommand,
 ): readonly ProviderAvailability[] {
   const enabledProviders = parseEnabledProviders(env.SWARM_ENABLED_PROVIDERS);
   const hasClaudeCli = probe('claude');
@@ -160,7 +190,7 @@ export function resolveProviderSelection(input: ProviderDiscoveryInput): Provide
 /** Resolve directly from safe process metadata, while keeping probes testable. */
 export function getProviderSelection(
   env: NodeJS.ProcessEnv = process.env,
-  probe: CliProbe = commandIsAvailable,
+  probe: CliProbe = probeCliCommand,
 ): ProviderSelection {
   // SWARM_DRIVER is the pre-provider configuration surface. Preserve its
   // meaning when SWARM_DEFAULT_PROVIDER has not been set explicitly.

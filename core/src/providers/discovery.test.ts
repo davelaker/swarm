@@ -1,6 +1,38 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { discoverProviderAvailability, getProviderSelection, resolveProviderSelection } from './discovery.js';
+import {
+  discoverProviderAvailability,
+  getProviderSelection,
+  probeCliCommand,
+  resolveProviderSelection,
+} from './discovery.js';
+
+test('CLI probing falls back to the login shell when the inherited PATH is incomplete', () => {
+  const calls: Array<{ file: string; args: string[] }> = [];
+  const available = probeCliCommand('claude', {
+    shell: '/bin/zsh',
+    run: (file, args) => {
+      calls.push({ file, args });
+      if (file === 'claude') {
+        throw new Error('not on inherited PATH');
+      }
+    },
+  });
+
+  assert.equal(available, true);
+  assert.deepEqual(calls, [
+    { file: 'claude', args: ['--version'] },
+    {
+      file: '/bin/zsh',
+      args: [
+        '-lic',
+        '"$1" --version >/dev/null 2>&1',
+        'swarm-provider-probe',
+        'claude',
+      ],
+    },
+  ]);
+});
 
 test('discovery returns safe provider metadata without CLI output or credentials', () => {
   const availability = discoverProviderAvailability(

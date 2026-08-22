@@ -53,7 +53,7 @@ The dashboard and `swarm do` share the same Quick task compiler.
 
 ## Provider setup
 
-Swarm detects provider availability without reading CLI configuration, account details, tokens, or API-key values. It runs only `<cli> --version` and checks whether the relevant environment variable is present.
+Swarm detects provider availability without reading CLI configuration, account details, tokens, or API-key values. It runs only `<cli> --version` and checks whether the relevant environment variable is present. If a desktop or managed launch inherits a minimal `PATH`, Swarm repeats that safe version probe through the user's login shell so CLIs installed by tools such as nvm are still detected.
 
 ### Claude
 
@@ -82,6 +82,8 @@ curl -s -X POST http://localhost:7000/providers/models \
 ```
 
 The response shape is `{ "providers": [...], "enabledModelIds": string[], "defaultModelId": string, "activeRun": boolean }`. `providers` is grouped by provider and includes only models Swarm can execute through the current local transports. `POST` rejects an empty enabled set, unavailable or API-only models, a default that is not enabled or planning-capable, and active-run changes. If exactly one model is enabled, the server makes it the default even when the submitted default is omitted or stale. The default model controls PM planning and the exact PM driver/model; enabled models constrain task routing and fallbacks, so unchecked models cannot run.
+
+The dashboard presents providers first and reveals their model choices only when a provider is enabled. An unavailable provider remains visible as one disabled switch; activating it explains which local CLI, API key, or provider setting is missing instead of silently hiding the provider.
 
 Never put credentials in committed configuration files. Swarm does not expose credential values in provider availability responses or telemetry.
 
