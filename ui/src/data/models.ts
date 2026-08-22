@@ -89,6 +89,18 @@ function hasExecutableTransport(provider: AvailableProvider, model: AvailableMod
   return provider.availableAuthModes.includes('subscription') && CODEX_CLI_MODEL_IDS.has(model.id);
 }
 
+export function executableModels(
+  providers: AvailableProvider[],
+): Array<AvailableModel & { provider: AvailableProvider['provider'] }> {
+  return providers.flatMap(provider =>
+    provider.available
+      ? provider.models
+          .filter(model => hasExecutableTransport(provider, model))
+          .map(model => ({ ...model, provider: provider.provider }))
+      : [],
+  );
+}
+
 export function reasoningEffortTradeoff(effort: ReasoningEffort | undefined): string {
   switch (effort) {
     case 'low':
@@ -115,13 +127,13 @@ export function taskCapability(assignee: string): RoutingCapability {
 export function selectableModels(
   providers: AvailableProvider[],
   assignee: string,
+  enabledModelIds?: Iterable<string>,
 ): Array<AvailableModel & { provider: AvailableProvider['provider'] }> {
   const capability = taskCapability(assignee);
-  return providers.flatMap(provider =>
-    provider.available
-      ? provider.models
-          .filter(model => model.capabilities.includes(capability) && hasExecutableTransport(provider, model))
-          .map(model => ({ ...model, provider: provider.provider }))
-      : [],
+  const enabledIdSet = enabledModelIds ? new Set(enabledModelIds) : null;
+  return executableModels(providers).filter(
+    model =>
+      model.capabilities.includes(capability) &&
+      (!enabledIdSet || enabledIdSet.has(model.id)),
   );
 }

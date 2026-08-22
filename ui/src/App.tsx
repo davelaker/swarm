@@ -7,21 +7,21 @@ import { Marketplace } from './components/marketplace/Marketplace';
 import { SessionsPanel } from './components/sessions/SessionsPanel';
 import { ProjectSwitcher } from './components/common/ProjectSwitcher';
 import { StaleServerBanner } from './components/common/StaleServerBanner';
+import { ModelPolicyModal } from './components/common/ModelPolicyModal';
 import { PermissionGate } from './components/running/PermissionGate';
 import { useRealRun } from './hooks/useRealRun';
 import { useRunNotifications } from './hooks/useRunNotifications';
 import { IconGitHub, IconFolder } from './components/common/icons';
-import type { AvailableProvider } from './data/models';
+import { modelMeta, type AvailableProvider } from './data/models';
 import {
-  codexOnlyConfirmationCopy,
-  codexOnlyEnabled,
-  codexOnlyStatusLabel,
-  codexOnlyToggleState,
-  defaultProviderModeState,
-  normalizeProviderModeResponse,
-  type ProviderModeResponse,
-  type ProviderModeState,
-} from './data/providerMode';
+  defaultModelPolicySnapshot,
+  defaultModelLabel,
+  modelPolicyButtonState,
+  normalizeModelPolicyResponse,
+  type ModelPolicyDraft,
+  type ModelPolicyResponse,
+  type ModelPolicySnapshot,
+} from './data/modelPolicy';
 import type { QuickTaskStartResult } from './data/quickTask';
 
 export type ServerStatus = 'probing' | 'up' | 'down';
@@ -29,6 +29,7 @@ export type ServerStatus = 'probing' | 'up' | 'down';
 interface CapabilitiesResponse {
   playwright?: boolean;
   providers?: AvailableProvider[];
+  modelPolicy?: ModelPolicyResponse;
 }
 
 export interface TaskGraphEntry {
@@ -80,7 +81,7 @@ function loadSurface(): Surface {
       v === 'marketplace' ||
       v === 'history'
     )
-      return v as Surface;
+      {return v as Surface;}
   } catch {
     /* private mode or quota — ignore */
   }
@@ -116,11 +117,10 @@ export function App() {
   const [reopenKey, setReopenKey] = useState(0);
   // null = unknown (don't nag); false = visual verification disabled (Playwright missing).
   const [playwrightAvailable, setPlaywrightAvailable] = useState<boolean | null>(null);
-  const [providerMode, setProviderMode] = useState<ProviderModeState>(defaultProviderModeState);
-  const [providerModePending, setProviderModePending] = useState(false);
-  const [providerModeError, setProviderModeError] = useState<string | null>(null);
-  const [providerModeConfirmOpen, setProviderModeConfirmOpen] = useState(false);
-  const [providersRefreshKey, setProvidersRefreshKey] = useState(0);
+  const [modelPolicy, setModelPolicy] = useState<ModelPolicySnapshot>(defaultModelPolicySnapshot);
+  const [modelPolicyPending, setModelPolicyPending] = useState(false);
+  const [modelPolicyError, setModelPolicyError] = useState<string | null>(null);
+  const [modelPolicyOpen, setModelPolicyOpen] = useState(false);
   // True once we've confirmed the correct project root (no mismatch, or switch
   // completed). The Running tab waits behind a loading screen until this is set
   // so we never show a flash of the wrong project's state.
@@ -142,23 +142,26 @@ export function App() {
     }
     const data = (await response.json()) as CapabilitiesResponse;
     setPlaywrightAvailable(!!data.playwright);
+    if (data.modelPolicy) {
+      setModelPolicy(previous => normalizeModelPolicyResponse(data.modelPolicy, previous));
+    }
   }, []);
 
-  const refreshProviderMode = useCallback(async () => {
-    const response = await fetch('/providers/mode', { signal: AbortSignal.timeout(3000) });
+  const refreshModelPolicy = useCallback(async () => {
+    const response = await fetch('/providers/models', { signal: AbortSignal.timeout(3000) });
     if (!response.ok) {
-      throw new Error('Swarm could not read provider mode.');
+      throw new Error('Swarm could not read model policy.');
     }
-    const data = (await response.json()) as ProviderModeResponse;
-    setProviderMode(prev => normalizeProviderModeResponse(data, prev));
+    const data = (await response.json()) as ModelPolicyResponse;
+    setModelPolicy(previous => normalizeModelPolicyResponse(data, previous));
   }, []);
 
   useEffect(() => {
-    void refreshCapabilities()
-      .then(() => setProvidersRefreshKey(key => key + 1))
-      .catch(() => {});
-    void refreshProviderMode().catch(() => {});
-  }, [refreshCapabilities, refreshProviderMode]);
+    // Initial capability/model-policy sync belongs to app bootstrap.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refreshCapabilities().catch(() => {});
+    void refreshModelPolicy().catch(() => {});
+  }, [refreshCapabilities, refreshModelPolicy]);
 
   // Single server probe — retries every 3s, also reads project name when up. Hits the
   // lightweight /health endpoint (not /state) so this frequent poll doesn't re-read every
@@ -172,7 +175,7 @@ export function App() {
     const probe = () => {
       fetch('/health', { signal: AbortSignal.timeout(2000) })
         .then(r => {
-          if (!r.ok) throw new Error();
+          if (!r.ok) {throw new Error();}
           return r.json();
         })
         .then(
@@ -183,12 +186,13 @@ export function App() {
             activeRun?: boolean;
             repoUrl?: string | null;
             root?: string;
+            modelPolicy?: ModelPolicyResponse;
           }) => {
-            if (!mounted) return;
+            if (!mounted) {return;}
             setServerStatus('up');
-            if (s.project) setProjectName(s.project);
-            if (s.repoUrl) setRepoUrl(s.repoUrl);
-            if (s.root) setProjectRoot(s.root);
+            if (s.project) {setProjectName(s.project);}
+            if (s.repoUrl) {setRepoUrl(s.repoUrl);}
+            if (s.root) {setProjectRoot(s.root);}
 
             // Auto-sync: keep the server pointed at the remembered project. The server
             // resets its root to process.cwd() on every restart, so re-assert on EVERY
@@ -199,7 +203,9 @@ export function App() {
             let localRoot: string | null = null;
             try {
               localRoot = localStorage.getItem('swarm-active-root');
-            } catch {}
+            } catch {
+              /* private mode */
+            }
             const rootMismatch = !!(localRoot && s.root && localRoot !== s.root);
 
             if (rootMismatch && !switchInFlight) {
@@ -221,23 +227,25 @@ export function App() {
                 )
                 .then(d => {
                   switchInFlight = false;
-                  if (!mounted) return;
+                  if (!mounted) {return;}
                   if (d.ok) {
-                    if (d.project) setProjectName(d.project);
-                    if (d.repoUrl !== undefined) setRepoUrl(d.repoUrl);
+                    if (d.project) {setProjectName(d.project);}
+                    if (d.repoUrl !== undefined) {setRepoUrl(d.repoUrl);}
                     setProjectRoot(localRoot!);
                   } else {
                     // Saved path no longer valid — forget it so we stop retrying.
                     try {
                       localStorage.removeItem('swarm-active-root');
-                    } catch {}
+                    } catch {
+                      /* private mode */
+                    }
                   }
                   setProjectSynced(true); // always unblock, regardless of d.ok
                 })
                 .catch(() => {
                   switchInFlight = false;
                   // Network error — unblock with the server's root (already set above)
-                  if (mounted) setProjectSynced(true);
+                  if (mounted) {setProjectSynced(true);}
                 });
             } else if (!rootMismatch) {
               // On the right project (or nothing remembered) — unblock Running.
@@ -248,21 +256,22 @@ export function App() {
             // the Running tab. Transition-guarded: only fires when activeRun flips
             // false→true, never on every 3s probe — the un-guarded version yanked
             // the user back from Branches/Agents/History for the whole run.
-            if (s.activeRun && !prevActiveRun.current) setSurface('running');
+            if (s.activeRun && !prevActiveRun.current) {setSurface('running');}
             prevActiveRun.current = !!s.activeRun;
-            setProviderMode(prev => ({ ...prev, activeRun: !!s.activeRun }));
-            // driver: 'agent-sdk' → Max plan credit pool; 'api-key' → show model name
-            if (s.driver === 'agent-sdk') {
-              setModelLabel('Max plan');
-            } else if (s.model) {
-              setModelLabel(s.model.replace(/^claude-/, ''));
+            setModelPolicy(prev =>
+              s.modelPolicy
+                ? normalizeModelPolicyResponse(s.modelPolicy, prev)
+                : { ...prev, activeRun: !!s.activeRun },
+            );
+            if (s.model) {
+              setModelLabel(modelMeta(s.model)?.label ?? s.model.replace(/^claude-/, ''));
             }
           },
         )
         .catch(() => {
-          if (!mounted) return;
+          if (!mounted) {return;}
           setServerStatus('down');
-          setProviderMode(prev => ({ ...prev, activeRun: false }));
+          setModelPolicy(prev => ({ ...prev, activeRun: false }));
           // Don't touch projectSynced here — server being offline is not the
           // same as "confirmed on correct project". When server comes back up
           // the probe fires again, auto-sync runs, and projectSynced is set
@@ -270,27 +279,26 @@ export function App() {
           // bypasses the spinner gate.
         })
         .finally(() => {
-          if (mounted) timer = setTimeout(probe, 3000);
+          if (mounted) {timer = setTimeout(probe, 3000);}
         });
     };
 
     probe();
     return () => {
       mounted = false;
-      if (timer) clearTimeout(timer);
+      if (timer) {clearTimeout(timer);}
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (serverStatus !== 'up') {
       return;
     }
-    void refreshCapabilities()
-      .then(() => setProvidersRefreshKey(key => key + 1))
-      .catch(() => {});
-    void refreshProviderMode().catch(() => {});
-  }, [refreshCapabilities, refreshProviderMode, serverStatus]);
+    // Server reconnection should refresh the latest model policy and capabilities.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refreshCapabilities().catch(() => {});
+    void refreshModelPolicy().catch(() => {});
+  }, [refreshCapabilities, refreshModelPolicy, serverStatus]);
 
   // Persist surface so HMR / refresh restores the active tab.
   useEffect(() => {
@@ -304,7 +312,7 @@ export function App() {
   // Kick off a run with explicit values (no reliance on async state settling) —
   // used both by the Execute button (via goExecute) and by review auto-execute.
   const startRun = useCallback((goal: string, charter: RunCharter | null, team: string[]) => {
-    if (!goal) return;
+    if (!goal) {return;}
     setExecuteError(null);
 
     // Optimistic: switch to Running immediately so the tab feels instant.
@@ -320,9 +328,9 @@ export function App() {
     })
       .then(r => {
         if (!r.ok)
-          return r.json().then((d: { error?: string }) => {
+          {return r.json().then((d: { error?: string }) => {
             throw new Error(d.error ?? `HTTP ${r.status}`);
-          });
+          });}
 
         // Open a short-lived SSE listener. If the run gets blocked before the
         // first task arrives (e.g. git-dirty check), snap back to Planning with
@@ -415,11 +423,11 @@ export function App() {
   const handleExecutable = useCallback(
     (v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => {
       setExecutable(v);
-      if (!v && reason) setExecutableReason(reason);
-      if (v) setExecutableReason('');
-      if (goal) setRunGoal(goal);
-      if (charter) setRunCharter(charter);
-      if (team) setRunTeam(team);
+      if (!v && reason) {setExecutableReason(reason);}
+      if (v) {setExecutableReason('');}
+      if (goal) {setRunGoal(goal);}
+      if (charter) {setRunCharter(charter);}
+      if (team) {setRunTeam(team);}
     },
     [],
   );
@@ -463,42 +471,41 @@ export function App() {
       : serverStatus === 'probing'
         ? 'connecting…'
         : 'agents offline';
-  const providerModeSnapshot = {
-    ...providerMode,
-    activeRun: providerMode.activeRun || isInitiating,
-  };
-  const codexToggle = codexOnlyToggleState({
+  const activeModelLabel = modelLabel ?? defaultModelLabel(modelPolicy) ?? 'PM model';
+  const modelPolicyButton = modelPolicyButtonState({
     serverStatus,
-    pending: providerModePending,
-    providerMode: providerModeSnapshot,
+    snapshot: {
+      ...modelPolicy,
+      activeRun: modelPolicy.activeRun || isInitiating,
+    },
   });
-  const providerModeCopy = codexOnlyConfirmationCopy(providerMode.mode);
 
-  const submitProviderModeChange = useCallback(async () => {
-    setProviderModePending(true);
-    setProviderModeError(null);
+  const submitModelPolicyChange = useCallback(async (draft: ModelPolicyDraft) => {
+    setModelPolicyPending(true);
+    setModelPolicyError(null);
     try {
-      const response = await fetch('/providers/mode', {
+      const response = await fetch('/providers/models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: providerModeCopy.nextMode }),
+        body: JSON.stringify(draft),
       });
-      const data = (await response.json().catch(() => ({}))) as ProviderModeResponse;
+      const data = (await response.json().catch(() => ({}))) as ModelPolicyResponse;
       if (!response.ok) {
-        throw new Error(data.error ?? 'Swarm could not change provider mode.');
+        throw new Error(data.error ?? 'Swarm could not change model policy.');
       }
-      setProviderMode(prev => normalizeProviderModeResponse(data, prev));
+      const nextPolicy = normalizeModelPolicyResponse(data, modelPolicy);
+      setModelPolicy(nextPolicy);
       await refreshCapabilities();
-      setProvidersRefreshKey(key => key + 1);
-      setProviderModeConfirmOpen(false);
+      setModelLabel(defaultModelLabel(nextPolicy));
+      setModelPolicyOpen(false);
     } catch (error) {
-      setProviderModeError(
-        error instanceof Error ? error.message : 'Swarm could not change provider mode.',
+      setModelPolicyError(
+        error instanceof Error ? error.message : 'Swarm could not change model policy.',
       );
     } finally {
-      setProviderModePending(false);
+      setModelPolicyPending(false);
     }
-  }, [providerModeCopy.nextMode, refreshCapabilities]);
+  }, [modelPolicy, refreshCapabilities]);
 
   return (
     <div className="app">
@@ -640,55 +647,26 @@ export function App() {
             }}
           />
           {serverLabel}
-          {modelLabel && serverStatus === 'up' && (
+          {serverStatus === 'up' && (
             <>
               <span style={{ color: 'var(--tx-3)', userSelect: 'none' }}>·</span>
-              <span style={{ color: 'var(--tx-3)' }}>{modelLabel}</span>
+              <button
+                type="button"
+                className="model-policy-trigger"
+                onClick={() => setModelPolicyOpen(true)}
+                disabled={modelPolicyButton.disabled}
+                title={modelPolicyButton.reason ?? 'Choose enabled models and the PM default.'}
+              >
+                <span className="model-policy-trigger-label">{activeModelLabel}</span>
+                <span className="model-policy-trigger-meta">
+                  {modelPolicy.enabledModelIds.length
+                    ? `${modelPolicy.enabledModelIds.length} enabled`
+                    : 'configure'}
+                </span>
+              </button>
             </>
           )}
         </span>
-
-        <button
-          type="button"
-          className={`codex-only-toggle${codexOnlyEnabled(providerMode.mode) ? ' on' : ''}`}
-          onClick={() => {
-            if (!codexToggle.disabled) {
-              setProviderModeConfirmOpen(true);
-            }
-          }}
-          disabled={codexToggle.disabled}
-          title={
-            codexToggle.reason ??
-            (codexOnlyEnabled(providerMode.mode)
-              ? 'Claude is currently disabled for PM planning and task routing.'
-              : 'Disable Claude for PM planning and task routing.')
-          }
-        >
-          <span className="codex-only-copy">
-            <span className="codex-only-label">Codex only</span>
-            <span className="codex-only-state">{codexOnlyStatusLabel(providerMode.mode)}</span>
-          </span>
-          <span
-            className={`switch ${codexOnlyEnabled(providerMode.mode) ? 'on codex' : ''} ${
-              codexToggle.disabled ? 'disabled' : ''
-            }`}
-            aria-hidden="true"
-          />
-        </button>
-
-        {providerModeError && (
-          <span className="codex-only-error" title={providerModeError} role="alert">
-            <span>{providerModeError}</span>
-            <button
-              type="button"
-              className="codex-only-error-dismiss"
-              onClick={() => setProviderModeError(null)}
-              title="Dismiss provider-mode error"
-            >
-              ×
-            </button>
-          </span>
-        )}
 
         {surface === 'planning' && (
           <>
@@ -778,7 +756,7 @@ export function App() {
             playwrightAvailable={playwrightAvailable}
             runBlockedReason={executeError}
             historicalSession={historicalSession ?? undefined}
-            providersRefreshKey={providersRefreshKey}
+            modelPolicy={modelPolicy}
           />
         </div>
         {surface === 'running' &&
@@ -842,42 +820,16 @@ export function App() {
         <PermissionGate request={run.state.pendingPermission} onResolve={run.resolvePermission} />
       )}
 
-      {providerModeConfirmOpen && (
-        <div className="scrim" onClick={() => !providerModePending && setProviderModeConfirmOpen(false)}>
-          <div className="modal codex-only-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-head">
-              <div>
-                <div className="modal-title">{providerModeCopy.title}</div>
-                <div className="modal-sub">Temporary provider-routing override</div>
-              </div>
-            </div>
-            <div className="modal-body">
-              <p className="codex-only-modal-copy">{providerModeCopy.body}</p>
-              <p className="codex-only-modal-note">
-                New PM planning turns and new task routes follow this setting immediately after it
-                succeeds.
-              </p>
-            </div>
-            <div className="modal-foot">
-              <button
-                type="button"
-                className="btn"
-                onClick={() => setProviderModeConfirmOpen(false)}
-                disabled={providerModePending}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn primary"
-                onClick={() => void submitProviderModeChange()}
-                disabled={providerModePending}
-              >
-                {providerModePending ? 'Updating…' : providerModeCopy.confirmLabel}
-              </button>
-            </div>
-          </div>
-        </div>
+      {modelPolicyOpen && (
+        <ModelPolicyModal
+          snapshot={modelPolicy}
+          serverStatus={serverStatus}
+          pending={modelPolicyPending}
+          error={modelPolicyError}
+          onClose={() => setModelPolicyOpen(false)}
+          onDismissError={() => setModelPolicyError(null)}
+          onSave={draft => void submitModelPolicyChange(draft)}
+        />
       )}
     </div>
   );

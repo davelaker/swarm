@@ -18,9 +18,9 @@ import {
   reasoningEffortTradeoff,
   isUpgrade,
   selectableModels,
-  type AvailableProvider,
   type ReasoningEffort,
 } from '../../data/models';
+import type { ModelPolicySnapshot } from '../../data/modelPolicy';
 import type { ExecutionShape, IntakeDecision } from '../../data/intake';
 import type { QuickTaskStartResult } from '../../data/quickTask';
 import { useAgentDefaults } from '../../hooks/useAgentDefaults';
@@ -31,30 +31,22 @@ import type { CharterData, SessionSnapshot } from '../../types';
 // override dropdown so the user confirms or reverts before continuing.
 function ModelPlan({
   taskGraph,
-  providersRefreshKey,
+  modelPolicy,
   onSetTaskRoute,
 }: {
   taskGraph: TaskGraphEntry[];
-  providersRefreshKey?: number;
+  modelPolicy?: ModelPolicySnapshot | null;
   onSetTaskRoute?: (
     taskId: string,
     route: { provider: 'anthropic' | 'openai'; model: string; reasoningEffort?: ReasoningEffort },
   ) => void;
 }) {
   const defaultModelFor = useAgentDefaults();
-  const [providers, setProviders] = useState<AvailableProvider[] | null>(null);
-  useEffect(() => {
-    fetch('/capabilities')
-      .then(r => (r.ok ? r.json() : {}))
-      .then((data: { providers?: AvailableProvider[] }) =>
-        setProviders(Array.isArray(data.providers) ? data.providers : []),
-      )
-      .catch(() => setProviders([]));
-  }, [providersRefreshKey]);
   const tasks = taskGraph.filter(t => t.assignee);
   if (tasks.length === 0) {
     return null;
   }
+  const providers = modelPolicy?.providers ?? null;
   const upgrades = tasks.filter(t =>
     isUpgrade(t.route?.model ?? t.model, defaultModelFor(t.assignee)),
   );
@@ -86,7 +78,9 @@ function ModelPlan({
           const meta = modelMeta(chosen);
           const upgraded = isUpgrade(t.route?.model ?? t.model, def);
           const p = resolveAgentPersona(t.assignee);
-          const models = providers ? selectableModels(providers, t.assignee) : [];
+          const models = providers
+            ? selectableModels(providers, t.assignee, modelPolicy?.enabledModelIds)
+            : [];
           const chosenModel = models.find(model => model.id === chosen);
           const effort = t.route?.reasoningEffort ?? t.effort;
           const fallback = t.route?.fallback;
@@ -117,7 +111,7 @@ function ModelPlan({
                   style={meta ? { color: meta.color } : undefined}
                   onChange={e => {
                     const next = models.find(model => model.id === e.target.value);
-                    if (!next) return;
+                    if (!next) {return;}
                     const nextEffort = next.reasoningEfforts.includes(effort as ReasoningEffort)
                       ? (effort as ReasoningEffort)
                       : next.reasoningEfforts.includes('medium')
@@ -206,14 +200,14 @@ function PlanReadyCallout({
   charter,
   team,
   taskGraph,
-  providersRefreshKey,
+  modelPolicy,
   onExecute,
   onSetTaskRoute,
 }: {
   charter: CharterData;
   team: string[];
   taskGraph?: TaskGraphEntry[];
-  providersRefreshKey?: number;
+  modelPolicy?: ModelPolicySnapshot | null;
   onExecute?: () => void;
   onSetTaskRoute?: (
     taskId: string,
@@ -230,12 +224,12 @@ function PlanReadyCallout({
   const noGoal = !charter.goal;
 
   const blockers: string[] = [];
-  if (noGoal) blockers.push('no goal defined');
-  if (noTeam) blockers.push('no agents in the team');
+  if (noGoal) {blockers.push('no goal defined');}
+  if (noTeam) {blockers.push('no agents in the team');}
   if (openQuestions.length)
-    blockers.push(
+    {blockers.push(
       `${openQuestions.length} open question${openQuestions.length > 1 ? 's' : ''} unresolved`,
-    );
+    );}
   // A hard pre-flight fail (uncommitted tree) would 400 the run — block it up front.
   if (!readiness.canRun) {
     const failed = readiness.checks.find(c => c.status === 'fail');
@@ -279,7 +273,7 @@ function PlanReadyCallout({
       {taskGraph && taskGraph.length > 0 && (
         <ModelPlan
           taskGraph={taskGraph}
-          providersRefreshKey={providersRefreshKey}
+          modelPolicy={modelPolicy}
           onSetTaskRoute={onSetTaskRoute}
         />
       )}
@@ -343,6 +337,7 @@ interface GhIssue {
 }
 
 // Compose a PM brief from a GitHub issue. Pure so it is trivially testable.
+// eslint-disable-next-line react-refresh/only-export-components
 export function issueToBrief(issue: {
   number: number;
   title: string;
@@ -494,7 +489,7 @@ interface PlanningProps {
   playwrightAvailable?: boolean | null;
   runBlockedReason?: string | null;
   historicalSession?: SessionSnapshot;
-  providersRefreshKey?: number;
+  modelPolicy?: ModelPolicySnapshot | null;
 }
 
 interface PendingIntake {
@@ -665,7 +660,7 @@ export function Planning({
   playwrightAvailable,
   runBlockedReason,
   historicalSession,
-  providersRefreshKey = 0,
+  modelPolicy,
 }: PlanningProps) {
   // Derive project name synchronously from localStorage (source of truth for active root).
   // This avoids a race with App.tsx's auto-sync: if the server has been restarted and
@@ -674,7 +669,7 @@ export function Planning({
   const [projectName] = useState<string | undefined>(() => {
     try {
       const root = localStorage.getItem('swarm-active-root');
-      if (root) return root.split('/').filter(Boolean).pop() ?? undefined;
+      if (root) {return root.split('/').filter(Boolean).pop() ?? undefined;}
     } catch {
       /* private mode */
     }
@@ -739,7 +734,7 @@ export function Planning({
   // newSession(). The planNextKey increments each time — skip the initial 0.
   const prevPlanNextKey = useRef(planNextKey ?? 0);
   useEffect(() => {
-    if (!planNextKey || planNextKey === prevPlanNextKey.current) return;
+    if (!planNextKey || planNextKey === prevPlanNextKey.current) {return;}
     prevPlanNextKey.current = planNextKey;
     session.newSession();
   }, [planNextKey, session.newSession]);
@@ -747,9 +742,9 @@ export function Planning({
   // "Re-open in Planning" from a historical session — seed an editable plan from it.
   const prevReopenKey = useRef(reopenKey ?? 0);
   useEffect(() => {
-    if (!reopenKey || reopenKey === prevReopenKey.current) return;
+    if (!reopenKey || reopenKey === prevReopenKey.current) {return;}
     prevReopenKey.current = reopenKey;
-    if (reopenSeed) session.reopen(reopenSeed);
+    if (reopenSeed) {session.reopen(reopenSeed);}
   }, [reopenKey, reopenSeed, session.reopen]);
 
   // A post-run "Request changes" review arrived — send it to the PM as a message
@@ -757,7 +752,7 @@ export function Planning({
   // Guard on the key so it fires exactly once per submission.
   const prevReviewKey = useRef(0);
   useEffect(() => {
-    if (!reviewRequest || reviewRequest.key === prevReviewKey.current) return;
+    if (!reviewRequest || reviewRequest.key === prevReviewKey.current) {return;}
     prevReviewKey.current = reviewRequest.key;
     session.send(reviewRequest.text);
   }, [reviewRequest, session.send]);
@@ -774,7 +769,7 @@ export function Planning({
   }, [session.sessionKey]);
 
   useEffect(() => {
-    if (initFired.current) return;
+    if (initFired.current) {return;}
     // Extract a short stack summary from PROJECT.md (first tech stack bullet)
     const stackLine = context.projectMd?.content
       ?.split('\n')
@@ -804,7 +799,7 @@ export function Planning({
 
   // Auto-scroll on new messages / typing indicator / streaming text
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (scrollRef.current) {scrollRef.current.scrollTop = scrollRef.current.scrollHeight;}
   }, [session.messages, session.typing, session.streamingPmText, activePendingIntake, intakeState]);
 
   // Auto-grow textarea. Use height='0' (not 'auto') before measuring so that
@@ -812,7 +807,7 @@ export function Planning({
   // min-height in CSS guarantees at least one visible line.
   useEffect(() => {
     const el = textareaRef.current;
-    if (!el) return;
+    if (!el) {return;}
     el.style.height = '0';
     el.style.height = Math.min(el.scrollHeight, 120) + 'px';
   }, [input]);
@@ -1120,7 +1115,7 @@ export function Planning({
                 charter={session.charter}
                 team={session.team}
                 taskGraph={session.taskGraph}
-                providersRefreshKey={providersRefreshKey}
+                modelPolicy={modelPolicy}
                 onExecute={executePlan}
                 onSetTaskRoute={session.setTaskRoute}
               />

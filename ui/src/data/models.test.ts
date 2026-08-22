@@ -57,6 +57,30 @@ describe('selectableModels', () => {
     expect(selectableModels(codingOnly, 'reviewer')).toEqual([]);
   });
 
+  it('filters out models disabled by the current policy', () => {
+    expect(
+      selectableModels(
+        [
+          {
+            ...providers[0],
+            models: [
+              ...providers[0].models,
+              {
+                id: 'claude-sonnet-4-6',
+                label: 'Claude Sonnet 4.6',
+                tier: 'standard',
+                capabilities: ['coding', 'planning', 'review'],
+                reasoningEfforts: ['low', 'medium', 'high'],
+              },
+            ],
+          },
+        ],
+        'coder',
+        ['claude-sonnet-4-6'],
+      ).map(model => model.id),
+    ).toEqual(['claude-sonnet-4-6']);
+  });
+
   it('does not show Responses-API-only GPT models for a local Codex subscription', () => {
     const openaiSubscription: AvailableProvider[] = [{
       provider: 'openai',
