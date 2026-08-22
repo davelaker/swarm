@@ -31,9 +31,11 @@ import type { CharterData, SessionSnapshot } from '../../types';
 // override dropdown so the user confirms or reverts before continuing.
 function ModelPlan({
   taskGraph,
+  providersRefreshKey,
   onSetTaskRoute,
 }: {
   taskGraph: TaskGraphEntry[];
+  providersRefreshKey?: number;
   onSetTaskRoute?: (
     taskId: string,
     route: { provider: 'anthropic' | 'openai'; model: string; reasoningEffort?: ReasoningEffort },
@@ -48,7 +50,7 @@ function ModelPlan({
         setProviders(Array.isArray(data.providers) ? data.providers : []),
       )
       .catch(() => setProviders([]));
-  }, []);
+  }, [providersRefreshKey]);
   const tasks = taskGraph.filter(t => t.assignee);
   if (tasks.length === 0) {
     return null;
@@ -204,12 +206,14 @@ function PlanReadyCallout({
   charter,
   team,
   taskGraph,
+  providersRefreshKey,
   onExecute,
   onSetTaskRoute,
 }: {
   charter: CharterData;
   team: string[];
   taskGraph?: TaskGraphEntry[];
+  providersRefreshKey?: number;
   onExecute?: () => void;
   onSetTaskRoute?: (
     taskId: string,
@@ -273,7 +277,11 @@ function PlanReadyCallout({
         loading={readiness.loading}
       />
       {taskGraph && taskGraph.length > 0 && (
-        <ModelPlan taskGraph={taskGraph} onSetTaskRoute={onSetTaskRoute} />
+        <ModelPlan
+          taskGraph={taskGraph}
+          providersRefreshKey={providersRefreshKey}
+          onSetTaskRoute={onSetTaskRoute}
+        />
       )}
       <div className="plan-ready-actions">
         {canExecute && (
@@ -486,6 +494,7 @@ interface PlanningProps {
   playwrightAvailable?: boolean | null;
   runBlockedReason?: string | null;
   historicalSession?: SessionSnapshot;
+  providersRefreshKey?: number;
 }
 
 interface PendingIntake {
@@ -656,6 +665,7 @@ export function Planning({
   playwrightAvailable,
   runBlockedReason,
   historicalSession,
+  providersRefreshKey = 0,
 }: PlanningProps) {
   // Derive project name synchronously from localStorage (source of truth for active root).
   // This avoids a race with App.tsx's auto-sync: if the server has been restarted and
@@ -1110,6 +1120,7 @@ export function Planning({
                 charter={session.charter}
                 team={session.team}
                 taskGraph={session.taskGraph}
+                providersRefreshKey={providersRefreshKey}
                 onExecute={executePlan}
                 onSetTaskRoute={session.setTaskRoute}
               />

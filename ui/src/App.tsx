@@ -11,9 +11,25 @@ import { PermissionGate } from './components/running/PermissionGate';
 import { useRealRun } from './hooks/useRealRun';
 import { useRunNotifications } from './hooks/useRunNotifications';
 import { IconGitHub, IconFolder } from './components/common/icons';
+import type { AvailableProvider } from './data/models';
+import {
+  codexOnlyConfirmationCopy,
+  codexOnlyEnabled,
+  codexOnlyStatusLabel,
+  codexOnlyToggleState,
+  defaultProviderModeState,
+  normalizeProviderModeResponse,
+  type ProviderModeResponse,
+  type ProviderModeState,
+} from './data/providerMode';
 import type { QuickTaskStartResult } from './data/quickTask';
 
 export type ServerStatus = 'probing' | 'up' | 'down';
+
+interface CapabilitiesResponse {
+  playwright?: boolean;
+  providers?: AvailableProvider[];
+}
 
 export interface TaskGraphEntry {
   id: string;
@@ -100,12 +116,11 @@ export function App() {
   const [reopenKey, setReopenKey] = useState(0);
   // null = unknown (don't nag); false = visual verification disabled (Playwright missing).
   const [playwrightAvailable, setPlaywrightAvailable] = useState<boolean | null>(null);
-  useEffect(() => {
-    fetch('/capabilities')
-      .then(r => r.json())
-      .then((d: { playwright?: boolean }) => setPlaywrightAvailable(!!d.playwright))
-      .catch(() => {});
-  }, []);
+  const [providerMode, setProviderMode] = useState<ProviderModeState>(defaultProviderModeState);
+  const [providerModePending, setProviderModePending] = useState(false);
+  const [providerModeError, setProviderModeError] = useState<string | null>(null);
+  const [providerModeConfirmOpen, setProviderModeConfirmOpen] = useState(false);
+  const [providersRefreshKey, setProvidersRefreshKey] = useState(0);
   // True once we've confirmed the correct project root (no mismatch, or switch
   // completed). The Running tab waits behind a loading screen until this is set
   // so we never show a flash of the wrong project's state.
@@ -119,6 +134,31 @@ export function App() {
   // worst of all — hide a pending permission request until it auto-denies.
   const run = useRealRun(projectRoot ? `${projectRoot}:${runConnectionKey}` : projectRoot);
   useRunNotifications(run.state?.status ?? 'running', run.state?.pendingPermission != null);
+
+  const refreshCapabilities = useCallback(async () => {
+    const response = await fetch('/capabilities', { signal: AbortSignal.timeout(3000) });
+    if (!response.ok) {
+      throw new Error('Swarm could not refresh provider capabilities.');
+    }
+    const data = (await response.json()) as CapabilitiesResponse;
+    setPlaywrightAvailable(!!data.playwright);
+  }, []);
+
+  const refreshProviderMode = useCallback(async () => {
+    const response = await fetch('/providers/mode', { signal: AbortSignal.timeout(3000) });
+    if (!response.ok) {
+      throw new Error('Swarm could not read provider mode.');
+    }
+    const data = (await response.json()) as ProviderModeResponse;
+    setProviderMode(prev => normalizeProviderModeResponse(data, prev));
+  }, []);
+
+  useEffect(() => {
+    void refreshCapabilities()
+      .then(() => setProvidersRefreshKey(key => key + 1))
+      .catch(() => {});
+    void refreshProviderMode().catch(() => {});
+  }, [refreshCapabilities, refreshProviderMode]);
 
   // Single server probe — retries every 3s, also reads project name when up. Hits the
   // lightweight /health endpoint (not /state) so this frequent poll doesn't re-read every
@@ -210,6 +250,7 @@ export function App() {
             // the user back from Branches/Agents/History for the whole run.
             if (s.activeRun && !prevActiveRun.current) setSurface('running');
             prevActiveRun.current = !!s.activeRun;
+            setProviderMode(prev => ({ ...prev, activeRun: !!s.activeRun }));
             // driver: 'agent-sdk' → Max plan credit pool; 'api-key' → show model name
             if (s.driver === 'agent-sdk') {
               setModelLabel('Max plan');
@@ -221,6 +262,7 @@ export function App() {
         .catch(() => {
           if (!mounted) return;
           setServerStatus('down');
+          setProviderMode(prev => ({ ...prev, activeRun: false }));
           // Don't touch projectSynced here — server being offline is not the
           // same as "confirmed on correct project". When server comes back up
           // the probe fires again, auto-sync runs, and projectSynced is set
@@ -239,6 +281,16 @@ export function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (serverStatus !== 'up') {
+      return;
+    }
+    void refreshCapabilities()
+      .then(() => setProvidersRefreshKey(key => key + 1))
+      .catch(() => {});
+    void refreshProviderMode().catch(() => {});
+  }, [refreshCapabilities, refreshProviderMode, serverStatus]);
 
   // Persist surface so HMR / refresh restores the active tab.
   useEffect(() => {
@@ -411,6 +463,42 @@ export function App() {
       : serverStatus === 'probing'
         ? 'connecting…'
         : 'agents offline';
+  const providerModeSnapshot = {
+    ...providerMode,
+    activeRun: providerMode.activeRun || isInitiating,
+  };
+  const codexToggle = codexOnlyToggleState({
+    serverStatus,
+    pending: providerModePending,
+    providerMode: providerModeSnapshot,
+  });
+  const providerModeCopy = codexOnlyConfirmationCopy(providerMode.mode);
+
+  const submitProviderModeChange = useCallback(async () => {
+    setProviderModePending(true);
+    setProviderModeError(null);
+    try {
+      const response = await fetch('/providers/mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: providerModeCopy.nextMode }),
+      });
+      const data = (await response.json().catch(() => ({}))) as ProviderModeResponse;
+      if (!response.ok) {
+        throw new Error(data.error ?? 'Swarm could not change provider mode.');
+      }
+      setProviderMode(prev => normalizeProviderModeResponse(data, prev));
+      await refreshCapabilities();
+      setProvidersRefreshKey(key => key + 1);
+      setProviderModeConfirmOpen(false);
+    } catch (error) {
+      setProviderModeError(
+        error instanceof Error ? error.message : 'Swarm could not change provider mode.',
+      );
+    } finally {
+      setProviderModePending(false);
+    }
+  }, [providerModeCopy.nextMode, refreshCapabilities]);
 
   return (
     <div className="app">
@@ -560,6 +648,48 @@ export function App() {
           )}
         </span>
 
+        <button
+          type="button"
+          className={`codex-only-toggle${codexOnlyEnabled(providerMode.mode) ? ' on' : ''}`}
+          onClick={() => {
+            if (!codexToggle.disabled) {
+              setProviderModeConfirmOpen(true);
+            }
+          }}
+          disabled={codexToggle.disabled}
+          title={
+            codexToggle.reason ??
+            (codexOnlyEnabled(providerMode.mode)
+              ? 'Claude is currently disabled for PM planning and task routing.'
+              : 'Disable Claude for PM planning and task routing.')
+          }
+        >
+          <span className="codex-only-copy">
+            <span className="codex-only-label">Codex only</span>
+            <span className="codex-only-state">{codexOnlyStatusLabel(providerMode.mode)}</span>
+          </span>
+          <span
+            className={`switch ${codexOnlyEnabled(providerMode.mode) ? 'on codex' : ''} ${
+              codexToggle.disabled ? 'disabled' : ''
+            }`}
+            aria-hidden="true"
+          />
+        </button>
+
+        {providerModeError && (
+          <span className="codex-only-error" title={providerModeError} role="alert">
+            <span>{providerModeError}</span>
+            <button
+              type="button"
+              className="codex-only-error-dismiss"
+              onClick={() => setProviderModeError(null)}
+              title="Dismiss provider-mode error"
+            >
+              ×
+            </button>
+          </span>
+        )}
+
         {surface === 'planning' && (
           <>
             {executeError ? (
@@ -648,6 +778,7 @@ export function App() {
             playwrightAvailable={playwrightAvailable}
             runBlockedReason={executeError}
             historicalSession={historicalSession ?? undefined}
+            providersRefreshKey={providersRefreshKey}
           />
         </div>
         {surface === 'running' &&
@@ -709,6 +840,44 @@ export function App() {
           the request silently auto-denied if you happened to be elsewhere. */}
       {run.state?.pendingPermission && (
         <PermissionGate request={run.state.pendingPermission} onResolve={run.resolvePermission} />
+      )}
+
+      {providerModeConfirmOpen && (
+        <div className="scrim" onClick={() => !providerModePending && setProviderModeConfirmOpen(false)}>
+          <div className="modal codex-only-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <div>
+                <div className="modal-title">{providerModeCopy.title}</div>
+                <div className="modal-sub">Temporary provider-routing override</div>
+              </div>
+            </div>
+            <div className="modal-body">
+              <p className="codex-only-modal-copy">{providerModeCopy.body}</p>
+              <p className="codex-only-modal-note">
+                New PM planning turns and new task routes follow this setting immediately after it
+                succeeds.
+              </p>
+            </div>
+            <div className="modal-foot">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setProviderModeConfirmOpen(false)}
+                disabled={providerModePending}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                onClick={() => void submitProviderModeChange()}
+                disabled={providerModePending}
+              >
+                {providerModePending ? 'Updating…' : providerModeCopy.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

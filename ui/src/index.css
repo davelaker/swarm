@@ -368,6 +368,90 @@ select {
   border-radius: 50%;
   background: var(--tx-2);
 }
+.codex-only-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  padding: 4px 8px 4px 10px;
+  border: 1px solid var(--border-1);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-1) 86%, transparent);
+  color: var(--tx-2);
+  transition:
+    border-color 0.16s,
+    background 0.16s,
+    color 0.16s;
+}
+.codex-only-toggle:hover:not(:disabled) {
+  border-color: color-mix(in srgb, #21a6a1 45%, var(--border-1));
+  color: var(--tx-1);
+}
+.codex-only-toggle:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+.codex-only-toggle.on {
+  background: color-mix(in srgb, #21a6a1 12%, var(--bg-1));
+  border-color: color-mix(in srgb, #21a6a1 45%, var(--border-1));
+}
+.codex-only-copy {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.codex-only-label {
+  color: inherit;
+}
+.codex-only-state {
+  color: var(--tx-3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+}
+.codex-only-toggle.on .codex-only-state {
+  color: #76d4cf;
+}
+.codex-only-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 300px;
+  padding: 4px 10px;
+  border: 1px solid rgba(240, 90, 82, 0.22);
+  border-radius: 999px;
+  background: var(--red-d);
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.codex-only-error > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.codex-only-error-dismiss {
+  color: inherit;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.8;
+}
+.codex-only-modal {
+  width: 520px;
+}
+.codex-only-modal-copy,
+.codex-only-modal-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--tx-2);
+}
+.codex-only-modal-note {
+  margin-top: 12px;
+  color: var(--tx-3);
+}
 
 .badge {
   display: inline-flex;
@@ -3735,6 +3819,10 @@ select {
 .switch.on.orange {
   background: var(--orange);
   border-color: var(--orange);
+}
+.switch.on.codex {
+  background: #21a6a1;
+  border-color: #21a6a1;
 }
 .switch.disabled {
   cursor: not-allowed;

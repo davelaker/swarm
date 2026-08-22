@@ -21,6 +21,7 @@ export default defineConfig({
       '/project': { target: 'http://127.0.0.1:7000', changeOrigin: true },
       '/server': { target: 'http://127.0.0.1:7000', changeOrigin: true },
       '/capabilities': { target: 'http://127.0.0.1:7000', changeOrigin: true },
+      '/providers': { target: 'http://127.0.0.1:7000', changeOrigin: true },
       '/branches': { target: 'http://127.0.0.1:7000', changeOrigin: true },
       '/branches/commits': { target: 'http://127.0.0.1:7000', changeOrigin: true },
       '/marketplace': { target: 'http://127.0.0.1:7000', changeOrigin: true },
