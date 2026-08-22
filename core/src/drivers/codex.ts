@@ -40,7 +40,7 @@ export type CodexDriverDependencies = {
   root?: () => string;
 };
 
-const DEFAULT_MODEL = 'gpt-5.4';
+export const CODEX_DEFAULT_MODEL = 'gpt-5.4';
 const DEFAULT_REASONING_EFFORT: ReasoningEffort = 'medium';
 
 const resultFields = {
@@ -143,7 +143,7 @@ function codexExecutionRoute(task?: Task): CodexExecutionRoute {
   if (task?.model?.startsWith('gpt-')) {
     throw new Error(`Codex task "${task.id}" must use an immutable OpenAI route with an explicit reasoning effort.`);
   }
-  return { model: DEFAULT_MODEL, reasoningEffort: DEFAULT_REASONING_EFFORT };
+  return { model: CODEX_DEFAULT_MODEL, reasoningEffort: DEFAULT_REASONING_EFFORT };
 }
 
 function codexWriteScope(task: Task): string[] {
@@ -268,7 +268,7 @@ export function createCodexDriver(deps: CodexDriverDependencies = {}): AgentDriv
     async runPm(request: PmInferenceRequest): Promise<PmInferenceResult> {
       const response = await execute({
         cwd: request.projectRoot,
-        model: DEFAULT_MODEL,
+        model: CODEX_DEFAULT_MODEL,
         reasoningEffort: DEFAULT_REASONING_EFFORT,
         sandbox: 'read-only',
         outputSchema: request.outputSchema,

@@ -48,6 +48,7 @@ import { runNew, checkGitClean } from '../commands/new.js';
 import { pauseRun, resumeRun, abortRun } from '../loop-control.js';
 import { getConfigOptional } from '../config.js';
 import { getDriverMode } from '../drivers/index.js';
+import { CODEX_DEFAULT_MODEL } from '../drivers/codex.js';
 import { getProviderSelection, listProviderModels } from '../providers/index.js';
 import { steerLiveSession } from '../drivers/agent-sdk.js';
 import {
@@ -477,7 +478,12 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
         project: path.basename(getRoot()),
         root: getRoot(),
         driver,
-        model: driver === 'agent-sdk' ? null : (cfg?.coderModel ?? null),
+        model:
+          driver === 'agent-sdk'
+            ? null
+            : driver === 'codex'
+              ? CODEX_DEFAULT_MODEL
+              : (cfg?.coderModel ?? null),
         activeRun,
         providerMode: providerModeStatus(activeRun),
         repoUrl: githubUrl,
