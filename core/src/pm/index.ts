@@ -39,7 +39,7 @@ import { readCachedLiveContext, ensureLiveContextInBackground } from './live-con
 import { formatMarketplace, CATALOG_BY_ID } from '../state/marketplace-catalog.js';
 import { getDriverMode, getDriver } from '../drivers/index.js';
 import { parseStreamMessage, createNdjsonBuffer } from '../drivers/stream-parse.js';
-import { getProviderModel, getProviderSelection } from '../providers/index.js';
+import { getProviderModel, getProviderModelPolicy, getProviderSelection } from '../providers/index.js';
 import type { RosterEntry } from '../state/types.js';
 import type { AgentDriver, PmInferenceRequest } from '../drivers/types.js';
 import { normalizeEffort } from '../agents/effort.js';
@@ -385,7 +385,10 @@ export function normalizeModel(raw: unknown): string | undefined {
 }
 
 function defaultPmRoutingContext(): PmRoutingContext {
-  return { providerAvailability: getProviderSelection().availability };
+  return {
+    providerAvailability: getProviderSelection().availability,
+    availableModelIds: getProviderModelPolicy().enabledModelIds,
+  };
 }
 
 function modelPreference(raw: unknown): string | undefined {
@@ -1029,6 +1032,7 @@ async function runPmMessageInternal({
       systemPrompt: pmSystemPrompt,
       conversationPrompt: prompt,
       projectRoot,
+      model: getProviderModelPolicy().defaultModelId,
       onChunk,
       onThinking,
     }, routingContext);

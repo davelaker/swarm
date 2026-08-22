@@ -143,6 +143,7 @@ test('quick task handler returns structured escalation details without dispatchi
   const handler = createQuickTaskHandler({
     getProjectRoot: () => '/repo',
     getProviderAvailability: () => providerAvailability,
+    getAvailableModelIds: () => ['gpt-5.4'],
     ensureGitClean: () => {},
     preflight: () => {
       return {
@@ -182,6 +183,7 @@ test('quick task handler compiles and dispatches the one-node run when preflight
   const handler = createQuickTaskHandler({
     getProjectRoot: () => '/repo',
     getProviderAvailability: () => providerAvailability,
+    getAvailableModelIds: () => ['gpt-5.4'],
     ensureGitClean: () => {},
     preflight: (input): QuickTaskPreflight => {
       calls.preflight = input;
@@ -210,6 +212,7 @@ test('quick task handler compiles and dispatches the one-node run when preflight
     instruction: 'fix the reconnect banner',
     projectRoot: '/repo',
     providerAvailability,
+    availableModelIds: ['gpt-5.4'],
     budgetClass: 'balanced',
   });
   assert.deepEqual(calls.compiled, spec);

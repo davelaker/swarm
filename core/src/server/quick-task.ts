@@ -7,7 +7,7 @@ import {
   type QuickTaskRunDefinition,
   type QuickTaskSpec,
 } from '../quick-task/index.js';
-import { discoverProviderAvailability, type ProviderAvailability } from '../providers/index.js';
+import { discoverProviderAvailability, getProviderModelPolicy, type ProviderAvailability } from '../providers/index.js';
 import { getRoot } from '../state/repo.js';
 import type { TaskRoute } from '../state/types.js';
 import type { Validation } from './validate.js';
@@ -53,11 +53,13 @@ export interface QuickTaskHandlerDeps {
   hasActiveRun?: () => boolean;
   getProjectRoot?: () => string;
   getProviderAvailability?: () => readonly ProviderAvailability[];
+  getAvailableModelIds?: () => readonly string[];
   ensureGitClean?: (projectRoot: string) => void;
   preflight?: (input: {
     instruction: string;
     projectRoot: string;
     providerAvailability: readonly ProviderAvailability[];
+    availableModelIds?: readonly string[];
     budgetClass: 'balanced';
   }) => QuickTaskPreflight;
   compile?: (spec: QuickTaskSpec) => QuickTaskRunDefinition;
@@ -68,6 +70,7 @@ const DEFAULT_DEPS: Required<QuickTaskHandlerDeps> = {
   hasActiveRun: () => false,
   getProjectRoot: getRoot,
   getProviderAvailability: () => discoverProviderAvailability(),
+  getAvailableModelIds: () => getProviderModelPolicy().enabledModelIds,
   ensureGitClean: checkGitClean,
   preflight: preflightQuickTask,
   compile: compileQuickTask,
@@ -139,6 +142,7 @@ export function createQuickTaskHandler(deps: QuickTaskHandlerDeps = {}) {
       instruction: valid.value.instruction,
       projectRoot,
       providerAvailability: resolved.getProviderAvailability(),
+      availableModelIds: resolved.getAvailableModelIds(),
       budgetClass: 'balanced',
     });
 

@@ -1,6 +1,6 @@
 // Principle 4 — all secrets and API keys through one boundary.
 import { resolveDriverMode, type DriverSelectionInput } from './drivers/types.js';
-import { getProviderSelection, providerModeRevision, type ProviderSelection } from './providers/index.js';
+import { getProviderSelection, providerModelPolicyRevision, type ProviderSelection } from './providers/index.js';
 
 // Model defaults per agent role. Tester and Security use Haiku — structured
 // output tasks that don't require Sonnet-level reasoning. Coder and Reviewer
@@ -30,7 +30,7 @@ export interface Config {
 }
 
 let _config: Config | null = null;
-let _configProviderModeRevision: number | null = null;
+let _configProviderPolicyRevision: number | null = null;
 
 /**
  * The current configuration accepts an explicit Agent SDK selection as the
@@ -48,8 +48,8 @@ function hasProviderAuthentication(selection: ProviderSelection): boolean {
 }
 
 export function getConfig(): Config {
-  const modeRevision = providerModeRevision();
-  if (_config && _configProviderModeRevision === modeRevision) return _config;
+  const policyRevision = providerModelPolicyRevision();
+  if (_config && _configProviderPolicyRevision === policyRevision) return _config;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const providerSelection = getProviderSelection();
@@ -82,7 +82,7 @@ export function getConfig(): Config {
     maxAttempts: Number(process.env.SWARM_MAX_ATTEMPTS ?? 2),
     providerSelection,
   };
-  _configProviderModeRevision = modeRevision;
+  _configProviderPolicyRevision = policyRevision;
 
   return _config!;
 }

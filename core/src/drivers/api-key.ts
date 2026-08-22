@@ -3,6 +3,7 @@
 
 import { getConfig } from '../config.js';
 import Anthropic from '@anthropic-ai/sdk';
+import { supportsExecutionTransport, validateProviderModel } from '../providers/index.js';
 import { runCoder } from '../agents/coder.js';
 import { runTester } from '../agents/tester.js';
 import { runSecurity } from '../agents/security.js';
@@ -25,9 +26,13 @@ import type {
 import type { Task, SwarmState, RosterEntry } from '../state/types.js';
 
 async function runPmViaAnthropic(request: PmInferenceRequest): Promise<PmInferenceResult> {
+  const model = validateProviderModel(request.model);
+  if (model.provider !== 'anthropic' || !supportsExecutionTransport(model.id, 'anthropic-api')) {
+    throw new Error(`Anthropic API PM cannot execute model "${request.model}".`);
+  }
   const client = new Anthropic({ apiKey: getConfig().anthropicApiKey });
   const stream = client.messages.stream({
-    model: 'claude-sonnet-4-6',
+    model: model.id,
     max_tokens: 16_000,
     system: [{ type: 'text', text: request.systemPrompt, cache_control: { type: 'ephemeral' } }],
     tools: [{

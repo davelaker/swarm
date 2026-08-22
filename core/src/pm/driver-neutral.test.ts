@@ -16,6 +16,7 @@ function fakeProvider(data: Record<string, unknown>): Pick<{ runPm(request: PmIn
     async runPm(request) {
       assert.equal(request.outputSchema, PM_RESPONSE_SCHEMA);
       assert.equal(request.projectRoot, '/repo');
+      assert.equal(request.model, 'claude-sonnet-4-6');
       return { data };
     },
   };
@@ -33,6 +34,7 @@ test('PM normalises identical Claude and Codex inference data into one PmRespons
     systemPrompt: 'You are the PM.',
     conversationPrompt: 'Plan this.',
     projectRoot: '/repo',
+    model: 'claude-sonnet-4-6',
   };
   const claude = await runPmInference(fakeProvider(rawResponse), request, routingContext);
   const codex = await runPmInference(fakeProvider(rawResponse), request, routingContext);

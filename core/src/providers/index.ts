@@ -11,19 +11,21 @@ export {
 
 export {
   discoverProviderAvailability,
-  getProviderSelection,
   resolveProviderSelection,
 } from './discovery.js';
 
 export {
-  codexCliSubscriptionTransportAvailable,
-  disableCodexOnlyMode,
-  enableCodexOnlyMode,
-  getProviderMode,
-  isCodexOnlyModeEnabled,
-  providerModeRevision,
-  setProviderMode,
-} from './codex-only-mode.js';
+  defaultProviderModelPolicy,
+  executionTransportsForProvider,
+  getProviderModelPolicy,
+  modelPolicyProviders,
+  providerCanExecuteModel,
+  providerModelPolicyRevision,
+  resetProviderModelPolicy,
+  resolveProviderSelectionFromModelPolicy as getProviderSelection,
+  resolveProviderSelectionFromModelPolicy,
+  setProviderModelPolicy,
+} from './model-policy.js';
 
 export type {
   CliProbe,
@@ -44,5 +46,7 @@ export type {
 } from './catalog.js';
 
 export type {
-  ProviderMode,
-} from './codex-only-mode.js';
+  ExecutableProviderModel,
+  ModelPolicyProvider,
+  ProviderModelPolicy,
+} from './model-policy.js';

@@ -266,9 +266,12 @@ export function createCodexDriver(deps: CodexDriverDependencies = {}): AgentDriv
     name: 'codex',
 
     async runPm(request: PmInferenceRequest): Promise<PmInferenceResult> {
+      if (!supportsExecutionTransport(request.model, 'codex-cli')) {
+        throw new Error(`Codex PM cannot execute model "${request.model}".`);
+      }
       const response = await execute({
         cwd: request.projectRoot,
-        model: CODEX_DEFAULT_MODEL,
+        model: request.model,
         reasoningEffort: DEFAULT_REASONING_EFFORT,
         sandbox: 'read-only',
         outputSchema: request.outputSchema,

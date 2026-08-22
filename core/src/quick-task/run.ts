@@ -1,6 +1,7 @@
 import { getConfig } from '../config.js';
 import { checkGitClean, runCompiledRun } from '../commands/new.js';
 import { getRoot } from '../state/repo.js';
+import { getProviderModelPolicy } from '../providers/index.js';
 import { compileQuickTask, preflightQuickTask, type QuickTaskPreflight } from './compiler.js';
 
 export type QuickTaskRunResult =
@@ -23,6 +24,7 @@ export async function runQuickTask(instruction: string): Promise<QuickTaskRunRes
     instruction,
     projectRoot: root,
     providerAvailability: cfg.providerSelection.availability,
+    availableModelIds: getProviderModelPolicy().enabledModelIds,
     budgetClass: 'balanced',
   });
 

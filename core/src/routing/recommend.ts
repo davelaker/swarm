@@ -1,6 +1,6 @@
 import {
+  executionTransportsForProvider,
   listProviderModels,
-  type ExecutionTransport,
   type ModelCapability,
   type ProviderModel,
   type ReasoningEffort,
@@ -69,33 +69,7 @@ function isAvailable(model: ProviderModel, input: RouteRecommendationInput): boo
   if (input.availableModelIds && !input.availableModelIds.includes(model.id)) {
     return false;
   }
-  return executionTransports(provider).some((transport) => model.executionTransports.includes(transport));
-}
-
-/**
- * Availability is not enough: a model is selectable only if Swarm has an
- * implementation for the concrete transport that would execute it. In
- * particular, a Codex subscription must never select Responses-API-only GPT
- * models merely because they share the OpenAI provider.
- */
-function executionTransports(provider: RouteRecommendationInput['providerAvailability'][number]): readonly ExecutionTransport[] {
-  if (provider.provider === 'anthropic') {
-    const transports: ExecutionTransport[] = [];
-    if (provider.cliAvailable && provider.availableAuthModes.includes('subscription')) {
-      transports.push('claude-agent-sdk');
-    }
-    if (provider.apiKeyConfigured && provider.availableAuthModes.includes('api-key')) {
-      transports.push('anthropic-api');
-    }
-    return transports;
-  }
-
-  // Swarm currently implements only the local Codex CLI transport. Do not
-  // expose Responses API models until an OpenAI API driver exists.
-  if (provider.cliAvailable && provider.availableAuthModes.includes('subscription')) {
-    return ['codex-cli'];
-  }
-  return [];
+  return executionTransportsForProvider(provider).some((transport) => model.executionTransports.includes(transport));
 }
 
 function scoreCandidate(model: ProviderModel, input: RouteRecommendationInput): number {

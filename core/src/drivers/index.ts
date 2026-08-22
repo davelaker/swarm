@@ -5,9 +5,8 @@ import { agentSdkDriver } from './agent-sdk.js';
 import { apiKeyDriver } from './api-key.js';
 import { codexDriver } from './codex.js';
 import { resolveDriverMode, type AgentDriver, type DriverMode } from './types.js';
-import { getProviderSelection } from '../providers/index.js';
+import { getProviderSelection, providerModelPolicyRevision } from '../providers/index.js';
 import type { ProviderId } from '../providers/index.js';
-import { providerModeRevision } from '../providers/index.js';
 
 function detect(): DriverMode {
   const selection = getProviderSelection();
@@ -31,7 +30,7 @@ let _driverCacheKey: string | null = null;
 
 export function getDriver(): AgentDriver {
   const mode = detect();
-  const cacheKey = `${providerModeRevision()}:${mode}`;
+  const cacheKey = `${providerModelPolicyRevision()}:${mode}`;
   if (_driver && _driverCacheKey === cacheKey) {
     return _driver;
   }

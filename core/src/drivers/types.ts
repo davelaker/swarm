@@ -107,6 +107,7 @@ export interface PmInferenceRequest {
   systemPrompt: string;
   conversationPrompt: string;
   projectRoot: string;
+  model: string;
   outputSchema: Record<string, unknown>;
   onChunk?: (text: string) => void;
   onThinking?: (text: string) => void;

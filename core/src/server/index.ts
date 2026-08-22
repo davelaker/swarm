@@ -35,9 +35,9 @@ import { createQuickTaskHandler } from './quick-task.js';
 import { validateRosterPayload, validateCharterGraph } from './validate.js';
 import { runPreflight, uniqueSwarmBranch } from './preflight.js';
 import {
-  handleProviderModeRequest,
-  providerModeStatus,
-} from './provider-mode.js';
+  handleProviderModelsRequest,
+  providerModelsStatus,
+} from './provider-models.js';
 import { rewindTask } from './rewind.js';
 import { buildStructuredDiff, buildTaskDiff } from './diff.js';
 import { worktreeInfo } from '../loop.js';
@@ -46,10 +46,8 @@ import { readReview, writeReview } from './review.js';
 import { runPmAnswerMessage, runPmMessage, runPmPlanMessage, PM_SYSTEM } from '../pm/index.js';
 import { runNew, checkGitClean } from '../commands/new.js';
 import { pauseRun, resumeRun, abortRun } from '../loop-control.js';
-import { getConfigOptional } from '../config.js';
 import { getDriverMode } from '../drivers/index.js';
-import { CODEX_DEFAULT_MODEL } from '../drivers/codex.js';
-import { getProviderSelection, listProviderModels } from '../providers/index.js';
+import { getProviderModelPolicy } from '../providers/index.js';
 import { steerLiveSession } from '../drivers/agent-sdk.js';
 import {
   currentPendingPermission,
@@ -326,10 +324,7 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     try {
       const state = getState();
       const driver = getDriverMode();
-      const cfg = getConfigOptional();
-      // model: for agent-sdk the session model is chosen by the claude CLI, not us;
-      // for api-key we know the exact model ID from config.
-      const model = driver === 'agent-sdk' ? null : cfg.coderModel;
+      const modelPolicy = providerModelsStatus(activeRun);
 
       // Enrich tasks with finding verdict+summary so the UI can populate
       // the findings panel on initial load (not just via SSE events).
@@ -367,9 +362,9 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
           ...state,
           tasks: enrichedTasks,
           driver,
-          model,
+          model: modelPolicy.defaultModelId || null,
           activeRun,
-          providerMode: providerModeStatus(activeRun),
+          modelPolicy,
           pendingPermission: currentPendingPermission(),
           repoUrl: githubUrl,
           root: getRoot(),
@@ -393,7 +388,7 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
           driver,
           model: null,
           activeRun: false,
-          providerMode: providerModeStatus(false),
+          modelPolicy: providerModelsStatus(false),
           repoUrl: githubUrl,
           root: getRoot(),
         }),
@@ -469,7 +464,6 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     // state — no state.json read and none of the per-task finding-file enrichment /state
     // does, so a frequent poll stays cheap even after a large run leaves many findings.
     const driver = getDriverMode();
-    const cfg = getConfigOptional();
     res.writeHead(200, {
       'Content-Type': 'application/json',
     });
@@ -478,14 +472,9 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
         project: path.basename(getRoot()),
         root: getRoot(),
         driver,
-        model:
-          driver === 'agent-sdk'
-            ? null
-            : driver === 'codex'
-              ? CODEX_DEFAULT_MODEL
-              : (cfg?.coderModel ?? null),
+        model: getProviderModelPolicy().defaultModelId || null,
         activeRun,
-        providerMode: providerModeStatus(activeRun),
+        modelPolicy: providerModelsStatus(activeRun),
         repoUrl: githubUrl,
       }),
     );
@@ -513,39 +502,29 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       // Capability discovery reports availability only. It deliberately does not
       // inspect credentials, CLI configuration, account state, or command output.
       // The planning UI uses this to omit routes that could not be dispatched.
-      const selection = getProviderSelection();
-      const providers = selection.availability.map(availability => {
-        // The current OpenAI integration is a local Codex CLI driver. An API key
-        // alone must not make an OpenAI route selectable until that driver exists.
-        const selectable =
-          availability.enabled &&
-          availability.availableAuthModes.length > 0 &&
-          (availability.provider !== 'openai' || availability.cliAvailable);
-        return {
-          provider: availability.provider,
-          available: selectable,
-          availableAuthModes: availability.availableAuthModes,
-          models: selectable
-            ? listProviderModels(availability.provider).map(model => ({
-                id: model.id,
-                label: model.label,
-                tier: model.tier,
-                capabilities: model.capabilities,
-                reasoningEfforts: model.reasoningEfforts,
-              }))
-            : [],
-        };
-      });
-      res.end(JSON.stringify({ playwright, providerMode: providerModeStatus(activeRun), providers }));
+      const modelPolicy = providerModelsStatus(activeRun);
+      const providers = modelPolicy.providers.map(availability => ({
+        provider: availability.provider,
+        available: availability.available,
+        availableAuthModes: availability.availableAuthModes,
+        models: availability.models.map(model => ({
+          id: model.id,
+          label: model.label,
+          tier: model.tier,
+          capabilities: model.capabilities,
+          reasoningEfforts: model.reasoningEfforts,
+        })),
+      }));
+      res.end(JSON.stringify({ playwright, modelPolicy, providers }));
     })();
     return;
   }
 
-  if (url.pathname === '/providers/mode') {
+  if (url.pathname === '/providers/models') {
     res.writeHead(200, {
       'Content-Type': 'application/json',
     });
-    res.end(JSON.stringify(providerModeStatus(activeRun)));
+    res.end(JSON.stringify(providerModelsStatus(activeRun)));
     return;
   }
 
@@ -1340,8 +1319,8 @@ async function routePost(
       return;
     }
 
-    if (route === '/providers/mode') {
-      const response = handleProviderModeRequest(rawPayload, { activeRun });
+    if (route === '/providers/models') {
+      const response = handleProviderModelsRequest(rawPayload, { activeRun });
       res.writeHead(response.status);
       res.end(JSON.stringify(response.body));
       return;

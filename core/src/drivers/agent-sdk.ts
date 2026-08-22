@@ -22,6 +22,7 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
 import { getConfig } from '../config.js';
+import { supportsExecutionTransport, validateProviderModel } from '../providers/index.js';
 import {
   CODER_SYSTEM,
   TESTER_SYSTEM,
@@ -86,6 +87,22 @@ const PM_SERVER_PATH = IS_TSX
   : new URL('../pm/mcp-server.js', import.meta.url).pathname;
 const PM_SERVER_CMD = IS_TSX ? 'tsx' : 'node';
 
+export function claudePmSpawnArgs(
+  request: Pick<PmInferenceRequest, 'systemPrompt' | 'conversationPrompt' | 'model'>,
+  configPath: string,
+): string[] {
+  const model = validateProviderModel(request.model);
+  if (model.provider !== 'anthropic' || !supportsExecutionTransport(model.id, 'claude-agent-sdk')) {
+    throw new Error(`Claude CLI PM cannot execute model "${request.model}".`);
+  }
+  return [
+    '--print', '--output-format', 'stream-json', '--verbose', '--no-session-persistence',
+    '--model', model.id, '--strict-mcp-config', '--mcp-config', configPath,
+    '--allowedTools', 'mcp__pm_responder__submit_pm_response', '--system-prompt', request.systemPrompt,
+    '--', request.conversationPrompt,
+  ];
+}
+
 function runPmViaClaudeCli(request: PmInferenceRequest): Promise<PmInferenceResult> {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const outputPath = path.join(os.tmpdir(), `swarm-pm-output-${suffix}.json`);
@@ -124,12 +141,10 @@ function runPmViaClaudeCli(request: PmInferenceRequest): Promise<PmInferenceResu
         }
       }
     });
-    const child = spawn('claude', [
-      '--print', '--output-format', 'stream-json', '--verbose', '--no-session-persistence',
-      '--model', 'claude-sonnet-4-6', '--strict-mcp-config', '--mcp-config', configPath,
-      '--allowedTools', 'mcp__pm_responder__submit_pm_response', '--system-prompt', request.systemPrompt,
-      '--', request.conversationPrompt,
-    ], { cwd: request.projectRoot, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('claude', claudePmSpawnArgs(request, configPath), {
+      cwd: request.projectRoot,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     const timer = setTimeout(() => {
       child.kill();
       cleanup();

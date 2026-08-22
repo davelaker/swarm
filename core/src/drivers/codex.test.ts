@@ -231,11 +231,12 @@ test('Codex PM inference is read-only and returns data for the shared PM validat
   });
 
   const result = await runPmInference(driver, {
-    systemPrompt: 'You are the PM.', conversationPrompt: 'Plan this.', projectRoot: '/repo',
+    systemPrompt: 'You are the PM.', conversationPrompt: 'Plan this.', projectRoot: '/repo', model: 'gpt-5.4',
   });
 
   assert.equal(options?.sandbox, 'read-only');
   assert.equal(options?.cwd, '/repo');
+  assert.equal(options?.model, 'gpt-5.4');
   assert.equal(options?.outputSchema, PM_RESPONSE_SCHEMA);
   assert.equal(options?.reasoningEffort, 'medium');
   assert.match(options?.prompt ?? '', /schema-constrained PM response/);

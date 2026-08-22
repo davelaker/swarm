@@ -8,8 +8,14 @@ import { getDriver, getDriverForProvider } from '../drivers/index.js';
 import { loadRoster } from '../state/roster.js';
 import { runDeterministicChecks } from '../agents/checks.js';
 import { runVisualCheck } from '../agents/visual.js';
-import { getProviderModel, type ModelCapability, type ProviderAvailability } from '../providers/index.js';
-import { getProviderSelection } from '../providers/index.js';
+import {
+  getProviderModel,
+  getProviderModelPolicy,
+  getProviderSelection,
+  providerCanExecuteModel,
+  type ModelCapability,
+  type ProviderAvailability,
+} from '../providers/index.js';
 
 export interface TaskResult {
   status: 'done' | 'failed';
@@ -43,9 +49,16 @@ function capabilityForTask(task: Task): ModelCapability | undefined {
   return 'coding';
 }
 
-function validateFallback(route: TaskRoute, availability: readonly ProviderAvailability[]): void {
+function validateFallback(
+  route: TaskRoute,
+  availability: readonly ProviderAvailability[],
+  enabledModelIds: readonly string[],
+): void {
   if (!route.fallback) {
     return;
+  }
+  if (!enabledModelIds.includes(route.fallback.model)) {
+    throw new Error(`Task route fallback model "${route.fallback.model}" is disabled by the current model policy.`);
   }
   const fallbackProvider = availability.find((entry) => entry.provider === route.fallback?.provider);
   if (!fallbackProvider?.enabled || !fallbackProvider.availableAuthModes.length) {
@@ -54,6 +67,9 @@ function validateFallback(route: TaskRoute, availability: readonly ProviderAvail
   const fallback = getProviderModel(route.fallback.model);
   if (!fallback || fallback.provider !== route.fallback.provider) {
     throw new Error(`Task route fallback model "${route.fallback.model}" does not belong to provider "${route.fallback.provider}".`);
+  }
+  if (!providerCanExecuteModel(fallbackProvider, fallback)) {
+    throw new Error(`Task route fallback model "${fallback.id}" is unavailable through a supported local transport.`);
   }
   if (route.fallback.reasoningEffort && !fallback.reasoningEfforts.includes(route.fallback.reasoningEffort)) {
     throw new Error(`Task route fallback model "${fallback.id}" does not support "${route.fallback.reasoningEffort}" reasoning effort.`);
@@ -64,6 +80,7 @@ function validateFallback(route: TaskRoute, availability: readonly ProviderAvail
 export function validateTaskRouteForDispatch(
   task: Task,
   availability: readonly ProviderAvailability[] = getProviderSelection().availability,
+  enabledModelIds: readonly string[] = getProviderModelPolicy().enabledModelIds,
 ): void {
   if (!task.route) {
     return; // Legacy tasks remain supported until route recommendation is introduced.
@@ -75,6 +92,9 @@ export function validateTaskRouteForDispatch(
   const capability = capabilityForTask(task);
   if (!capability) {
     throw new Error(`Task ${task.id} is deterministic and must not have an LLM route.`);
+  }
+  if (!enabledModelIds.includes(route.model)) {
+    throw new Error(`Task ${task.id} route model "${route.model}" is disabled by the current model policy.`);
   }
   const model = getProviderModel(route.model);
   if (!model || model.provider !== route.provider) {
@@ -93,10 +113,10 @@ export function validateTaskRouteForDispatch(
   if (!provider?.enabled || !provider.availableAuthModes.length) {
     throw new Error(`Task ${task.id} route provider "${route.provider}" is unavailable or unauthorised.`);
   }
-  if (route.provider === 'openai' && !provider.cliAvailable) {
-    throw new Error(`Task ${task.id} OpenAI route requires the local Codex CLI.`);
+  if (!providerCanExecuteModel(provider, model)) {
+    throw new Error(`Task ${task.id} route model "${model.id}" is unavailable through a supported local transport.`);
   }
-  validateFallback(route, availability);
+  validateFallback(route, availability, enabledModelIds);
 }
 
 export async function dispatch(

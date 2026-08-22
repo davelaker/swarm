@@ -152,7 +152,7 @@ test('Codex subscription routes never select Responses-API-only OpenAI models', 
   assert.notEqual(largePlanning.route.fallback?.model, 'gpt-5.6-sol');
 });
 
-test('Codex-only availability produces only OpenAI routes and fallbacks', () => {
+test('local Codex CLI availability produces only OpenAI routes and fallbacks', () => {
   const openaiOnly: readonly ProviderAvailability[] = [
     bothProviders[1],
   ];
