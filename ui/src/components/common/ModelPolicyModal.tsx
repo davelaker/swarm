@@ -39,18 +39,21 @@ export function ModelPolicyModal({
   const noteId = useId();
   const errorId = useId();
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  const pendingRef = useRef(pending);
 
   useEffect(() => {
-    dispatch({ type: 'reset', draft: createModelPolicyDraft(snapshot) });
-  }, [snapshot]);
+    onCloseRef.current = onClose;
+    pendingRef.current = pending;
+  }, [onClose, pending]);
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeButtonRef.current?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !pending) {
-        onClose();
+      if (event.key === 'Escape' && !pendingRef.current) {
+        onCloseRef.current();
       }
     };
 
@@ -59,7 +62,7 @@ export function ModelPolicyModal({
       window.removeEventListener('keydown', handleKeyDown);
       previousFocus?.focus();
     };
-  }, [onClose, pending]);
+  }, []);
 
   const groups = useMemo(
     () => modelPolicyGroups(snapshot.providers, draft.enabledModelIds),
