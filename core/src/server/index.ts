@@ -22,13 +22,19 @@ import {
   getState,
   swarmDir,
   stateFile,
-  sessionsDir,
   snapshotSession,
   updateTask,
   projectContextFile,
   writeDeploymentInfo,
   appendLog,
 } from '../state/repo.js';
+import { migrateState } from '../state/repo.js';
+import {
+  projectEnvelopeForRoot,
+  validateExpectedProjectId,
+  type ProjectEnvelope,
+  type ProjectMismatchError,
+} from '../state/project-identity.js';
 import { serverFreshness } from './freshness.js';
 import { checkRequest } from './request-guard.js';
 import { createQuickTaskHandler } from './quick-task.js';
@@ -99,8 +105,12 @@ function restartWatcher(): void {
 let githubUrl: string | null = null;
 
 function detectGithubUrl(): void {
-  execFileAsync('git', ['remote', 'get-url', 'origin'], { cwd: getRoot() })
+  const root = getRoot();
+  execFileAsync('git', ['remote', 'get-url', 'origin'], { cwd: root })
     .then(({ stdout }) => {
+      if (getRoot() !== root) {
+        return;
+      }
       const raw = stdout.trim();
       // SSH:   git@github.com:user/repo.git
       // HTTPS: https://github.com/user/repo.git  (or without .git)
@@ -112,6 +122,80 @@ function detectGithubUrl(): void {
     .catch(() => {
       /* not a git repo or no origin — leave null */
     });
+}
+
+function stateFileForRoot(root: string): string {
+  return path.join(swarmDirForRoot(root), 'state.json');
+}
+
+function sessionsDirForRoot(root: string): string {
+  return path.join(swarmDirForRoot(root), 'sessions');
+}
+
+function swarmDirForRoot(root: string): string {
+  return path.join(root, '.swarm');
+}
+
+function readStateForProject(project: ProjectEnvelope): SwarmState {
+  const file = stateFileForRoot(project.projectRoot);
+  const raw = fs.readFileSync(file, 'utf8');
+  const migrated = migrateState(JSON.parse(raw) as SwarmState);
+  if (migrated.changed) {
+    const next = { ...migrated.state, updated_at: new Date().toISOString() };
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(next, null, 2), 'utf8');
+    fs.renameSync(tmp, file);
+    return next;
+  }
+  return migrated.state;
+}
+
+function currentProjectEnvelope(): ProjectEnvelope {
+  return projectEnvelopeForRoot(getRoot());
+}
+
+function projectBoundGetPath(pathname: string): boolean {
+  return (
+    pathname === '/health' ||
+    pathname === '/state' ||
+    pathname === '/sessions' ||
+    pathname.startsWith('/sessions/') ||
+    pathname === '/branches'
+  );
+}
+
+function projectBoundPostPath(pathname: string): boolean {
+  return pathname === '/project/switch';
+}
+
+function expectedProjectId(req: http.IncomingMessage): string | undefined {
+  const header = req.headers['x-swarm-project-id'];
+  if (Array.isArray(header)) {
+    return header[0];
+  }
+  return header;
+}
+
+function validateProjectRequest(req: http.IncomingMessage): {
+  ok: true;
+  project: ProjectEnvelope;
+} | {
+  ok: false;
+  mismatch: ProjectMismatchError;
+} {
+  const project = currentProjectEnvelope();
+  const mismatch = validateExpectedProjectId(expectedProjectId(req), project);
+  if (mismatch) {
+    return { ok: false, mismatch };
+  }
+  return { ok: true, project };
+}
+
+function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, {
+    'Content-Type': 'application/json',
+  });
+  res.end(JSON.stringify(body));
 }
 
 function sendSse(res: SseClient, event: SwarmEvent): void {
@@ -285,6 +369,7 @@ function startFileWatcher(): () => void {
   // Also watch the .swarm/ directory in case state.json is created after the server starts
   const dir = swarmDir();
   let dirWatcher: ReturnType<typeof fs.watch> | null = null;
+  let parentWatcher: ReturnType<typeof fs.watch> | null = null;
   if (fs.existsSync(dir)) {
     attach();
     dirWatcher = fs.watch(dir, (_ev, name) => {
@@ -294,13 +379,15 @@ function startFileWatcher(): () => void {
     // Watch parent until .swarm/ is created
     const parent = path.dirname(dir);
     if (fs.existsSync(parent)) {
-      const pw = fs.watch(parent, (_ev, name) => {
+      parentWatcher = fs.watch(parent, (_ev, name) => {
         if (stopped) {
-          pw.close();
+          parentWatcher?.close();
+          parentWatcher = null;
           return;
         }
         if (name === path.basename(dir) && fs.existsSync(dir)) {
-          pw.close();
+          parentWatcher?.close();
+          parentWatcher = null;
           attach();
           dirWatcher = fs.watch(dir, (_ev2, name2) => {
             if (name2 === 'state.json') attach();
@@ -316,13 +403,23 @@ function startFileWatcher(): () => void {
     watcher = null;
     dirWatcher?.close();
     dirWatcher = null;
+    parentWatcher?.close();
+    parentWatcher = null;
   };
 }
 
 function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL): void {
+  const projectRequest = projectBoundGetPath(url.pathname) ? validateProjectRequest(req) : null;
+  if (projectRequest && !projectRequest.ok) {
+    sendJson(res, 409, projectRequest.mismatch);
+    return;
+  }
+  const requestProject = projectRequest?.ok ? projectRequest.project : null;
+
   if (url.pathname === '/state') {
+    const project = requestProject!;
     try {
-      const state = getState();
+      const state = readStateForProject(project);
       const driver = getDriverMode();
       const modelPolicy = providerModelsStatus(activeRun);
 
@@ -332,7 +429,7 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
         const ref = t.result_ref as string | null;
         if (!ref) return t;
         try {
-          const abs = path.resolve(swarmDir(), ref);
+          const abs = path.resolve(swarmDirForRoot(project.projectRoot), ref);
           const content = fs.readFileSync(abs, 'utf8');
           const m = content.match(/^---[\r\n]([\s\S]*?)[\r\n]---/);
           if (!m) return t;
@@ -367,8 +464,9 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
           modelPolicy,
           pendingPermission: currentPendingPermission(),
           repoUrl: githubUrl,
-          root: getRoot(),
-          project: path.basename(getRoot()),
+          root: project.projectRoot,
+          project: project.projectName,
+          projectEnvelope: project,
         }),
       );
     } catch {
@@ -380,7 +478,7 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       });
       res.end(
         JSON.stringify({
-          project: '',
+          project: project.projectName,
           goal: '',
           tier: '',
           tasks: [],
@@ -390,7 +488,8 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
           activeRun: false,
           modelPolicy: providerModelsStatus(false),
           repoUrl: githubUrl,
-          root: getRoot(),
+          root: project.projectRoot,
+          projectEnvelope: project,
         }),
       );
     }
@@ -459,6 +558,7 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   }
 
   if (url.pathname === '/health') {
+    const project = requestProject!;
     // Lightweight liveness + project identity for the dashboard's 3s probe. Returns ONLY
     // what App needs (up/down, project, root, activeRun, driver, model) from in-memory
     // state — no state.json read and none of the per-task finding-file enrichment /state
@@ -469,8 +569,9 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
     });
     res.end(
       JSON.stringify({
-        project: path.basename(getRoot()),
-        root: getRoot(),
+        project: project.projectName,
+        root: project.projectRoot,
+        projectEnvelope: project,
         driver,
         model: getProviderModelPolicy().defaultModelId || null,
         activeRun,
@@ -724,8 +825,9 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   }
 
   if (url.pathname === '/branches') {
+    const project = requestProject!;
     (async () => {
-      const cwd = getRoot();
+      const cwd = project.projectRoot;
       const git = (args: string[]) =>
         execFileAsync('git', args, { cwd, encoding: 'utf8' })
           .then(r => (r.stdout as string).trim())
@@ -813,10 +915,11 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
-      res.end(JSON.stringify({ branches, defaultBranch, repoUrl: githubUrl }));
+      res.end(
+        JSON.stringify({ branches, defaultBranch, repoUrl: githubUrl, projectEnvelope: project }),
+      );
     })().catch(err => {
-      res.writeHead(500);
-      res.end(String(err));
+      sendJson(res, 500, { error: (err as Error).message, projectEnvelope: project });
     });
     return;
   }
@@ -950,12 +1053,13 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
   }
 
   if (url.pathname === '/sessions') {
-    const dir = sessionsDir();
+    const project = requestProject!;
+    const dir = sessionsDirForRoot(project.projectRoot);
     if (!fs.existsSync(dir)) {
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
-      res.end(JSON.stringify({ sessions: [] }));
+      res.end(JSON.stringify({ sessions: [], projectEnvelope: project }));
       return;
     }
     try {
@@ -1001,36 +1105,33 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
-      res.end(JSON.stringify({ sessions }));
+      res.end(JSON.stringify({ sessions, projectEnvelope: project }));
     } catch (err) {
-      res.writeHead(500);
-      res.end(String(err));
+      sendJson(res, 500, { error: (err as Error).message, projectEnvelope: project });
     }
     return;
   }
 
   if (url.pathname.startsWith('/sessions/')) {
+    const project = requestProject!;
     const id = url.pathname.slice('/sessions/'.length).split('/')[0];
     if (!id) {
-      res.writeHead(400);
-      res.end('session id required');
+      sendJson(res, 400, { error: 'session id required', projectEnvelope: project });
       return;
     }
-    const indexPath = path.join(sessionsDir(), id, 'index.json');
+    const indexPath = path.join(sessionsDirForRoot(project.projectRoot), id, 'index.json');
     if (!fs.existsSync(indexPath)) {
-      res.writeHead(404);
-      res.end('session not found');
+      sendJson(res, 404, { error: 'session not found', projectEnvelope: project });
       return;
     }
     try {
-      const snap = fs.readFileSync(indexPath, 'utf8');
+      const snap = JSON.parse(fs.readFileSync(indexPath, 'utf8')) as Record<string, unknown>;
       res.writeHead(200, {
         'Content-Type': 'application/json',
       });
-      res.end(snap);
+      res.end(JSON.stringify({ ...snap, projectEnvelope: project }));
     } catch (err) {
-      res.writeHead(500);
-      res.end(String(err));
+      sendJson(res, 500, { error: (err as Error).message, projectEnvelope: project });
     }
     return;
   }
@@ -1311,6 +1412,11 @@ async function routePost(
   const payload = rawPayload as Record<string, unknown>;
   {
     const route = url.pathname;
+    const projectRequest = projectBoundPostPath(route) ? validateProjectRequest(req) : null;
+    if (projectRequest && !projectRequest.ok) {
+      sendJson(res, 409, projectRequest.mismatch);
+      return;
+    }
 
     if (route === '/intake/classify') {
       const response = await classifyIntakeRequest(rawPayload);
@@ -2079,32 +2185,28 @@ async function routePost(
 
     if (route === '/project/switch') {
       if (activeRun) {
-        res.writeHead(409);
-        res.end(JSON.stringify({ error: 'Cannot switch projects while a run is in progress' }));
+        sendJson(res, 409, { error: 'Cannot switch projects while a run is in progress' });
         return;
       }
       const { path: newPath } = payload as { path?: string };
       if (!newPath?.trim()) {
-        res.writeHead(400);
-        res.end(JSON.stringify({ error: 'path required' }));
+        sendJson(res, 400, { error: 'path required' });
         return;
       }
-      const resolved = path.resolve(newPath.trim());
+      const targetProject = projectEnvelopeForRoot(newPath.trim());
+      const resolved = targetProject.projectRoot;
       if (!fs.existsSync(resolved)) {
-        res.writeHead(400);
-        res.end(JSON.stringify({ error: `Directory not found: ${resolved}` }));
+        sendJson(res, 400, { error: `Directory not found: ${resolved}` });
         return;
       }
       try {
         const stat = fs.statSync(resolved);
         if (!stat.isDirectory()) {
-          res.writeHead(400);
-          res.end(JSON.stringify({ error: 'Path is not a directory' }));
+          sendJson(res, 400, { error: 'Path is not a directory' });
           return;
         }
       } catch {
-        res.writeHead(400);
-        res.end(JSON.stringify({ error: 'Cannot access path' }));
+        sendJson(res, 400, { error: 'Cannot access path' });
         return;
       }
 
@@ -2114,12 +2216,17 @@ async function routePost(
       githubUrl = null;
       detectGithubUrl();
 
-      const project = path.basename(resolved);
       const hasSwarm = fs.existsSync(path.join(resolved, '.swarm', 'state.json'));
       console.log(`  ▸ switched   → ${resolved}`);
 
-      res.writeHead(200);
-      res.end(JSON.stringify({ ok: true, project, hasSwarm, repoUrl: githubUrl }));
+      sendJson(res, 200, {
+        ok: true,
+        project: targetProject.projectName,
+        root: targetProject.projectRoot,
+        hasSwarm,
+        repoUrl: githubUrl,
+        projectEnvelope: targetProject,
+      });
       return;
     }
 
@@ -2173,6 +2280,11 @@ export function startServer(port: number): http.Server {
 
   // Source 2: file watcher (agent-sdk driver writes state.json as subprocess)
   stopCurrentWatcher = startFileWatcher();
+  server.on('close', () => {
+    bus.off('swarm', fanout);
+    stopCurrentWatcher();
+    stopCurrentWatcher = () => {};
+  });
 
   server.listen(port, '127.0.0.1', () => {
     console.log(`  ▸ server     → http://localhost:${port}`);
