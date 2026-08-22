@@ -1,20 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BUILTINS } from '../../data/marketAgents';
 import { PERSONAS } from '../../data/personas';
 import { AgentIcon, RoleChip, LockBadge } from './shared';
 import { ToolGlyph } from '../common/ToolIcon';
 import { IconLock, IconChevronLeft } from '../common/icons';
 import { modelMeta } from '../../data/models';
+import {
+  defaultModelLabel,
+  modelPolicyPreferenceOptions,
+  modelPolicyPreferenceState,
+} from '../../data/modelPolicy';
+import { useProjectModelPolicy } from '../../hooks/useProjectModelPolicy';
 import { useProjectClient } from '../../project/ProjectClientContext';
-
-// Cheapest → most expensive, matching the cost ladder in data/models.ts.
-const MODELS = [
-  { label: 'Haiku 4.5', id: 'claude-haiku-4-5-20251001' },
-  { label: 'Sonnet 4.6', id: 'claude-sonnet-4-6' },
-  { label: 'Sonnet 5', id: 'claude-sonnet-5' },
-  { label: 'Opus 4.8', id: 'claude-opus-4-8' },
-  { label: 'Fable 5', id: 'claude-fable-5' },
-];
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 
 const SENS_LABEL: Record<string, string> = {
@@ -31,6 +28,7 @@ interface BuiltinDrawerProps {
 
 export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
   const projectClient = useProjectClient();
+  const modelPolicy = useProjectModelPolicy();
   const [prompt, setPrompt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [instructions, setInstructions] = useState('');
@@ -41,6 +39,15 @@ export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
 
   const builtin = BUILTINS.find(b => b.id === agentId);
   const persona = PERSONAS[agentId];
+  const modelState = useMemo(
+    () => modelPolicyPreferenceState(modelPolicy, model),
+    [model, modelPolicy],
+  );
+  const modelOptions = useMemo(
+    () => modelPolicyPreferenceOptions(modelPolicy, model),
+    [model, modelPolicy],
+  );
+  const projectDefault = defaultModelLabel(modelPolicy);
 
   useEffect(() => {
     let cancelled = false;
@@ -195,16 +202,33 @@ export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
           <div className="dsec">
             <div className="dsec-label">Agent model preference</div>
             <select className="sel" value={model} onChange={e => handleModelChange(e.target.value)}>
-              {MODELS.map(m => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
+              {modelOptions.map(option => (
+                <option key={option.id} value={option.id}>
+                  {option.provider === 'openai' ? 'OpenAI · ' : option.provider === 'anthropic' ? 'Anthropic · ' : ''}
+                  {option.label}
+                  {option.enabledForNewRuns ? '' : ' · unavailable for new runs'}
                 </option>
               ))}
             </select>
-            <div className="helper">
-              This agent prefers {modelMeta(model)?.label ?? model}. Project model policy still
-              decides availability, and Planning shows the effective route for each task.
+            <div
+              className="helper"
+              style={
+                modelState?.enabledForNewRuns
+                  ? undefined
+                  : {
+                      color: 'var(--amber)',
+                    }
+              }
+            >
+              {modelState?.enabledForNewRuns
+                ? `Available for new runs. This agent prefers ${modelState.label}, while Planning shows the effective route per task.`
+                : modelState
+                  ? `Unavailable for new runs — ${modelState.summary} ${modelState.remediation ?? ''}`.trim()
+                  : `This agent prefers ${modelMeta(model)?.label ?? model}.`}
             </div>
+            {projectDefault && (
+              <div className="helper">Project default for new PM planning turns: {projectDefault}.</div>
+            )}
           </div>
 
           <div className="dsec">

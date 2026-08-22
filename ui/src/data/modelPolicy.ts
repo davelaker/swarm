@@ -49,6 +49,24 @@ export interface ModelPolicyGroup {
   models: ModelPolicyGroupedModel[];
 }
 
+export interface ModelPolicyPreferenceState {
+  modelId: string;
+  label: string;
+  provider: AvailableProvider['provider'] | null;
+  enabledForNewRuns: boolean;
+  status: 'enabled' | 'disabled' | 'missing';
+  summary: string;
+  remediation: string | null;
+}
+
+export interface ModelPolicyPreferenceOption {
+  id: string;
+  label: string;
+  provider: AvailableProvider['provider'] | null;
+  enabledForNewRuns: boolean;
+  current: boolean;
+}
+
 export interface ModelPolicySaveState extends ModelPolicyControlState {
   dirty: boolean;
 }
@@ -104,10 +122,103 @@ export function defaultModelLabel(
   return policy.defaultModelId ? modelLabel(policy, policy.defaultModelId) : null;
 }
 
+function providerLabel(provider: AvailableProvider['provider'] | null): string {
+  if (provider === 'openai') {
+    return 'OpenAI';
+  }
+  if (provider === 'anthropic') {
+    return 'Anthropic';
+  }
+  return 'Unknown provider';
+}
+
 export function planningCapableModelIds(policy: Pick<ModelPolicyState, 'providers'>): string[] {
   return allPolicyModels(policy)
     .filter(model => model.capabilities.includes('planning'))
     .map(model => model.id);
+}
+
+export function modelPolicyPreferenceState(
+  policy: Pick<ModelPolicyState, 'providers' | 'enabledModelIds'>,
+  modelId: string | undefined,
+): ModelPolicyPreferenceState | null {
+  if (!modelId) {
+    return null;
+  }
+
+  const model = allPolicyModels(policy).find(candidate => candidate.id === modelId);
+  const label = model?.label ?? modelId;
+  const provider = model?.provider ?? null;
+  const enabledForNewRuns = policy.enabledModelIds.includes(modelId);
+
+  if (!model) {
+    return {
+      modelId,
+      label,
+      provider,
+      enabledForNewRuns: false,
+      status: 'missing',
+      summary: `${label} is not currently executable on this machine.`,
+      remediation: 'Choose an enabled model or restore the matching local transport.',
+    };
+  }
+
+  if (!enabledForNewRuns) {
+    return {
+      modelId,
+      label,
+      provider,
+      enabledForNewRuns,
+      status: 'disabled',
+      summary: `${label} is disabled by project policy for new runs.`,
+      remediation: 'Choose an enabled model here or re-enable it in Model policy.',
+    };
+  }
+
+  return {
+    modelId,
+    label,
+    provider,
+    enabledForNewRuns,
+    status: 'enabled',
+    summary: `${label} is available for new runs through ${providerLabel(provider)}.`,
+    remediation: null,
+  };
+}
+
+export function modelPolicyPreferenceOptions(
+  policy: Pick<ModelPolicyState, 'providers' | 'enabledModelIds'>,
+  currentModelId: string | undefined,
+): ModelPolicyPreferenceOption[] {
+  const enabledOptions = allPolicyModels(policy)
+    .filter(model => policy.enabledModelIds.includes(model.id))
+    .map(model => ({
+      id: model.id,
+      label: model.label,
+      provider: model.provider,
+      enabledForNewRuns: true,
+      current: model.id === currentModelId,
+    }));
+
+  if (!currentModelId || enabledOptions.some(option => option.id === currentModelId)) {
+    return enabledOptions;
+  }
+
+  const currentState = modelPolicyPreferenceState(policy, currentModelId);
+  if (!currentState) {
+    return enabledOptions;
+  }
+
+  return [
+    {
+      id: currentState.modelId,
+      label: currentState.label,
+      provider: currentState.provider,
+      enabledForNewRuns: false,
+      current: true,
+    },
+    ...enabledOptions,
+  ];
 }
 
 export function normalizeDefaultModelId(input: {

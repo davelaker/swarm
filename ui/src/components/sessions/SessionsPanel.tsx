@@ -364,22 +364,6 @@ export function SessionsPanel({
         )}
       </div>
 
-      {activeSessionId && (
-        <div
-          style={{
-            padding: '10px 16px',
-            borderBottom: '1px solid rgba(245,160,55,0.2)',
-            background: 'var(--amber-d)',
-            color: 'var(--amber)',
-            fontSize: 11,
-            fontFamily: 'var(--mono)',
-            letterSpacing: '0.04em',
-          }}
-        >
-          ARCHIVED MODE: Running and Planning are showing a saved, read-only session snapshot.
-        </div>
-      )}
-
       {/* Error */}
       {(error || loadErr) && (
         <div

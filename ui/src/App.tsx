@@ -26,6 +26,7 @@ import type { QuickTaskStartResult } from './data/quickTask';
 import { envelopeFromResponse } from './project/envelope';
 import { createProjectClient } from './project/projectClient';
 import { ProjectClientProvider } from './project/ProjectClientContext';
+import { projectSurfaceKey as makeProjectSurfaceKey } from './project/surface';
 import type { ProjectContextState, ProjectEnvelope } from './project/types';
 
 export type ServerStatus = 'probing' | 'up' | 'down';
@@ -202,7 +203,7 @@ export function App() {
     });
   }, [readyProject, projectState.generation]);
   const projectSurfaceKey = projectClient
-    ? `${projectClient.project.projectId}:${projectClient.generation}`
+    ? makeProjectSurfaceKey(projectClient.project, projectClient.generation)
     : `project-${projectState.status}-${projectState.generation}`;
 
   const resetProjectDerivedState = useCallback(() => {
@@ -811,39 +812,6 @@ export function App() {
             History
           </button>
         </div>
-        {historicalSession && (
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 7,
-              fontSize: 11,
-              fontFamily: 'var(--mono)',
-              color: 'var(--amber)',
-              background: 'rgba(255,170,0,0.08)',
-              border: '1px solid rgba(255,170,0,0.2)',
-              borderRadius: 6,
-              padding: '3px 10px',
-              marginLeft: 6,
-            }}
-          >
-            <span>⏱ history</span>
-            <button
-              onClick={() => historicalSession && handleReopen(historicalSession)}
-              style={{ color: 'var(--blue)', fontSize: 11, lineHeight: 1 }}
-              title="Seed a new, editable planning session from this run"
-            >
-              ↻ Re-open in Planning
-            </button>
-            <button
-              onClick={() => setHistoricalSession(null)}
-              style={{ color: 'var(--tx-3)', fontSize: 13, lineHeight: 1 }}
-              title="Return to live"
-            >
-              ×
-            </button>
-          </span>
-        )}
         {surface === 'running' && runDone && (
           <button className="btn primary" onClick={handlePlanNext} style={{ marginLeft: 10 }}>
             ← Plan next task
@@ -980,6 +948,49 @@ export function App() {
             </div>
           ) : (
             <>
+              {historicalSession && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    margin: '0 14px 10px',
+                    padding: '10px 14px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(245,160,55,0.24)',
+                    background: 'var(--amber-d)',
+                    color: 'var(--amber)',
+                  }}
+                >
+                  <div style={{ display: 'grid', gap: 4 }}>
+                    <span
+                      style={{ fontFamily: 'var(--mono)', fontSize: 11, letterSpacing: '0.04em' }}
+                    >
+                      ARCHIVED MODE
+                    </span>
+                    <span style={{ fontSize: 12, color: 'var(--tx-1)' }}>
+                      Planning and Running are showing a saved, read-only session snapshot.
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      className="btn"
+                      onClick={() => handleReopen(historicalSession)}
+                      title="Seed a new, editable planning session from this run"
+                    >
+                      Re-open as plan
+                    </button>
+                    <button
+                      className="btn"
+                      onClick={() => setHistoricalSession(null)}
+                      title="Return to current live planning and running state"
+                    >
+                      Return to current work
+                    </button>
+                  </div>
+                </div>
+              )}
               <div
                 key={`planning-${projectSurfaceKey}`}
                 style={{

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import type { MarketAgent, HiredAgent, ConnectorGrant } from '../../types';
 import {
   AgentIcon,
@@ -13,17 +13,17 @@ import { ToolGlyph } from '../common/ToolIcon';
 import { IconLock, IconChevronLeft } from '../common/icons';
 import { CONNECTOR_BY_ID } from '../../data/connectors';
 import { modelMeta } from '../../data/models';
+import {
+  defaultModelLabel,
+  modelPolicyPreferenceOptions,
+  modelPolicyPreferenceState,
+} from '../../data/modelPolicy';
 import type { ConnectorSens } from '../../data/connectors';
 import { useProjectClient } from '../../project/ProjectClientContext';
+import { useProjectModelPolicy } from '../../hooks/useProjectModelPolicy';
 
 type PermMode = 'allow' | 'ask' | 'deny';
 
-const MODELS = [
-  { label: 'Haiku 4.5', id: 'claude-haiku-4-5-20251001' },
-  { label: 'Sonnet 4.6', id: 'claude-sonnet-4-6' },
-  { label: 'Opus 4.8', id: 'claude-opus-4-8' },
-  { label: 'Fable 5', id: 'claude-fable-5' },
-];
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
 
 const TOOL_RISK: Record<string, number> = { shell: 0, write: 1, read: 2 };
@@ -122,6 +122,7 @@ interface AgentPageProps {
 
 export function AgentPage({ a, hired, projectName, onClose, onConfirm }: AgentPageProps) {
   const projectClient = useProjectClient();
+  const modelPolicy = useProjectModelPolicy();
   const [grants, setGrants] = useState<Record<string, PermMode>>(() =>
     Object.fromEntries(
       a.tools.map(t => {
@@ -169,6 +170,15 @@ export function AgentPage({ a, hired, projectName, onClose, onConfirm }: AgentPa
   const [instructions, setInstructions] = useState('');
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [reviewed, setReviewed] = useState(false);
+  const modelState = useMemo(
+    () => modelPolicyPreferenceState(modelPolicy, model),
+    [model, modelPolicy],
+  );
+  const modelOptions = useMemo(
+    () => modelPolicyPreferenceOptions(modelPolicy, model),
+    [model, modelPolicy],
+  );
+  const projectDefault = defaultModelLabel(modelPolicy);
 
   const stillProbing = available === null;
   const askCount = a.tools.filter(t => grants[t.name] === 'ask').length;
@@ -481,16 +491,31 @@ export function AgentPage({ a, hired, projectName, onClose, onConfirm }: AgentPa
           <div className="dsec">
             <div className="dsec-label">Agent model preference</div>
             <select className="sel" value={model} onChange={e => setModel(e.target.value)}>
-              {MODELS.map(m => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
+              {modelOptions.map(option => (
+                <option key={option.id} value={option.id}>
+                  {option.provider === 'openai'
+                    ? 'OpenAI · '
+                    : option.provider === 'anthropic'
+                      ? 'Anthropic · '
+                      : ''}
+                  {option.label}
+                  {option.enabledForNewRuns ? '' : ' · unavailable for new runs'}
                 </option>
               ))}
             </select>
-            <div className="helper">
-              This specialist prefers {modelMeta(model)?.label ?? model}. Project model policy
-              controls availability, and Planning shows the effective route before execution.
+            <div
+              className="helper"
+              style={modelState?.enabledForNewRuns ? undefined : { color: 'var(--amber)' }}
+            >
+              {modelState?.enabledForNewRuns
+                ? `Available for new runs. This specialist prefers ${modelState.label}; Planning shows the effective route per task.`
+                : modelState
+                  ? `Unavailable for new runs — ${modelState.summary} ${modelState.remediation ?? ''}`.trim()
+                  : `This specialist prefers ${modelMeta(model)?.label ?? model}.`}
             </div>
+            {projectDefault && (
+              <div className="helper">Project default for PM planning: {projectDefault}.</div>
+            )}
           </div>
 
           {/* Footer: review + action */}

@@ -5,6 +5,8 @@ import {
   defaultModelPolicyState,
   modelPolicyButtonState,
   modelPolicyGroups,
+  modelPolicyPreferenceOptions,
+  modelPolicyPreferenceState,
   modelPolicySaveState,
   modelPolicyValidation,
   normalizeDefaultModelId,
@@ -216,6 +218,53 @@ describe('selectors and validation', () => {
             planningCapable: true,
           },
         ],
+      },
+    ]);
+  });
+
+  it('describes enabled, disabled, and missing agent preferences', () => {
+    expect(modelPolicyPreferenceState(snapshot(), 'gpt-5.4')).toMatchObject({
+      modelId: 'gpt-5.4',
+      status: 'enabled',
+      enabledForNewRuns: true,
+      remediation: null,
+    });
+
+    expect(
+      modelPolicyPreferenceState(
+        snapshot({ enabledModelIds: ['claude-sonnet-4-6'] }),
+        'gpt-5.4',
+      ),
+    ).toMatchObject({
+      modelId: 'gpt-5.4',
+      status: 'disabled',
+      enabledForNewRuns: false,
+    });
+
+    expect(modelPolicyPreferenceState(snapshot(), 'claude-fable-5')).toMatchObject({
+      modelId: 'claude-fable-5',
+      status: 'missing',
+      enabledForNewRuns: false,
+    });
+  });
+
+  it('keeps a disabled current preference visible beside enabled choices', () => {
+    expect(
+      modelPolicyPreferenceOptions(snapshot({ enabledModelIds: ['claude-sonnet-4-6'] }), 'gpt-5.4'),
+    ).toEqual([
+      {
+        id: 'gpt-5.4',
+        label: 'GPT-5.4',
+        provider: 'openai',
+        enabledForNewRuns: false,
+        current: true,
+      },
+      {
+        id: 'claude-sonnet-4-6',
+        label: 'Claude Sonnet 4.6',
+        provider: 'anthropic',
+        enabledForNewRuns: true,
+        current: false,
       },
     ]);
   });

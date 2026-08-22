@@ -33,7 +33,7 @@ describe('projectHistoricalPlanningView', () => {
   it('marks missing charter fields as not recorded and derives the saved branch label', () => {
     expect(projectHistoricalPlanningView(baseSession)).toMatchObject({
       goal: { text: 'Tighten archived-mode wording', source: 'recorded' },
-      branch: 'archived-wording',
+      branch: { label: 'archived-wording', source: 'recorded', mode: 'branch' },
       sections: [
         { label: 'Constraints', value: ['Keep Running three-column layout'] },
         { label: 'Non-goals', value: 'not-recorded' },
@@ -47,5 +47,52 @@ describe('projectHistoricalPlanningView', () => {
     expect(projectHistoricalPlanningView(baseSession).team).toEqual([
       { id: 'coder', source: 'reconstructed' },
     ]);
+  });
+
+  it('uses recorded task-graph facts when the snapshot captured them', () => {
+    const view = projectHistoricalPlanningView({
+      ...baseSession,
+      branchName: undefined,
+      charter: {
+        ...baseSession.charter!,
+        branchMode: 'main',
+        taskGraph: [
+          {
+            id: 't-plan',
+            title: 'Review archived fidelity',
+            assignee: 'reviewer',
+            depends_on: ['t1'],
+            route: {
+              provider: 'openai',
+              model: 'gpt-5.5',
+              reasoningEffort: 'high',
+              rationale: 'Use the stronger model for historical review',
+              fallback: null,
+              requiresConfirmation: false,
+              writeScope: ['ui/src/components/planning/**'],
+            },
+          },
+        ],
+      },
+    });
+
+    expect(view.branch).toEqual({
+      label: 'Committing to main',
+      source: 'recorded',
+      mode: 'main',
+    });
+    expect(view.team).toEqual([{ id: 'reviewer', source: 'recorded' }]);
+    expect(view.executionPlan).toEqual({
+      source: 'recorded',
+      tasks: [
+        {
+          id: 't-plan',
+          title: 'Review archived fidelity',
+          assignee: 'reviewer',
+          dependsOn: ['t1'],
+          model: 'gpt-5.5',
+        },
+      ],
+    });
   });
 });

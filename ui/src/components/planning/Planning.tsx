@@ -516,26 +516,105 @@ interface HistoricalPlanningSection {
   value: 'not-recorded' | 'reconstructed' | string[];
 }
 
+interface HistoricalPlanningTask {
+  id: string;
+  title: string;
+  assignee: string;
+  dependsOn: string[];
+  model: string | null;
+}
+
 interface HistoricalPlanningView {
   goal: { text: string; source: 'recorded' | 'reconstructed' };
   team: { id: string; source: 'recorded' | 'reconstructed' }[];
-  branch: string | null;
+  branch:
+    | { label: string; source: 'recorded' | 'reconstructed'; mode: 'branch' | 'main' }
+    | null;
+  executionPlan: {
+    source: 'recorded' | 'reconstructed' | 'not-recorded';
+    tasks: HistoricalPlanningTask[];
+  };
   sections: HistoricalPlanningSection[];
   messages: Array<{ from: 'pm' | 'you'; text: string }>;
+}
+
+function historicalBranchView(
+  session: SessionSnapshot,
+): HistoricalPlanningView['branch'] {
+  if (session.branchName) {
+    return {
+      label: session.branchName.replace(/^swarm\//, ''),
+      source: 'recorded',
+      mode: 'branch',
+    };
+  }
+  if (session.charter?.branchMode === 'main') {
+    return {
+      label: 'Committing to main',
+      source: 'recorded',
+      mode: 'main',
+    };
+  }
+  if (session.charter?.branchName) {
+    return {
+      label: session.charter.branchName.replace(/^swarm\//, ''),
+      source: 'reconstructed',
+      mode: 'branch',
+    };
+  }
+  return null;
+}
+
+function historicalRecordedTasks(session: SessionSnapshot): HistoricalPlanningTask[] {
+  const taskGraph = session.charter?.taskGraph ?? [];
+  return taskGraph
+    .filter(task => task.assignee)
+    .map(task => ({
+      id: task.id,
+      title: task.title,
+      assignee: task.assignee,
+      dependsOn: task.depends_on,
+      model: task.route?.model ?? task.model ?? null,
+    }));
+}
+
+function historicalReconstructedTasks(session: SessionSnapshot): HistoricalPlanningTask[] {
+  return session.tasks
+    .filter(task => task.assignee)
+    .map(task => ({
+      id: task.id,
+      title: task.title,
+      assignee: task.assignee,
+      dependsOn: task.depends_on,
+      model: task.route?.model ?? task.model ?? null,
+    }));
 }
 
 export function projectHistoricalPlanningView(
   session: SessionSnapshot,
 ): HistoricalPlanningView {
   const charter = session.charter;
-  const uniqueTeam = [...new Set(session.tasks.map(task => task.assignee).filter(Boolean))];
+  const recordedTasks = historicalRecordedTasks(session);
+  const reconstructedTasks = historicalReconstructedTasks(session);
+  const executionPlan =
+    recordedTasks.length > 0
+      ? { source: 'recorded' as const, tasks: recordedTasks }
+      : reconstructedTasks.length > 0
+        ? { source: 'reconstructed' as const, tasks: reconstructedTasks }
+        : { source: 'not-recorded' as const, tasks: [] };
+  const uniqueTeam = [...new Set(executionPlan.tasks.map(task => task.assignee).filter(Boolean))];
+  const teamSource = executionPlan.source === 'recorded' ? 'recorded' : 'reconstructed';
   return {
     goal: {
       text: session.goal || 'Reconstructed from saved session metadata.',
       source: session.goal ? 'recorded' : 'reconstructed',
     },
-    team: uniqueTeam.map(id => ({ id, source: 'reconstructed' as const })),
-    branch: session.branchName ? session.branchName.replace(/^swarm\//, '') : null,
+    team:
+      executionPlan.source === 'not-recorded'
+        ? []
+        : uniqueTeam.map(id => ({ id, source: teamSource })),
+    branch: historicalBranchView(session),
+    executionPlan,
     sections: [
       {
         label: 'Constraints',
@@ -1057,7 +1136,13 @@ export function Planning({
             <div className="csec">
               <div className="csec-label">
                 <span className="num">05</span> Recommended team
-                <span className="field-req">reconstructed</span>
+                <span className="field-req">
+                  {historicalView.team.length === 0
+                    ? 'archived'
+                    : historicalView.team.some(member => member.source === 'recorded')
+                    ? 'saved'
+                    : 'reconstructed'}
+                </span>
               </div>
               {historicalView.team.length > 0 ? (
                 <div className="team-chips">
@@ -1067,9 +1152,14 @@ export function Planning({
                       <span key={member.id} className="agent-chip anim-in">
                         <span className="pdot" style={{ background: persona.color }} />
                         {persona.name}
-                        <span className="model-badge" style={{ color: 'var(--tx-3)', borderColor: 'var(--border)' }}>
-                          Reconstructed
-                        </span>
+                        {member.source === 'reconstructed' && (
+                          <span
+                            className="model-badge"
+                            style={{ color: 'var(--tx-3)', borderColor: 'var(--border)' }}
+                          >
+                            Reconstructed
+                          </span>
+                        )}
                       </span>
                     );
                   })}
@@ -1082,14 +1172,90 @@ export function Planning({
             <div className="csec">
               <div className="csec-label">
                 <span className="num">06</span> Branch
-                <span className="field-opt">archived</span>
+                <span className="field-opt">
+                  {!historicalView.branch
+                    ? 'archived'
+                    : historicalView.branch.source === 'reconstructed'
+                      ? 'reconstructed'
+                      : 'saved'}
+                </span>
               </div>
               {historicalView.branch ? (
                 <div className="branch-mode-row anim-in">
-                  <span className="branch-mode-chip" data-mode="branch">
-                    ⎇ {historicalView.branch}
+                  <span
+                    className="branch-mode-chip"
+                    data-mode={historicalView.branch.mode === 'main' ? 'main' : 'branch'}
+                  >
+                    {historicalView.branch.mode === 'main'
+                      ? historicalView.branch.label
+                      : `⎇ ${historicalView.branch.label}`}
                   </span>
-                  <span className="branch-hint">Saved branch from the completed run.</span>
+                  <span className="branch-hint">
+                    {historicalView.branch.source === 'recorded'
+                      ? 'Captured from the completed run.'
+                      : 'Reconstructed from archived planning metadata.'}
+                  </span>
+                </div>
+              ) : (
+                <div className="empty">Not recorded</div>
+              )}
+            </div>
+
+            <div className="csec">
+              <div className="csec-label">
+                <span className="num">07</span> Execution plan
+                <span className="field-opt">
+                  {historicalView.executionPlan.source === 'recorded'
+                    ? 'saved'
+                    : historicalView.executionPlan.source === 'reconstructed'
+                      ? 'reconstructed'
+                      : 'archived'}
+                </span>
+              </div>
+              {historicalView.executionPlan.tasks.length > 0 ? (
+                <div className="clist">
+                  {historicalView.executionPlan.tasks.map(task => {
+                    const persona = resolveAgentPersona(task.assignee);
+                    const model = task.model ? modelMeta(task.model) : null;
+                    return (
+                      <div className="crow anim-in" key={task.id} style={{ alignItems: 'flex-start' }}>
+                        <span className="mark">→</span>
+                        <div style={{ display: 'grid', gap: 6 }}>
+                          <span>{task.title}</span>
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: 6,
+                              alignItems: 'center',
+                              color: 'var(--tx-3)',
+                              fontSize: 12,
+                            }}
+                          >
+                            <span className="agent-chip" style={{ animation: 'none' }}>
+                              <span className="pdot" style={{ background: persona.color }} />
+                              {persona.name}
+                            </span>
+                            {model ? (
+                              <span
+                                className="model-badge"
+                                style={{ color: model.color, borderColor: model.color }}
+                              >
+                                {model.label}
+                              </span>
+                            ) : (
+                              <span className="empty" style={{ padding: 0 }}>
+                                Model not recorded
+                              </span>
+                            )}
+                            {task.dependsOn.length > 0 && (
+                              <span>depends on {task.dependsOn.join(', ')}</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="empty">Not recorded</div>

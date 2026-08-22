@@ -11,6 +11,8 @@ import { Switch } from '../common/Switch';
 import { IconLock, IconTrash } from '../common/icons';
 import type { Sensitivity } from '../../types';
 import { modelMeta } from '../../data/models';
+import { modelPolicyPreferenceState } from '../../data/modelPolicy';
+import { useProjectModelPolicy } from '../../hooks/useProjectModelPolicy';
 
 interface MyTeamProps {
   team: HiredAgent[];
@@ -35,6 +37,7 @@ export function MyTeam({
   onViewAgent,
   onBrowse,
 }: MyTeamProps) {
+  const modelPolicy = useProjectModelPolicy();
   const staleEntries = team.filter(h => staleness[h.id]?.stale);
   return (
     <div className="team-wrap">
@@ -185,9 +188,19 @@ export function MyTeam({
                 <div className="trow-sub">
                   <RoleChip role={a.role} />
                   <ScorecardInline card={scorecards[h.id]} />
-                  <span className="mono" style={{ color: 'var(--tx-3)' }}>
-                    Prefers {modelMeta(h.model)?.label ?? h.model}
-                  </span>
+                  {(() => {
+                    const preference = modelPolicyPreferenceState(modelPolicy, h.model);
+                    return (
+                      <span
+                        className="mono"
+                        style={{ color: preference?.enabledForNewRuns ? 'var(--tx-3)' : 'var(--amber)' }}
+                        title={preference?.summary}
+                      >
+                        {preference?.enabledForNewRuns ? 'Prefers ' : 'Unavailable · '}
+                        {modelMeta(h.model)?.label ?? h.model}
+                      </span>
+                    );
+                  })()}
                 </div>
               </div>
               <div className="trow-tools" onClick={e => e.stopPropagation()}>

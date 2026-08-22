@@ -1,3 +1,5 @@
+import type { TaskGraphEntry, TaskRoute } from './App';
+
 export type Surface = 'planning' | 'running' | 'branches' | 'marketplace' | 'history';
 
 export type {
@@ -197,6 +199,8 @@ export interface SessionSnapshot {
     nongoals: string[];
     questions: string[];
     branchMode?: string;
+    branchName?: string;
+    taskGraph?: TaskGraphEntry[];
     planningHistory?: Array<{ from: 'pm' | 'you'; text: string }>;
   };
   tasks: Array<{
@@ -206,6 +210,10 @@ export interface SessionSnapshot {
     status: string;
     depends_on: string[];
     result_ref: string | null;
+    model?: string;
+    effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    route?: TaskRoute;
+    artifacts?: string[];
     finding_verdict?: string;
     finding_summary?: string;
   }>;
