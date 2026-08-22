@@ -1,7 +1,9 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useId, useRef } from 'react';
 import type { SwarmBranch, BranchCommit } from '../../types';
 import { IconTrash } from '../common/icons';
+import { useProjectClient } from '../../project/ProjectClientContext';
+import type { ProjectClient } from '../../project/projectClient';
 
 const DEFAULT_VISIBLE_MERGED_BRANCHES = 25;
 type BranchStatusFilter = 'all' | 'open' | 'merged' | 'current';
@@ -122,6 +124,12 @@ export function projectBranchSections(
   };
 }
 
+export function collectMergedDeletableBranches(branches: SwarmBranch[]): SwarmBranch[] {
+  return sortBranchesByActivity(branches).filter(branch => {
+    return branch.merged && !branch.isCurrent;
+  });
+}
+
 // ─── Delete confirmation ───────────────────────────────────────────────────────
 // The consequences of deleting a swarm branch depend entirely on where its commits
 // live, so spell that out per scenario before the destructive action.
@@ -181,11 +189,13 @@ function deleteScenario(
 function DeleteBranchDialog({
   branch,
   defaultBranch,
+  projectClient,
   onClose,
   onDeleted,
 }: {
   branch: SwarmBranch;
   defaultBranch: string;
+  projectClient: ProjectClient;
   onClose: () => void;
   onDeleted: () => void;
 }) {
@@ -197,11 +207,12 @@ function DeleteBranchDialog({
   const confirm = () => {
     setBusy(true);
     setError(null);
-    fetch('/branches/delete', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ branch: branch.name }),
-    })
+    projectClient
+      .fetchResponse('/branches/delete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ branch: branch.name }),
+      })
       .then(async r => {
         if (!r.ok) {
           const d = (await r.json().catch(() => ({}))) as { error?: string };
@@ -321,10 +332,12 @@ function DeleteBranchDialog({
 
 function DeleteMergedDialog({
   branches,
+  projectClient,
   onClose,
   onDone,
 }: {
   branches: SwarmBranch[]; // merged, already excluding the current branch
+  projectClient: ProjectClient;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -338,7 +351,7 @@ function DeleteMergedDialog({
     // Sequential — keeps the load light and any error message attributable.
     for (const b of branches) {
       try {
-        const r = await fetch('/branches/delete', {
+        const r = await projectClient.fetchResponse('/branches/delete', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ branch: b.name }),
@@ -398,7 +411,7 @@ function DeleteMergedDialog({
         }}
       >
         <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--tx-1)' }}>
-          Delete {branches.length} merged branch{branches.length !== 1 ? 'es' : ''}?
+          Delete all {branches.length} merged branch{branches.length !== 1 ? 'es' : ''}?
         </div>
         <div
           style={{
@@ -411,8 +424,8 @@ function DeleteMergedDialog({
             color: 'var(--tx-2)',
           }}
         >
-          These are all merged — their commits already live in the default branch, so deleting only
-          removes the local branches. Nothing is lost.
+          These are all merged across this project. Their commits already live in the default
+          branch, so deleting only removes the local branches. Nothing is lost.
         </div>
         <div
           style={{
@@ -555,6 +568,7 @@ function CommitRow({
 function BranchOverflowMenu({ branch, onDelete }: { branch: SwarmBranch; onDelete: () => void }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const panelId = useId();
 
   useEffect(() => {
     if (!open) {
@@ -587,8 +601,8 @@ function BranchOverflowMenu({ branch, onDelete }: { branch: SwarmBranch; onDelet
       <button
         type="button"
         className="branch-row-menu-trigger"
-        aria-haspopup="menu"
         aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
         aria-label={`Actions for branch ${branch.shortName}`}
         onClick={() => setOpen(current => !current)}
       >
@@ -596,14 +610,14 @@ function BranchOverflowMenu({ branch, onDelete }: { branch: SwarmBranch; onDelet
       </button>
       {open && (
         <div
+          id={panelId}
           className="branch-row-menu-popover"
-          role="menu"
-          aria-label={`Branch actions for ${branch.shortName}`}
+          aria-label={`Actions for ${branch.shortName}`}
         >
           <button
             type="button"
-            role="menuitem"
             className="branch-row-menu-item danger"
+            aria-label={`Delete branch ${branch.shortName}`}
             onClick={() => {
               setOpen(false);
               onDelete();
@@ -624,11 +638,13 @@ function BranchCard({
   branch,
   repoUrl,
   defaultBranch,
+  projectClient,
   onDeleted,
 }: {
   branch: SwarmBranch;
   repoUrl: string | null;
   defaultBranch: string;
+  projectClient: ProjectClient;
   onDeleted: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -652,14 +668,16 @@ function BranchCard({
       return;
     }
     setLoading(true);
-    fetch(`/branches/commits?branch=${encodeURIComponent(branch.name)}`)
-      .then(r => {
-        if (!r.ok) {
-          throw new Error(`${r.status}`);
+    projectClient
+      .fetchJson<{ commits: BranchCommit[] }>(
+        `/branches/commits?branch=${encodeURIComponent(branch.name)}`,
+        { allowMissingEnvelope: true },
+      )
+      .then((d: { commits: BranchCommit[] }) => {
+        if (!projectClient.isStale()) {
+          setCommits(d.commits);
         }
-        return r.json();
       })
-      .then((d: { commits: BranchCommit[] }) => setCommits(d.commits))
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   };
@@ -674,6 +692,7 @@ function BranchCard({
         <DeleteBranchDialog
           branch={branch}
           defaultBranch={defaultBranch}
+          projectClient={projectClient}
           onClose={() => setConfirmDelete(false)}
           onDeleted={onDeleted}
         />
@@ -683,7 +702,7 @@ function BranchCard({
           background: 'var(--bg-1)',
           border: `1px solid ${branch.isCurrent ? 'var(--blue)' : 'var(--border)'}`,
           borderRadius: 'var(--r-lg)',
-          overflow: 'hidden',
+          overflow: 'visible',
           opacity: branch.merged && !branch.isCurrent ? 0.7 : 1,
         }}
       >
@@ -910,6 +929,7 @@ function EmptyState() {
 // ─── Main view ────────────────────────────────────────────────────────────────
 
 export function Branches() {
+  const projectClient = useProjectClient();
   const [branches, setBranches] = useState<SwarmBranch[]>([]);
   const [defaultBranch, setDefaultBranch] = useState('main');
   const [repoUrl, setRepoUrl] = useState<string | null>(null);
@@ -924,24 +944,24 @@ export function Branches() {
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetch('/branches')
-      .then(r => {
-        if (!r.ok) {
-          throw new Error(`${r.status}`);
-        }
-        return r.json();
-      })
+    projectClient
+      .fetchJson<{ branches: SwarmBranch[]; defaultBranch: string; repoUrl?: string | null }>(
+        '/branches',
+        { allowMissingEnvelope: true },
+      )
       .then((d: { branches: SwarmBranch[]; defaultBranch: string; repoUrl?: string | null }) => {
-        setBranches(d.branches);
-        setDefaultBranch(d.defaultBranch);
-        if (d.repoUrl !== undefined) {
-          setRepoUrl(d.repoUrl ?? null);
+        if (!projectClient.isStale()) {
+          setBranches(d.branches);
+          setDefaultBranch(d.defaultBranch);
+          if (d.repoUrl !== undefined) {
+            setRepoUrl(d.repoUrl ?? null);
+          }
+          setLastFetched(Date.now());
         }
-        setLastFetched(Date.now());
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [projectClient]);
 
   // Load on mount and refresh every 30s
   useEffect(() => {
@@ -964,8 +984,7 @@ export function Branches() {
     showMergedBranches,
   } = projectBranchSections(branches, search, status, mergedExpanded, mergedVisibleCount);
 
-  // The current branch can't be deleted even if merged — git refuses to drop HEAD.
-  const mergedDeletable = mergedBranches.filter(b => !b.isCurrent);
+  const mergedDeletable = collectMergedDeletableBranches(branches);
   const [showBulkDelete, setShowBulkDelete] = useState(false);
   const hasResults = openBranches.length > 0 || mergedBranches.length > 0;
   const showMergedToggle = mergedBranches.length > 0 && !hasActiveFilters;
@@ -1129,6 +1148,7 @@ export function Branches() {
                   branch={b}
                   repoUrl={repoUrl}
                   defaultBranch={defaultBranch}
+                  projectClient={projectClient}
                   onDeleted={load}
                 />
               ))}
@@ -1171,7 +1191,7 @@ export function Branches() {
               {mergedDeletable.length > 0 && (
                 <button
                   onClick={() => setShowBulkDelete(true)}
-                  title={`Delete all ${mergedDeletable.length} merged branch${mergedDeletable.length !== 1 ? 'es' : ''} (safe — already merged)`}
+                  title={`Delete all ${mergedDeletable.length} merged branch${mergedDeletable.length !== 1 ? 'es' : ''} in this project (safe — already merged)`}
                   style={{
                     fontSize: 11,
                     fontFamily: 'var(--mono)',
@@ -1183,7 +1203,7 @@ export function Branches() {
                     cursor: 'pointer',
                   }}
                 >
-                  Delete all merged
+                  Delete all merged ({mergedDeletable.length})
                 </button>
               )}
             </div>
@@ -1195,6 +1215,7 @@ export function Branches() {
                     branch={b}
                     repoUrl={repoUrl}
                     defaultBranch={defaultBranch}
+                    projectClient={projectClient}
                     onDeleted={load}
                   />
                 ))}
@@ -1219,6 +1240,7 @@ export function Branches() {
       {showBulkDelete && (
         <DeleteMergedDialog
           branches={mergedDeletable}
+          projectClient={projectClient}
           onClose={() => setShowBulkDelete(false)}
           onDone={load}
         />

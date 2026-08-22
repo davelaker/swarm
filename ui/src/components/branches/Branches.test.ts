@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterBranches, projectBranchSections } from './Branches';
+import { collectMergedDeletableBranches, filterBranches, projectBranchSections } from './Branches';
 import type { SwarmBranch } from '../../types';
 
 const branches: SwarmBranch[] = [
@@ -61,7 +61,11 @@ describe('filterBranches', () => {
       'open-fix',
     ]);
     expect(filterBranches(branches, '12', 'all').map(branch => branch.shortName)).toEqual([
+      'current-work',
       'merged-cleanup',
+    ]);
+    expect(filterBranches(branches, 'current', 'all').map(branch => branch.shortName)).toEqual([
+      'current-work',
     ]);
   });
 });
@@ -87,5 +91,37 @@ describe('projectBranchSections', () => {
       hasActiveFilters: true,
       showMergedBranches: true,
     });
+  });
+});
+
+describe('collectMergedDeletableBranches', () => {
+  it('uses the full branch list instead of filtered merged matches', () => {
+    const extraMerged: SwarmBranch = {
+      name: 'swarm/merged-older',
+      shortName: 'merged-older',
+      isCurrent: false,
+      merged: true,
+      pushed: true,
+      ahead: 0,
+      lastCommit: {
+        hash: 'zzz9999',
+        message: 'Older merged branch',
+        date: '2026-08-19T08:00:00.000Z',
+      },
+      pr: null,
+    };
+
+    expect(
+      collectMergedDeletableBranches([...branches, extraMerged]).map(branch => branch.shortName),
+    ).toEqual(['merged-cleanup', 'merged-older']);
+  });
+
+  it('never includes the current branch even if it is marked merged', () => {
+    const currentMerged: SwarmBranch = {
+      ...branches[0],
+      merged: true,
+    };
+
+    expect(collectMergedDeletableBranches([currentMerged, branches[2]])).toEqual([branches[2]]);
   });
 });

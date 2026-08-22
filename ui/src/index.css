@@ -2473,6 +2473,7 @@ select {
 
 .branch-row-menu {
   position: relative;
+  overflow: visible;
 }
 
 .branch-row-menu-trigger {
@@ -2502,7 +2503,7 @@ select {
   border-radius: 10px;
   background: var(--bg-1);
   box-shadow: 0 14px 32px rgba(0, 0, 0, 0.24);
-  z-index: 2;
+  z-index: 8;
 }
 
 .branch-row-menu-item {
