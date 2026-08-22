@@ -12,6 +12,7 @@ import type {
 } from '../types';
 import type { ExecutionShape } from '../data/intake';
 import type { QuickTaskRouteSummary } from '../data/quickTask';
+import type { ProjectClient } from '../project/projectClient';
 
 interface ServerTask {
   id: string;
@@ -62,8 +63,9 @@ interface ServerState {
   };
 }
 
-type SwarmEvent =
-  | {
+type SwarmEvent = ProjectEventFields &
+  (
+    | {
       type: 'run.classified';
       tier: string;
       tasks: ServerTask[];
@@ -115,7 +117,15 @@ type SwarmEvent =
       tool: string;
       input: Record<string, unknown>;
     }
-  | { type: 'agent.permission_resolved'; request_id: string; decision: 'allow' | 'deny' };
+    | { type: 'agent.permission_resolved'; request_id: string; decision: 'allow' | 'deny' }
+  );
+
+interface ProjectEventFields {
+  projectId?: string;
+  projectRoot?: string;
+  projectName?: string;
+  project?: unknown;
+}
 
 function computeLanes(tasks: ServerTask[]): Map<string, number> {
   const lanes = new Map<string, number>();
@@ -229,13 +239,18 @@ export interface RealRun {
 // Lives at App level (above the surface switch) so tab switches never drop the
 // SSE stream or the live-only state. `resetKey` (the project root) is the one
 // thing that SHOULD reset everything — switching projects reconnects fresh.
-export function useRealRun(resetKey?: string | null): RealRun {
+export function useRealRun(projectClient: ProjectClient | null, resetKey?: string | null): RealRun {
   const [serverStatus, setServerStatus] = useState<ServerStatus>('probing');
   const [state, setState] = useState<RealRunState | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCount = useRef(0); // tracks consecutive failures for backoff
   const startedAtRef = useRef<number | null>(null); // wall-clock when first agent started
+  const latestClientRef = useRef<ProjectClient | null>(projectClient);
+
+  useEffect(() => {
+    latestClientRef.current = projectClient;
+  }, [projectClient]);
 
   // Progressive back-off: 1 s → 1.5 s → 2.25 s … capped at 8 s.
   // Resets to 0 every time a connection succeeds.
@@ -246,13 +261,18 @@ export function useRealRun(resetKey?: string | null): RealRun {
   };
 
   const connect = (mounted: { current: boolean }) => {
-    fetch('/state', { signal: AbortSignal.timeout(2000) })
-      .then(r => {
-        if (!r.ok) throw new Error(`${r.status}`);
-        return r.json();
+    if (!projectClient) {
+      return;
+    }
+
+    projectClient
+      .fetchJson<ServerState>('/state', {
+        signal: AbortSignal.timeout(2000),
+        allowMissingEnvelope: true,
       })
       .then((snap: ServerState) => {
         if (!mounted.current) return;
+        projectClient.assertCurrent();
         const lanes = computeLanes(snap.tasks);
         const tasks = snap.tasks.map(t => adaptTask(t, lanes.get(t.id) ?? 0));
         // 'blocked' and 'failed' are terminal — a blocked task won't change again;
@@ -388,7 +408,7 @@ export function useRealRun(resetKey?: string | null): RealRun {
       esRef.current.close();
       esRef.current = null;
     }
-    const es = new EventSource('/events');
+    const es = projectClient.eventSource('/events');
     esRef.current = es;
 
     es.onmessage = (e: MessageEvent) => {
@@ -397,6 +417,12 @@ export function useRealRun(resetKey?: string | null): RealRun {
       try {
         ev = JSON.parse(e.data);
       } catch {
+        return;
+      }
+      if (
+        latestClientRef.current?.identityKey !== projectClient.identityKey ||
+        !projectClient.acceptsEvent(ev)
+      ) {
         return;
       }
       // New run: reset wall-clock so elapsed timer starts fresh.
@@ -434,7 +460,9 @@ export function useRealRun(resetKey?: string | null): RealRun {
     setState(null);
     setServerStatus('probing');
     retryCount.current = 0;
-    connect(mounted);
+    if (projectClient) {
+      connect(mounted);
+    }
     return () => {
       mounted.current = false;
       esRef.current?.close();
@@ -442,10 +470,13 @@ export function useRealRun(resetKey?: string | null): RealRun {
       if (retryRef.current) clearTimeout(retryRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetKey]);
+  }, [projectClient, resetKey]);
 
   const resolvePermission = useCallback((requestId: string, decision: 'allow' | 'deny') => {
-    fetch(`/run/permission/${requestId}`, {
+    if (!projectClient) {
+      return;
+    }
+    projectClient.fetchResponse(`/run/permission/${requestId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ decision }),
@@ -454,7 +485,7 @@ export function useRealRun(resetKey?: string | null): RealRun {
     });
     // Optimistically clear the pending dialog immediately so the UI feels snappy.
     setState(prev => (prev ? { ...prev, pendingPermission: null } : prev));
-  }, []);
+  }, [projectClient]);
 
   return { serverStatus, state, resolvePermission };
 }

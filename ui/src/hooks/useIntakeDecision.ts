@@ -6,6 +6,7 @@ import {
   type ExecutionShape,
   type IntakeDecision,
 } from '../data/intake';
+import { useProjectClient } from '../project/ProjectClientContext';
 
 export type IntakeDecisionState =
   | { status: 'idle' }
@@ -66,6 +67,7 @@ export function useIntakeDecision(
   instruction: string,
   requestedShape?: ExecutionShape,
 ): IntakeDecisionState {
+  const projectClient = useProjectClient();
   const trimmedInstruction = instruction.trim();
   const requestKey = `${requestedShape ?? 'auto'}:${trimmedInstruction}`;
   const [result, setResult] = useState<IntakeDecisionResult | null>(null);
@@ -79,7 +81,7 @@ export function useIntakeDecision(
     const controller = new AbortController();
     activeRequestKey.current = requestKey;
 
-    fetch('/intake/classify', {
+    projectClient.fetchResponse('/intake/classify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -117,7 +119,7 @@ export function useIntakeDecision(
     return () => {
       controller.abort();
     };
-  }, [requestKey, requestedShape, trimmedInstruction]);
+  }, [projectClient, requestKey, requestedShape, trimmedInstruction]);
 
   if (!trimmedInstruction) {
     return { status: 'idle' };

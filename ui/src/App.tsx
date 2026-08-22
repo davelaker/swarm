@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Surface, SessionSnapshot } from './types';
 import { Planning } from './components/planning/Planning';
 import { Running } from './components/running/Running';
@@ -23,6 +23,10 @@ import {
   type ModelPolicySnapshot,
 } from './data/modelPolicy';
 import type { QuickTaskStartResult } from './data/quickTask';
+import { envelopeFromResponse } from './project/envelope';
+import { createProjectClient } from './project/projectClient';
+import { ProjectClientProvider } from './project/ProjectClientContext';
+import type { ProjectContextState, ProjectEnvelope } from './project/types';
 
 export type ServerStatus = 'probing' | 'up' | 'down';
 
@@ -30,6 +34,30 @@ interface CapabilitiesResponse {
   playwright?: boolean;
   providers?: AvailableProvider[];
   modelPolicy?: ModelPolicyResponse;
+}
+
+interface HealthResponse {
+  project?: string;
+  driver?: string;
+  model?: string | null;
+  activeRun?: boolean;
+  repoUrl?: string | null;
+  root?: string;
+  modelPolicy?: ModelPolicyResponse;
+  activeProject?: ProjectEnvelope;
+  envelope?: ProjectEnvelope;
+  projectEnvelope?: ProjectEnvelope;
+}
+
+interface SwitchResponse {
+  ok: boolean;
+  project?: string;
+  repoUrl?: string | null;
+  root?: string;
+  error?: string;
+  activeProject?: ProjectEnvelope;
+  envelope?: ProjectEnvelope;
+  projectEnvelope?: ProjectEnvelope;
 }
 
 export interface TaskGraphEntry {
@@ -71,6 +99,8 @@ export interface RunCharter {
 // then triggering a hot-reload dumps the user back to Planning — with the
 // Execute button re-enabled — while agents are still running server-side.
 const SURFACE_KEY = 'swarm-surface-v1';
+const ROOT_KEY = 'swarm-active-root';
+
 function loadSurface(): Surface {
   try {
     const v = localStorage.getItem(SURFACE_KEY);
@@ -88,6 +118,30 @@ function loadSurface(): Surface {
   return 'planning';
 }
 
+function loadRememberedRoot(): string | null {
+  try {
+    return localStorage.getItem(ROOT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function rememberRoot(projectRoot: string): void {
+  try {
+    localStorage.setItem(ROOT_KEY, projectRoot);
+  } catch {
+    /* private mode */
+  }
+}
+
+function forgetRememberedRoot(): void {
+  try {
+    localStorage.removeItem(ROOT_KEY);
+  } catch {
+    /* private mode */
+  }
+}
+
 export function App() {
   const [surface, setSurface] = useState<Surface>(loadSurface);
   const [marketplaceFocus, setMarketplaceFocus] = useState<string | null>(null);
@@ -100,14 +154,16 @@ export function App() {
   const [runCharter, setRunCharter] = useState<RunCharter | null>(null);
   const [runTeam, setRunTeam] = useState<string[]>([]);
   const [serverStatus, setServerStatus] = useState<ServerStatus>('probing');
-  const [projectName, setProjectName] = useState<string | null>(null);
+  const [projectState, setProjectState] = useState<ProjectContextState>({
+    status: 'booting',
+    generation: 0,
+  });
   const [modelLabel, setModelLabel] = useState<string | null>(null);
   const [executeError, setExecuteError] = useState<string | null>(null);
   const [completionRecap, setCompletionRecap] = useState<string | null>(null);
   const [repoUrl, setRepoUrl] = useState<string | null>(null);
   const [runDone, setRunDone] = useState(false);
   const [planNextKey, setPlanNextKey] = useState(0);
-  const [projectRoot, setProjectRoot] = useState<string | null>(null);
   const [runConnectionKey, setRunConnectionKey] = useState(0);
   const [showSwitcher, setShowSwitcher] = useState(false);
   const [isInitiating, setIsInitiating] = useState(false);
@@ -121,18 +177,158 @@ export function App() {
   const [modelPolicyPending, setModelPolicyPending] = useState(false);
   const [modelPolicyError, setModelPolicyError] = useState<string | null>(null);
   const [modelPolicyOpen, setModelPolicyOpen] = useState(false);
-  // True once we've confirmed the correct project root (no mismatch, or switch
-  // completed). The Running tab waits behind a loading screen until this is set
-  // so we never show a flash of the wrong project's state.
-  const [projectSynced, setProjectSynced] = useState(false);
   // Last activeRun seen by the probe — the running-tab snap fires on the
   // false→true transition only (see the probe below).
   const prevActiveRun = useRef(false);
+  const projectStateRef = useRef<ProjectContextState>(projectState);
+  const projectGenerationRef = useRef(0);
+  const previousReadyProjectRef = useRef<ProjectEnvelope | null>(null);
+  const projectAbortRef = useRef(new AbortController());
+
+  useEffect(() => {
+    projectStateRef.current = projectState;
+  }, [projectState]);
+
+  const readyProject = projectState.status === 'ready' ? projectState.project : null;
+  const projectClient = useMemo(() => {
+    if (!readyProject) {
+      return null;
+    }
+    return createProjectClient({
+      project: readyProject,
+      generation: projectState.generation,
+      signal: projectAbortRef.current.signal,
+      isCurrentGeneration: generation => generation === projectGenerationRef.current,
+    });
+  }, [readyProject, projectState.generation]);
+  const projectSurfaceKey = projectClient
+    ? `${projectClient.project.projectId}:${projectClient.generation}`
+    : `project-${projectState.status}-${projectState.generation}`;
+
+  const resetProjectDerivedState = useCallback(() => {
+    setMarketplaceFocus(null);
+    setExecutable(false);
+    setExecutableReason('Complete the planning conversation to unlock Execute');
+    setRunGoal('');
+    setRunCharter(null);
+    setRunTeam([]);
+    setExecuteError(null);
+    setCompletionRecap(null);
+    setRunDone(false);
+    setPlanNextKey(k => k + 1);
+    setHistoricalSession(null);
+    setReopenSeed(null);
+    setReopenKey(k => k + 1);
+    setIsInitiating(false);
+    setRunConnectionKey(k => k + 1);
+  }, []);
+
+  const beginProjectSwitch = useCallback(
+    (requestedRoot: string): number => {
+      const generation = projectGenerationRef.current + 1;
+      projectGenerationRef.current = generation;
+      previousReadyProjectRef.current =
+        projectStateRef.current.status === 'ready' ? projectStateRef.current.project : null;
+      projectAbortRef.current.abort();
+      projectAbortRef.current = new AbortController();
+      resetProjectDerivedState();
+      setProjectState({ status: 'switching', generation, requestedRoot });
+      return generation;
+    },
+    [resetProjectDerivedState],
+  );
+
+  const acceptReadyProject = useCallback(
+    (generation: number, project: ProjectEnvelope, nextRepoUrl?: string | null) => {
+      if (generation !== projectGenerationRef.current) {
+        return;
+      }
+      previousReadyProjectRef.current = project;
+      setProjectState(previous => {
+        if (
+          previous.status === 'ready' &&
+          previous.generation === generation &&
+          previous.project.projectId === project.projectId &&
+          previous.project.projectRoot === project.projectRoot &&
+          previous.readiness.repoUrl === nextRepoUrl
+        ) {
+          return previous;
+        }
+        return { status: 'ready', generation, project, readiness: { repoUrl: nextRepoUrl } };
+      });
+      setRepoUrl(nextRepoUrl ?? null);
+    },
+    [],
+  );
+
+  const restorePreviousProject = useCallback((generation: number, message: string) => {
+    if (generation !== projectGenerationRef.current) {
+      return;
+    }
+
+    const previous = previousReadyProjectRef.current;
+    if (previous) {
+      setProjectState({ status: 'ready', generation, project: previous, readiness: {} });
+      return;
+    }
+
+    setProjectState({ status: 'error', generation, message });
+  }, []);
+
+  const switchProject = useCallback(
+    async (path: string): Promise<{ ok: boolean; error?: string }> => {
+      const previous =
+        projectStateRef.current.status === 'ready' ? projectStateRef.current.project : null;
+      const generation = beginProjectSwitch(path);
+      try {
+        const response = await fetch('/project/switch', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(previous ? { 'X-Swarm-Project-Id': previous.projectId } : {}),
+          },
+          body: JSON.stringify({ path }),
+        });
+        const data = (await response.json().catch(() => ({}))) as SwitchResponse;
+        if (!response.ok || !data.ok) {
+          const error = data.error ?? `HTTP ${response.status}`;
+          restorePreviousProject(generation, error);
+          return { ok: false, error };
+        }
+
+        const project =
+          (await envelopeFromResponse(data)) ??
+          (await envelopeFromResponse({
+            root: data.root ?? path,
+            project: data.project,
+          }));
+        if (!project) {
+          const error = 'Switch succeeded without a project identity.';
+          restorePreviousProject(generation, error);
+          return { ok: false, error };
+        }
+
+        rememberRoot(project.projectRoot);
+        try {
+          localStorage.setItem('swarm-just-switched', project.projectRoot);
+        } catch {
+          /* private mode */
+        }
+        acceptReadyProject(generation, project, data.repoUrl);
+        return { ok: true };
+      } catch {
+        const error = 'Network error';
+        restorePreviousProject(generation, error);
+        return { ok: false, error };
+      }
+    },
+    [acceptReadyProject, beginProjectSwitch, restorePreviousProject],
+  );
 
   // The live run connection lives HERE, above the surface switch: switching
   // tabs must never close the SSE stream, wipe live transcripts/spend, or —
   // worst of all — hide a pending permission request until it auto-denies.
-  const run = useRealRun(projectRoot ? `${projectRoot}:${runConnectionKey}` : projectRoot);
+  const run = useRealRun(projectClient, `${projectSurfaceKey}:${runConnectionKey}`);
   useRunNotifications(run.state?.status ?? 'running', run.state?.pendingPermission != null);
 
   const refreshCapabilities = useCallback(async () => {
@@ -173,26 +369,20 @@ export function App() {
     let switchInFlight = false; // guards against overlapping /project/switch calls
 
     const probe = () => {
-      fetch('/health', { signal: AbortSignal.timeout(2000) })
+      const currentProject =
+        projectStateRef.current.status === 'ready' ? projectStateRef.current.project : null;
+      fetch('/health', {
+        headers: currentProject ? { 'X-Swarm-Project-Id': currentProject.projectId } : undefined,
+        signal: AbortSignal.timeout(2000),
+      })
         .then(r => {
           if (!r.ok) {throw new Error();}
           return r.json();
         })
-        .then(
-          (s: {
-            project?: string;
-            driver?: string;
-            model?: string | null;
-            activeRun?: boolean;
-            repoUrl?: string | null;
-            root?: string;
-            modelPolicy?: ModelPolicyResponse;
-          }) => {
+        .then(async (s: HealthResponse) => {
             if (!mounted) {return;}
             setServerStatus('up');
-            if (s.project) {setProjectName(s.project);}
-            if (s.repoUrl) {setRepoUrl(s.repoUrl);}
-            if (s.root) {setProjectRoot(s.root);}
+            const healthProject = await envelopeFromResponse(s);
 
             // Auto-sync: keep the server pointed at the remembered project. The server
             // resets its root to process.cwd() on every restart, so re-assert on EVERY
@@ -200,21 +390,25 @@ export function App() {
             // mid-session restart targets the wrong repo. We hold projectSynced=false
             // until a pending switch resolves so the Running tab never renders the wrong
             // project's state.
-            let localRoot: string | null = null;
-            try {
-              localRoot = localStorage.getItem('swarm-active-root');
-            } catch {
-              /* private mode */
-            }
-            const rootMismatch = !!(localRoot && s.root && localRoot !== s.root);
+            const localRoot = loadRememberedRoot();
+            const rootMismatch = !!(
+              localRoot &&
+              healthProject?.projectRoot &&
+              localRoot !== healthProject.projectRoot
+            );
 
             if (rootMismatch && !switchInFlight) {
               switchInFlight = true;
+              const generation = beginProjectSwitch(localRoot!);
+              const previous = previousReadyProjectRef.current;
               // setProjectRoot and setProjectSynced land in the same .then() so React
               // batches them into one render — <Running> always mounts with the right key.
               fetch('/project/switch', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                  'Content-Type': 'application/json',
+                  ...(previous ? { 'X-Swarm-Project-Id': previous.projectId } : {}),
+                },
                 body: JSON.stringify({ path: localRoot }),
               })
                 .then(
@@ -223,33 +417,50 @@ export function App() {
                       ok: boolean;
                       project?: string;
                       repoUrl?: string | null;
+                      root?: string;
+                      activeProject?: ProjectEnvelope;
+                      envelope?: ProjectEnvelope;
+                      projectEnvelope?: ProjectEnvelope;
                     }>,
                 )
-                .then(d => {
+                .then(async d => {
                   switchInFlight = false;
                   if (!mounted) {return;}
                   if (d.ok) {
-                    if (d.project) {setProjectName(d.project);}
-                    if (d.repoUrl !== undefined) {setRepoUrl(d.repoUrl);}
-                    setProjectRoot(localRoot!);
+                    const project =
+                      (await envelopeFromResponse(d)) ??
+                      (await envelopeFromResponse({
+                        root: d.root ?? localRoot,
+                        project: d.project,
+                      }));
+                    if (project) {
+                      acceptReadyProject(generation, project, d.repoUrl);
+                    } else {
+                      restorePreviousProject(
+                        generation,
+                        'Switch succeeded without a project identity.',
+                      );
+                    }
                   } else {
                     // Saved path no longer valid — forget it so we stop retrying.
-                    try {
-                      localStorage.removeItem('swarm-active-root');
-                    } catch {
-                      /* private mode */
+                    forgetRememberedRoot();
+                    if (healthProject) {
+                      acceptReadyProject(generation, healthProject, s.repoUrl);
+                    } else {
+                      restorePreviousProject(generation, 'Saved project path is no longer valid.');
                     }
                   }
-                  setProjectSynced(true); // always unblock, regardless of d.ok
                 })
                 .catch(() => {
                   switchInFlight = false;
                   // Network error — unblock with the server's root (already set above)
-                  if (mounted) {setProjectSynced(true);}
+                  if (mounted && healthProject) {
+                    acceptReadyProject(generation, healthProject, s.repoUrl);
+                  }
                 });
-            } else if (!rootMismatch) {
+            } else if (!rootMismatch && healthProject && projectStateRef.current.status !== 'switching') {
               // On the right project (or nothing remembered) — unblock Running.
-              setProjectSynced(true);
+              acceptReadyProject(projectGenerationRef.current, healthProject, s.repoUrl);
             }
 
             // If a run has just STARTED (or the page was reopened mid-run), snap to
@@ -266,8 +477,7 @@ export function App() {
             if (s.model) {
               setModelLabel(modelMeta(s.model)?.label ?? s.model.replace(/^claude-/, ''));
             }
-          },
-        )
+          })
         .catch(() => {
           if (!mounted) {return;}
           setServerStatus('down');
@@ -288,7 +498,7 @@ export function App() {
       mounted = false;
       if (timer) {clearTimeout(timer);}
     };
-  }, []);
+  }, [acceptReadyProject, beginProjectSwitch, restorePreviousProject]);
 
   useEffect(() => {
     if (serverStatus !== 'up') {
@@ -313,6 +523,10 @@ export function App() {
   // used both by the Execute button (via goExecute) and by review auto-execute.
   const startRun = useCallback((goal: string, charter: RunCharter | null, team: string[]) => {
     if (!goal) {return;}
+    if (!projectClient) {
+      setExecuteError('Project is still loading.');
+      return;
+    }
     setExecuteError(null);
 
     // Optimistic: switch to Running immediately so the tab feels instant.
@@ -321,7 +535,7 @@ export function App() {
     setSurface('running');
     setIsInitiating(true);
 
-    fetch('/run/execute', {
+    projectClient.fetchResponse('/run/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ goal, charter, team }),
@@ -335,7 +549,7 @@ export function App() {
         // Open a short-lived SSE listener. If the run gets blocked before the
         // first task arrives (e.g. git-dirty check), snap back to Planning with
         // the reason. Close after 20 s regardless — by then success is confirmed.
-        const es = new EventSource('/events');
+        const es = projectClient.eventSource('/events');
         let done = false;
         const finish = () => {
           if (!done) {
@@ -350,6 +564,9 @@ export function App() {
           try {
             msg = JSON.parse(ev.data);
           } catch {
+            return;
+          }
+          if (!projectClient.acceptsEvent(msg)) {
             return;
           }
 
@@ -371,16 +588,22 @@ export function App() {
         };
       })
       .catch((err: Error) => {
+        if (projectClient.isStale()) {
+          return;
+        }
         // POST failed (409 conflict, network error, etc.) — snap back to Planning.
         setIsInitiating(false);
         setExecuteError(err.message);
         setSurface('planning');
       });
-  }, []);
+  }, [projectClient]);
 
   const startQuickTask = useCallback(async (instruction: string): Promise<QuickTaskStartResult> => {
+    if (!projectClient) {
+      throw new Error('Project is still loading.');
+    }
     setExecuteError(null);
-    const response = await fetch('/run/quick-task', {
+    const response = await projectClient.fetchResponse('/run/quick-task', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ instruction }),
@@ -418,7 +641,7 @@ export function App() {
     setSurface('running');
 
     return { status: 'started' };
-  }, []);
+  }, [projectClient]);
 
   const handleExecutable = useCallback(
     (v: boolean, goal?: string, charter?: RunCharter, team?: string[], reason?: string) => {
@@ -518,10 +741,12 @@ export function App() {
             <i />
           </span>
           Agent&nbsp;Swarm
-          {projectName && (
+          {readyProject && (
             <>
               <span className="sep">/</span>
-              <span className="proj">{projectName}</span>
+              <span className="proj" title={readyProject.projectRoot}>
+                {readyProject.projectName}
+              </span>
             </>
           )}
           {repoUrl && (
@@ -724,49 +949,16 @@ export function App() {
       </div>
 
       {showSwitcher && (
-        <ProjectSwitcher currentRoot={projectRoot} onClose={() => setShowSwitcher(false)} />
+        <ProjectSwitcher
+          currentRoot={readyProject?.projectRoot ?? null}
+          onSwitchProject={switchProject}
+          onClose={() => setShowSwitcher(false)}
+        />
       )}
 
       <div className="surface">
-        <div
-          style={{
-            height: '100%',
-            display: surface === 'planning' ? 'block' : 'none',
-          }}
-        >
-          <Planning
-            onExecute={goExecute}
-            onQuickTask={startQuickTask}
-            onExecutable={handleExecutable}
-            onNewSession={() => {
-              setRunGoal('');
-              setRunCharter(null);
-              setRunTeam([]);
-              setRunDone(false);
-            }}
-            onHire={agentId => {
-              setMarketplaceFocus(agentId);
-              setSurface('marketplace');
-            }}
-            serverStatus={serverStatus}
-            recapMessage={completionRecap}
-            planNextKey={planNextKey}
-            reopenKey={reopenKey}
-            reopenSeed={reopenSeed}
-            playwrightAvailable={playwrightAvailable}
-            runBlockedReason={executeError}
-            historicalSession={historicalSession ?? undefined}
-            modelPolicy={modelPolicy}
-          />
-        </div>
-        {surface === 'running' &&
-          // Hold the spinner until we've confirmed the correct project root.
-          // This covers all cases: server up immediately, server initially down,
-          // mismatch needing a switch. Once projectSynced=true it never resets,
-          // so mid-session server disconnects keep <Running> mounted and let
-          // useRealRun show its own reconnecting banner. The topbar already
-          // shows "agents offline" when the server is down.
-          (!projectSynced ? (
+        <ProjectClientProvider client={projectClient}>
+          {!projectClient || projectState.status !== 'ready' ? (
             <div
               style={{
                 height: '100%',
@@ -779,38 +971,82 @@ export function App() {
             >
               <span className="ps-spinner" style={{ width: 22, height: 22, borderWidth: 2.5 }} />
               <span style={{ color: 'var(--tx-3)', fontFamily: 'var(--mono)', fontSize: 13 }}>
-                Loading project…
+                {projectState.status === 'switching'
+                  ? 'Switching project…'
+                  : projectState.status === 'error'
+                    ? projectState.message
+                    : 'Loading project…'}
               </span>
             </div>
           ) : (
-            <Running
-              key={projectRoot ?? 'init'}
-              run={run}
-              onPrCreated={onPrCreated}
-              onRunDone={() => setRunDone(true)}
-              isInitiating={isInitiating}
-              noActiveRun={!runGoal && !historicalSession}
-              historicalSession={historicalSession ?? undefined}
-            />
-          ))}
-        {surface === 'branches' && <Branches />}
-        {surface === 'marketplace' && (
-          <Marketplace
-            key={projectRoot ?? 'init'}
-            projectName={projectName ?? undefined}
-            focusAgentId={marketplaceFocus}
-            onFocusConsumed={() => setMarketplaceFocus(null)}
-          />
-        )}
-        {surface === 'history' && (
-          <SessionsPanel
-            onSelectSession={session => {
-              setHistoricalSession(session);
-              setSurface('running');
-            }}
-            activeSessionId={historicalSession?.id}
-          />
-        )}
+            <>
+              <div
+                key={`planning-${projectSurfaceKey}`}
+                style={{
+                  height: '100%',
+                  display: surface === 'planning' ? 'block' : 'none',
+                }}
+              >
+                <Planning
+                  onExecute={goExecute}
+                  onQuickTask={startQuickTask}
+                  onExecutable={handleExecutable}
+                  onNewSession={() => {
+                    setRunGoal('');
+                    setRunCharter(null);
+                    setRunTeam([]);
+                    setRunDone(false);
+                  }}
+                  onHire={agentId => {
+                    setMarketplaceFocus(agentId);
+                    setSurface('marketplace');
+                  }}
+                  serverStatus={serverStatus}
+                  recapMessage={completionRecap}
+                  planNextKey={planNextKey}
+                  reopenKey={reopenKey}
+                  reopenSeed={reopenSeed}
+                  playwrightAvailable={playwrightAvailable}
+                  runBlockedReason={executeError}
+                  historicalSession={historicalSession ?? undefined}
+                  modelPolicy={modelPolicy}
+                  project={projectState.project}
+                />
+              </div>
+              {surface === 'running' && (
+                <Running
+                  key={`running-${projectSurfaceKey}`}
+                  run={run}
+                  onPrCreated={onPrCreated}
+                  onRunDone={() => setRunDone(true)}
+                  isInitiating={isInitiating}
+                  noActiveRun={!runGoal && !historicalSession}
+                  historicalSession={historicalSession ?? undefined}
+                />
+              )}
+              {surface === 'branches' && <Branches key={`branches-${projectSurfaceKey}`} />}
+              {surface === 'marketplace' && (
+                <Marketplace
+                  key={`marketplace-${projectSurfaceKey}`}
+                  projectName={projectState.project.projectName}
+                  focusAgentId={marketplaceFocus}
+                  onFocusConsumed={() => setMarketplaceFocus(null)}
+                />
+              )}
+              {surface === 'history' && (
+                <SessionsPanel
+                  key={`history-${projectSurfaceKey}`}
+                  projectClient={projectClient}
+                  onSelectSession={session => {
+                    setHistoricalSession(session);
+                    setSurface('running');
+                  }}
+                  activeSessionId={historicalSession?.id}
+                />
+              )}
+            </>
+          )}
+        </ProjectClientProvider>
       </div>
 
       {/* Above the surface switch: an agent blocked on approval must be visible

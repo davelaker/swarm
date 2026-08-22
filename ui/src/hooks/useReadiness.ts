@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useProjectClient } from '../project/ProjectClientContext';
 
 export type CheckStatus = 'ok' | 'warn' | 'fail';
 
@@ -29,6 +30,7 @@ export interface Readiness {
 // mount, when asked (refresh), and when the tab regains focus — picking up a
 // just-committed tree or a newly-installed Playwright without a reload.
 export function useReadiness(refreshKey: number = 0): Readiness {
+  const projectClient = useProjectClient();
   const [report, setReport] = useState<PreflightReport | null>(null);
   const [playwright, setPlaywright] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,11 +40,17 @@ export function useReadiness(refreshKey: number = 0): Readiness {
     let mounted = true;
     setLoading(true);
     Promise.all([
-      fetch('/run/preflight', { signal: AbortSignal.timeout(3000) })
-        .then(r => (r.ok ? r.json() : null))
+      projectClient
+        .fetchJson<PreflightReport | null>('/run/preflight', {
+          signal: AbortSignal.timeout(3000),
+          allowMissingEnvelope: true,
+        })
         .catch(() => null),
-      fetch('/capabilities', { signal: AbortSignal.timeout(3000) })
-        .then(r => (r.ok ? r.json() : null))
+      projectClient
+        .fetchJson<{ playwright?: boolean } | null>('/capabilities', {
+          signal: AbortSignal.timeout(3000),
+          allowMissingEnvelope: true,
+        })
         .catch(() => null),
     ]).then(([pre, cap]) => {
       if (!mounted) {
@@ -58,7 +66,7 @@ export function useReadiness(refreshKey: number = 0): Readiness {
       mounted = false;
       window.removeEventListener('focus', onFocus);
     };
-  }, [tick, refreshKey]);
+  }, [projectClient, tick, refreshKey]);
 
   // While the panel is BLOCKING (a hard fail), poll so a just-cleaned tree recovers on its
   // own — e.g. a phantom stat-dirty that settles, or the user commits in another terminal —

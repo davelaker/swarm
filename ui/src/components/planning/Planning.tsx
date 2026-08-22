@@ -26,6 +26,7 @@ import type { QuickTaskStartResult } from '../../data/quickTask';
 import { useAgentDefaults } from '../../hooks/useAgentDefaults';
 import type { CharterData, SessionSnapshot } from '../../types';
 import type { ProjectEnvelope } from '../../project/types';
+import { useProjectClient } from '../../project/ProjectClientContext';
 
 // The per-task model plan shown at the Execute gate: each agent's model, with the
 // PM's upgrades over the agent default flagged (more capable → costs more) and an
@@ -360,6 +361,7 @@ export function issueToBrief(issue: {
 // backend's gh-CLI endpoint) and seed the composer from one. The user still reviews
 // and sends the brief themselves — import fills the composer, it never auto-sends.
 function IssueImport({ onPick }: { onPick: (text: string) => void }) {
+  const projectClient = useProjectClient();
   const [issues, setIssues] = useState<GhIssue[] | null>(null); // null = not fetched
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -367,8 +369,11 @@ function IssueImport({ onPick }: { onPick: (text: string) => void }) {
   const toggle = () => {
     setOpen(o => !o);
     if (issues === null) {
-      fetch('/issues', { signal: AbortSignal.timeout(8000) })
-        .then(r => (r.ok ? r.json() : []))
+      projectClient
+        .fetchJson<GhIssue[]>('/issues', {
+          signal: AbortSignal.timeout(8000),
+          allowMissingEnvelope: true,
+        })
         .then((list: GhIssue[]) => setIssues(Array.isArray(list) ? list : []))
         .catch(() => setIssues([]));
     }
@@ -376,8 +381,11 @@ function IssueImport({ onPick }: { onPick: (text: string) => void }) {
 
   const pick = (n: number) => {
     setBusy(true);
-    fetch(`/issues/view?number=${n}`, { signal: AbortSignal.timeout(8000) })
-      .then(r => (r.ok ? r.json() : null))
+    projectClient
+      .fetchJson<{ number: number; title: string; body?: string; url?: string } | null>(
+        `/issues/view?number=${n}`,
+        { signal: AbortSignal.timeout(8000), allowMissingEnvelope: true },
+      )
       .then((issue: { number: number; title: string; body?: string; url?: string } | null) => {
         if (issue) {
           onPick(issueToBrief(issue));

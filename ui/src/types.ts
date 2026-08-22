@@ -1,5 +1,12 @@
 export type Surface = 'planning' | 'running' | 'branches' | 'marketplace' | 'history';
 
+export type {
+  ProjectEnvelope,
+  ProjectContextState,
+  ProjectReadiness,
+  ProjectRequestContext,
+} from './project/types';
+
 export interface BranchPr {
   number: number;
   url: string;

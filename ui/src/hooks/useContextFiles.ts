@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useProjectClient } from '../project/ProjectClientContext';
 
 export interface ContextFile {
   relPath: string;
@@ -11,21 +12,24 @@ export interface ContextData {
 }
 
 export function useContextFiles(): ContextData {
+  const projectClient = useProjectClient();
   const [data, setData] = useState<ContextData>({ projectMd: null, contextFiles: [] });
 
   useEffect(() => {
     const load = () => {
-      fetch('/context')
-        .then(r => (r.ok ? (r.json() as Promise<ContextData>) : null))
+      projectClient
+        .fetchJson<ContextData>('/context', { allowMissingEnvelope: true })
         .then(d => {
-          if (d) setData(d);
+          if (!projectClient.isStale()) {
+            setData(d);
+          }
         })
         .catch(() => {});
     };
     load();
     const iv = setInterval(load, 10_000);
     return () => clearInterval(iv);
-  }, []);
+  }, [projectClient]);
 
   return data;
 }

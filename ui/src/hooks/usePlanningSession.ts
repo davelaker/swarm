@@ -3,6 +3,8 @@ import type { ActivityEntry, CharterData, ChatMessage, SessionSnapshot } from '.
 import type { RunCharter, TaskGraphEntry } from '../App';
 import type { ReasoningEffort } from '../data/models';
 import type { ExecutionShape } from '../data/intake';
+import type { ProjectEnvelope } from '../project/types';
+import { useProjectClient } from '../project/ProjectClientContext';
 
 function now(): string {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -52,32 +54,8 @@ interface SessionState {
 
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-// Fixed storage key — NOT project-scoped.
-//
-// Why: the project name comes from an async /state fetch, so on first render the
-// hook always starts with project = 'default'. If we keyed by project name, the
-// lazy initializer would load from 'default' but persist() would save under the
-// real project name once it loaded — so the next refresh would find nothing under
-// 'default' and start a fresh session.
-//
-// Project-scoped session key.
-// ProjectSwitcher writes 'swarm-active-root' before window.location.reload()
-// so the correct key is available synchronously here — no async /state fetch needed.
-// Falls back to the passed projectName for sessions that predate the root stamp.
-const ROOT_KEY = 'swarm-active-root';
-function storageKey(_project: string): string {
-  try {
-    const root = localStorage.getItem(ROOT_KEY);
-    if (root) {
-      // Derive a safe suffix from the full path, e.g. "/Users/david/Sites/foo" → "foo-a3b"
-      const name = root.split('/').filter(Boolean).pop() ?? 'default';
-      const suffix = root.length.toString(36); // cheap disambiguator for same-name projects
-      return `swarm-session-v2-${name}-${suffix}`;
-    }
-  } catch {
-    /* private mode */
-  }
-  return `swarm-session-v1`; // legacy fallback
+function storageKey(projectId: string): string {
+  return `swarm-session-v3-${encodeURIComponent(projectId)}`;
 }
 
 type PersistedState = Pick<
@@ -93,14 +71,14 @@ type PersistedState = Pick<
   | 'taskGraph'
 > & { savedAt: number };
 
-function loadPersisted(project: string): Omit<PersistedState, 'savedAt'> | null {
+function loadPersisted(projectId: string): Omit<PersistedState, 'savedAt'> | null {
   try {
-    const raw = localStorage.getItem(storageKey(project));
+    const raw = localStorage.getItem(storageKey(projectId));
     if (!raw) return null;
     const p = JSON.parse(raw) as PersistedState;
     // Expire stale sessions
     if (!p.savedAt || Date.now() - p.savedAt > SESSION_TTL_MS) {
-      localStorage.removeItem(storageKey(project));
+      localStorage.removeItem(storageKey(projectId));
       return null;
     }
     return Array.isArray(p.messages) && p.messages.length > 0 ? p : null;
@@ -109,7 +87,7 @@ function loadPersisted(project: string): Omit<PersistedState, 'savedAt'> | null 
   }
 }
 
-function persist(s: SessionState, project: string) {
+function persist(s: SessionState, projectId: string) {
   try {
     const p: PersistedState = {
       messages: s.messages,
@@ -123,15 +101,15 @@ function persist(s: SessionState, project: string) {
       taskGraph: s.taskGraph,
       savedAt: Date.now(),
     };
-    localStorage.setItem(storageKey(project), JSON.stringify(p));
+    localStorage.setItem(storageKey(projectId), JSON.stringify(p));
   } catch {
     /* quota exceeded or private mode — ignore */
   }
 }
 
-function clearPersisted(project: string) {
+function clearPersisted(projectId: string) {
   try {
-    localStorage.removeItem(storageKey(project));
+    localStorage.removeItem(storageKey(projectId));
   } catch {
     /* ok */
   }
@@ -149,13 +127,15 @@ export function usePlanningSession(
     team?: string[],
     reason?: string,
   ) => void,
-  project = 'default',
+  project: ProjectEnvelope,
   recapMessage?: string | null,
   runBlockedReason?: string | null,
 ) {
+  const projectClient = useProjectClient();
+  const projectId = project.projectId;
   // Lazy initializer — runs once, restores persisted session if available.
   const [state, setState] = useState<SessionState>(() => {
-    const p = loadPersisted(project);
+    const p = loadPersisted(projectId);
     if (p) {
       return {
         messages: p.messages,
@@ -193,15 +173,15 @@ export function usePlanningSession(
   // Persist on every meaningful state change (skip transient 'typing' flicker).
   useEffect(() => {
     if (state.phase === 'start') return; // nothing worth saving yet
-    persist(state, project);
-  }, [state, project]);
+    persist(state, projectId);
+  }, [state, projectId]);
 
   // On mount, if we restored an executable session, re-notify the parent
   // (App.tsx stores executable separately and won't know otherwise).
   const onExecutableRef = useRef(onExecutable);
   onExecutableRef.current = onExecutable;
   useEffect(() => {
-    const p = loadPersisted(project);
+    const p = loadPersisted(projectId);
     if (p?.executable && p.charter?.goal) {
       const charter: RunCharter = {
         constraints: (p.charter.constraints ?? []).map((c: { text: string }) => c.text),
@@ -433,12 +413,7 @@ export function usePlanningSession(
 
       const historySnapshot = state.messages;
 
-      let activeRoot: string | undefined;
-      try {
-        activeRoot = localStorage.getItem(ROOT_KEY) ?? undefined;
-      } catch {
-        /* ok */
-      }
+      const activeRoot = project.projectRoot;
 
       // Inactivity timeout, not a total cap: a PM turn can now chain several backend
       // calls (repo digest → PM → Scout/specialist research → PM), each up to ~90s, so a
@@ -457,7 +432,7 @@ export function usePlanningSession(
       };
       bumpIdle();
 
-      fetch('/pm/message', {
+      projectClient.fetchResponse('/pm/message', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -501,6 +476,9 @@ export function usePlanningSession(
             for (const part of parts) {
               if (!part.startsWith('data: ')) continue;
               const data = JSON.parse(part.slice(6)) as Record<string, unknown>;
+              if (!projectClient.acceptsEvent(data)) {
+                continue;
+              }
 
               if (data.type === 'thinking' && typeof data.text === 'string') {
                 // PM is reasoning before it replies — append each block to this turn's
@@ -633,6 +611,9 @@ export function usePlanningSession(
           }
         })
         .catch((err: Error) => {
+          if (projectClient.isStale()) {
+            return;
+          }
           const isTimeout = err.name === 'TimeoutError' || err.name === 'AbortError';
           const notice = isTimeout
             ? 'PM went quiet (no progress for over 2 minutes). Try again or check the server logs.'
@@ -657,6 +638,8 @@ export function usePlanningSession(
       state.taskGraph,
       applyPmResponse,
       onExecutable,
+      project.projectRoot,
+      projectClient,
     ],
   );
 
@@ -669,7 +652,7 @@ export function usePlanningSession(
     const request =
       'Please provide a concise summary of our planning discussion in one short paragraph — covering the goal, key constraints, non-goals, and any open questions. Keep it under 100 words. This will replace our conversation history to save context.';
 
-    fetch('/pm/message', {
+    projectClient.fetchResponse('/pm/message', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -701,10 +684,14 @@ export function usePlanningSession(
           for (const part of parts) {
             if (!part.startsWith('data: ')) continue;
             const data = JSON.parse(part.slice(6)) as Record<string, unknown>;
+            if (!projectClient.acceptsEvent(data)) continue;
             if (data.type === 'result') reply = String(data.reply ?? '');
           }
         }
 
+        if (projectClient.isStale()) {
+          return;
+        }
         setState(prev => ({
           ...prev,
           typing: null,
@@ -719,14 +706,17 @@ export function usePlanningSession(
         }));
       })
       .catch(() => {
+        if (projectClient.isStale()) {
+          return;
+        }
         setState(prev => ({ ...prev, typing: null, streamingPmText: null }));
       });
-  }, [state.messages, state.charter, state.team]);
+  }, [state.messages, state.charter, state.team, projectClient]);
 
   // ─── init ─────────────────────────────────────────────────────────────────
   // Skipped automatically if a persisted session was restored (started = true).
 
-  const started = useRef(loadPersisted(project) !== null);
+  const started = useRef(loadPersisted(projectId) !== null);
 
   const init = useCallback(
     (projectName?: string, projectStack?: string, switchedPath?: string) => {
@@ -773,7 +763,7 @@ export function usePlanningSession(
   const [sessionKey, setSessionKey] = useState(0);
 
   const newSession = useCallback(() => {
-    clearPersisted(project);
+    clearPersisted(projectId);
     started.current = false;
     setSessionKey(k => k + 1);
     setState({
@@ -790,14 +780,14 @@ export function usePlanningSession(
       hireSuggestion: null,
     });
     onExecutable(false);
-  }, [onExecutable]);
+  }, [onExecutable, projectId]);
 
   // ─── reopen ─────────────────────────────────────────────────────────────────
   // Seed a fresh, editable planning session from a past run's snapshot: restore the
   // planning conversation + charter so the user can tweak and re-run a variant.
   const reopen = useCallback(
     (snap: SessionSnapshot) => {
-      clearPersisted(project);
+      clearPersisted(projectId);
       started.current = true; // we provide the conversation — don't fire the opener
       setSessionKey(k => k + 1);
 
@@ -844,7 +834,7 @@ export function usePlanningSession(
       });
       onExecutable(false);
     },
-    [project, onExecutable],
+    [projectId, onExecutable],
   );
 
   const dismissHire = useCallback(() => {

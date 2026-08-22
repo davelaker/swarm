@@ -16,6 +16,7 @@ interface FsResponse {
 
 interface Props {
   currentRoot: string | null;
+  onSwitchProject: (path: string) => Promise<{ ok: boolean; error?: string }>;
   onClose: () => void;
 }
 
@@ -31,7 +32,7 @@ function parseCrumbs(p: string): Array<{ label: string; path: string }> {
   ];
 }
 
-export function ProjectSwitcher({ currentRoot, onClose }: Props) {
+export function ProjectSwitcher({ currentRoot, onSwitchProject, onClose }: Props) {
   const [browsePath, setBrowsePath] = useState('');
   const [parent, setParent] = useState<string | null>(null);
   const [entries, setEntries] = useState<FsEntry[]>([]);
@@ -158,28 +159,14 @@ export function ProjectSwitcher({ currentRoot, onClose }: Props) {
     if (!browsePath) return;
     setSwitching(true);
     setSwitchErr(null);
-    fetch('/project/switch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: browsePath }),
-    })
-      .then(r => r.json() as Promise<{ ok: boolean; error?: string }>)
-      .then(d => {
-        if (d.ok) {
-          // Stamp the new root BEFORE reloading so usePlanningSession picks up
-          // the right project-scoped storage key synchronously on mount.
-          try {
-            localStorage.setItem('swarm-active-root', browsePath);
-            // One-shot flag so the PM greeting acknowledges the switch.
-            localStorage.setItem('swarm-just-switched', browsePath);
-          } catch {
-            /* ok */
-          }
-          window.location.reload();
-        } else {
-          setSwitchErr(d.error ?? 'Switch failed');
-          setSwitching(false);
+    onSwitchProject(browsePath)
+      .then(result => {
+        if (result.ok) {
+          onClose();
+          return;
         }
+        setSwitchErr(result.error ?? 'Switch failed');
+        setSwitching(false);
       })
       .catch(() => {
         setSwitchErr('Network error');
