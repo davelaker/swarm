@@ -24,6 +24,7 @@ import type {
   ChatMessage,
   PermissionRequest,
 } from '../../types';
+import { useProjectClient } from '../../project/ProjectClientContext';
 
 const RUN_DISPATCH_RE = /^→\s+(\w+)\s+\[([^\]]+)\]:\s*(.+)$/s;
 
@@ -227,6 +228,7 @@ function ShipModal({
   onShipped: () => void;
   onPrCreated?: (url: string) => void;
 }) {
+  const projectClient = useProjectClient();
   const [pushState, setPushState] = useState<ActionState>('idle');
   const [pushErr, setPushErr] = useState<string | null>(null);
   const [prState, setPrState] = useState<ActionState>('idle');
@@ -241,8 +243,12 @@ function ShipModal({
   //   alreadyInMain: all commits landed via cherry-pick / merge (git cherry)
   //   pr:           a PR was opened (implies a prior push)
   useEffect(() => {
-    fetch('/run/branch-pushed')
-      .then(r => r.json())
+    projectClient
+      .fetchJson<{
+        pushed: boolean;
+        alreadyInMain: boolean;
+        pr: { url: string; state: string } | null;
+      }>('/run/branch-pushed', { allowMissingEnvelope: true })
       .then(
         (d: {
           pushed: boolean;
@@ -254,13 +260,16 @@ function ShipModal({
         },
       )
       .catch(() => {}); // best-effort
-  }, []);
+  }, [projectClient]);
 
   const push = useCallback(() => {
     setPushState('pending');
     setPushErr(null);
-    fetch('/run/push', { method: 'POST' })
-      .then(r => r.json())
+    projectClient
+      .fetchJson<{ ok: boolean; error?: string }>('/run/push', {
+        method: 'POST',
+        allowMissingEnvelope: true,
+      })
       .then((d: { ok: boolean; error?: string }) => {
         if (d.ok) {
           setPushState('ok');
@@ -274,14 +283,17 @@ function ShipModal({
         setPushState('err');
         setPushErr(e.message);
       });
-  }, [onShipped]);
+  }, [onShipped, projectClient]);
 
   const createPr = useCallback(() => {
     setPrState('pending');
     setPrErr(null);
     setGhMissing(false);
-    fetch('/run/pr', { method: 'POST' })
-      .then(r => r.json())
+    projectClient
+      .fetchJson<{ ok: boolean; url?: string; error?: string; ghNotInstalled?: boolean }>(
+        '/run/pr',
+        { method: 'POST', allowMissingEnvelope: true },
+      )
       .then((d: { ok: boolean; url?: string; error?: string; ghNotInstalled?: boolean }) => {
         if (d.ok) {
           const url = d.url ?? null;
@@ -308,7 +320,7 @@ function ShipModal({
         setPrState('err');
         setPrErr(e.message);
       });
-  }, [onShipped, onPrCreated, onClose]);
+  }, [onShipped, onPrCreated, onClose, projectClient]);
 
   // Close on Escape
   useEffect(() => {
@@ -705,6 +717,7 @@ function PmChat({
   onToggle: () => void;
   archived?: boolean;
 }) {
+  const projectClient = useProjectClient();
   const chatRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState('');
@@ -729,7 +742,7 @@ function PmChat({
     if (!text || busy || disabled) return;
     setBusy(true);
     setDraft('');
-    fetch('/run/message', {
+    projectClient.fetchResponse('/run/message', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
@@ -999,6 +1012,7 @@ function RunView({
   pendingPermission = null,
   archived = false,
 }: RunViewProps) {
+  const projectClient = useProjectClient();
   // ── Hover-to-highlight ────────────────────────────────────────────────────
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
 
@@ -1041,7 +1055,7 @@ function RunView({
     note: string,
   ): Promise<{ ok: boolean; error?: string }> => {
     try {
-      const r = await fetch('/run/steer', {
+      const r = await projectClient.fetchResponse('/run/steer', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ taskId, note }),
@@ -1542,6 +1556,7 @@ export function Running({
   noActiveRun?: boolean;
   historicalSession?: SessionSnapshot;
 }) {
+  const projectClient = useProjectClient();
   const { serverStatus, state } = run;
 
   // Owned here (not in RunView) so the diff stays open across a review-fix run, which
@@ -1660,9 +1675,9 @@ export function Running({
     );
   }
 
-  const pause = () => fetch('/run/pause', { method: 'POST' }).catch(() => {});
-  const abort = () => fetch('/run/abort', { method: 'POST' }).catch(() => {});
-  const resume = () => fetch('/run/resume', { method: 'POST' }).catch(() => {});
+  const pause = () => projectClient.fetchResponse('/run/pause', { method: 'POST' }).catch(() => {});
+  const abort = () => projectClient.fetchResponse('/run/abort', { method: 'POST' }).catch(() => {});
+  const resume = () => projectClient.fetchResponse('/run/resume', { method: 'POST' }).catch(() => {});
 
   const showFullQuickRun = expandedQuickGoal === state.goal;
   if (state.executionShape === 'quick_task' && !showChanges && !showFullQuickRun) {

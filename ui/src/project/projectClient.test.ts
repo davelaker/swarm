@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createProjectClient, ProjectMismatchError, StaleProjectGenerationError } from './projectClient';
+import { projectSurfaceKey } from './surface';
 import type { ProjectEnvelope } from './types';
 
 const projectA: ProjectEnvelope = {
@@ -87,5 +88,16 @@ describe('project client', () => {
     expect(client.acceptsEvent({ type: 'run.completed', projectEnvelope: projectB })).toBe(false);
     currentGeneration = 2;
     expect(client.acceptsEvent({ type: 'run.completed', projectEnvelope: projectA })).toBe(false);
+  });
+
+  it('uses project identity, not project name, for surface reset keys', () => {
+    const sameNameDifferentRoot: ProjectEnvelope = {
+      projectId: 'project:v1:c',
+      projectRoot: '/other/a',
+      projectName: 'a',
+    };
+
+    expect(projectSurfaceKey(projectA, 1)).not.toBe(projectSurfaceKey(sameNameDifferentRoot, 1));
+    expect(projectSurfaceKey(projectA, 1)).not.toBe(projectSurfaceKey(projectA, 2));
   });
 });

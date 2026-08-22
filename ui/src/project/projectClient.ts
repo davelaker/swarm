@@ -62,7 +62,7 @@ async function parseJson(response: Response): Promise<unknown> {
 }
 
 function unwrapProjectData(body: unknown): unknown {
-  if (typeof body === 'object' && body !== null && 'data' in body) {
+  if (typeof body === 'object' && body !== null && 'data' in body && extractProjectEnvelope(body)) {
     return (body as { data: unknown }).data;
   }
   return body;
@@ -99,6 +99,15 @@ export function createProjectClient(context: ProjectRequestContext): ProjectClie
       signal: mergeSignals(context.signal, init.signal),
     });
     assertCurrent();
+    const contentType = response.headers.get('content-type') ?? '';
+    if (response.ok && contentType.includes('json')) {
+      const body = await response
+        .clone()
+        .json()
+        .catch(() => null);
+      validateEnvelope(body, context.project, init.allowMissingEnvelope ?? true);
+      assertCurrent();
+    }
     return response;
   };
 

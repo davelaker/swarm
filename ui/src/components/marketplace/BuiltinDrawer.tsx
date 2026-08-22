@@ -5,6 +5,7 @@ import { AgentIcon, RoleChip, LockBadge } from './shared';
 import { ToolGlyph } from '../common/ToolIcon';
 import { IconLock, IconChevronLeft } from '../common/icons';
 import { modelMeta } from '../../data/models';
+import { useProjectClient } from '../../project/ProjectClientContext';
 
 // Cheapest → most expensive, matching the cost ladder in data/models.ts.
 const MODELS = [
@@ -29,6 +30,7 @@ interface BuiltinDrawerProps {
 }
 
 export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
+  const projectClient = useProjectClient();
   const [prompt, setPrompt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [instructions, setInstructions] = useState('');
@@ -43,14 +45,16 @@ export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      fetch('/agent-prompts')
-        .then(r => (r.ok ? r.json() : null))
+      projectClient
+        .fetchJson<Record<string, string> | null>('/agent-prompts', { allowMissingEnvelope: true })
         .catch(() => null),
-      fetch('/agent-instructions')
-        .then(r => (r.ok ? r.json() : null))
+      projectClient
+        .fetchJson<Record<string, string> | null>('/agent-instructions', {
+          allowMissingEnvelope: true,
+        })
         .catch(() => null),
-      fetch('/agent-models')
-        .then(r => (r.ok ? r.json() : null))
+      projectClient
+        .fetchJson<Record<string, string> | null>('/agent-models', { allowMissingEnvelope: true })
         .catch(() => null),
     ]).then(
       ([prompts, instrs, models]: [
@@ -68,7 +72,7 @@ export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
     return () => {
       cancelled = true;
     };
-  }, [agentId]);
+  }, [agentId, projectClient]);
 
   function handleInstructionsChange(value: string) {
     setInstructions(value);
@@ -76,7 +80,7 @@ export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
     saveTimer.current = setTimeout(async () => {
       setSaving(true);
       try {
-        await fetch('/agent-instructions', {
+        await projectClient.fetchResponse('/agent-instructions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ [agentId]: value }),
@@ -91,7 +95,7 @@ export function BuiltinDrawer({ agentId, onClose }: BuiltinDrawerProps) {
     setModel(value);
     if (modelTimer.current) clearTimeout(modelTimer.current);
     modelTimer.current = setTimeout(() => {
-      fetch('/agent-models', {
+      projectClient.fetchResponse('/agent-models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [agentId]: value }),

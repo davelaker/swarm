@@ -14,6 +14,7 @@ import { IconLock, IconChevronLeft } from '../common/icons';
 import { CONNECTOR_BY_ID } from '../../data/connectors';
 import { modelMeta } from '../../data/models';
 import type { ConnectorSens } from '../../data/connectors';
+import { useProjectClient } from '../../project/ProjectClientContext';
 
 type PermMode = 'allow' | 'ask' | 'deny';
 
@@ -120,6 +121,7 @@ interface AgentPageProps {
 }
 
 export function AgentPage({ a, hired, projectName, onClose, onConfirm }: AgentPageProps) {
+  const projectClient = useProjectClient();
   const [grants, setGrants] = useState<Record<string, PermMode>>(() =>
     Object.fromEntries(
       a.tools.map(t => {
@@ -156,11 +158,13 @@ export function AgentPage({ a, hired, projectName, onClose, onConfirm }: AgentPa
   );
   useEffect(() => {
     if ((a.connectors?.length ?? 0) === 0) return;
-    fetch('/marketplace/connectors/available')
-      .then(r => (r.ok ? r.json() : { available: [] }))
+    projectClient
+      .fetchJson<{ available: string[] }>('/marketplace/connectors/available', {
+        allowMissingEnvelope: true,
+      })
       .then((data: { available: string[] }) => setAvailable(data.available ?? []))
       .catch(() => setAvailable([]));
-  }, []);
+  }, [a.connectors?.length, projectClient]);
 
   const [instructions, setInstructions] = useState('');
   const [model, setModel] = useState(DEFAULT_MODEL);

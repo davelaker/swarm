@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { QuickTaskFileChange } from '../data/quickTask';
+import { useProjectClient } from '../project/ProjectClientContext';
 
 interface StructuredDiffFile {
   path: string;
@@ -48,6 +49,7 @@ export function useQuickTaskDiff(
   revisionKey: string,
   polling: boolean,
 ): QuickTaskFileChange[] {
+  const projectClient = useProjectClient();
   const [result, setResult] = useState<{ key: string; files: QuickTaskFileChange[] } | null>(null);
 
   useEffect(() => {
@@ -57,11 +59,16 @@ export function useQuickTaskDiff(
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | null = null;
     const load = () => {
-      fetch(`/run/task-diff?task=${encodeURIComponent(taskId)}`, { signal: controller.signal })
-        .then(response =>
-          response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`)),
+      projectClient
+        .fetchJson<StructuredDiffResponse>(
+          `/run/task-diff?task=${encodeURIComponent(taskId)}`,
+          { signal: controller.signal, allowMissingEnvelope: true },
         )
-        .then(body => setResult({ key: revisionKey, files: parseChangedFiles(body) }))
+        .then(body => {
+          if (!projectClient.isStale()) {
+            setResult({ key: revisionKey, files: parseChangedFiles(body) });
+          }
+        })
         .catch(() => {
           if (!controller.signal.aborted) {
             setResult({ key: revisionKey, files: [] });
@@ -80,7 +87,7 @@ export function useQuickTaskDiff(
         clearTimeout(timer);
       }
     };
-  }, [active, polling, revisionKey, taskId]);
+  }, [active, polling, projectClient, revisionKey, taskId]);
 
   return result?.key === revisionKey ? result.files : [];
 }

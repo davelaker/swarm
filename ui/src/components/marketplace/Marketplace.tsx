@@ -8,23 +8,25 @@ import { AgentPage } from './AgentPage';
 import { BuiltinDrawer } from './BuiltinDrawer';
 import { MyTeam } from './MyTeam';
 import { SearchBar } from './shared';
+import { useProjectClient } from '../../project/ProjectClientContext';
+import type { ProjectClient } from '../../project/projectClient';
 
 // ─── Roster persistence ───────────────────────────────────────────────────────
 
-async function fetchRoster(): Promise<HiredAgent[]> {
+async function fetchRoster(projectClient: ProjectClient): Promise<HiredAgent[]> {
   try {
-    const r = await fetch('/marketplace/roster');
-    if (!r.ok) return [];
-    const data = (await r.json()) as HiredAgent[];
+    const data = await projectClient.fetchJson<HiredAgent[]>('/marketplace/roster', {
+      allowMissingEnvelope: true,
+    });
     return Array.isArray(data) ? data : [];
   } catch {
     return [];
   }
 }
 
-async function persistRoster(roster: HiredAgent[]): Promise<void> {
+async function persistRoster(projectClient: ProjectClient, roster: HiredAgent[]): Promise<void> {
   try {
-    await fetch('/marketplace/roster', {
+    await projectClient.fetchResponse('/marketplace/roster', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(roster),
@@ -57,6 +59,7 @@ export function Marketplace({
   focusAgentId?: string | null;
   onFocusConsumed?: () => void;
 }) {
+  const projectClient = useProjectClient();
   const [tab, setTab] = useState<'browse' | 'team'>('team');
   const [roleF, setRoleF] = useState('All');
   const [query, setQuery] = useState('');
@@ -69,8 +72,12 @@ export function Marketplace({
   // with name/prompt from the catalog so older rosters persisted without a name are
   // healed and re-saved correctly on the next change.
   useEffect(() => {
-    fetchRoster().then(roster => setTeam(roster.map(withPrompt)));
-  }, []);
+    fetchRoster(projectClient).then(roster => {
+      if (!projectClient.isStale()) {
+        setTeam(roster.map(withPrompt));
+      }
+    });
+  }, [projectClient]);
 
   // Deep-link from the PM's "Hire" call-to-action: open that agent's page on Browse,
   // then clear the focus so navigating away and back doesn't re-trigger it.
@@ -87,8 +94,8 @@ export function Marketplace({
   // Persist roster to server whenever it changes.
   const saveTeam = useCallback((next: HiredAgent[]) => {
     setTeam(next);
-    persistRoster(next);
-  }, []);
+    persistRoster(projectClient, next);
+  }, [projectClient]);
 
   const roles = ['All', ...Array.from(new Set(MARKET_AGENTS.map(a => a.role)))];
   const hiredIds = new Set(team.map(t => t.id));

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useProjectClient } from '../project/ProjectClientContext';
 
 export type ReviewStatus = 'open' | 'submitted' | 'planned' | 'fixing' | 'resolved';
 
@@ -31,6 +32,7 @@ export function useReview(): {
   clearAll: () => void;
   reload: () => void;
 } {
+  const projectClient = useProjectClient();
   const [comments, setComments] = useState<ReviewComment[]>([]);
   const loaded = useRef(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -41,16 +43,18 @@ export function useReview(): {
   const inFlight = comments.some(c => c.status === 'fixing' || c.status === 'planned');
 
   const reload = useCallback(() => {
-    fetch('/run/review')
-      .then(r => (r.ok ? r.json() : { comments: [] }))
+    projectClient
+      .fetchJson<{ comments?: ReviewComment[] }>('/run/review', { allowMissingEnvelope: true })
       .then((d: { comments?: ReviewComment[] }) => {
-        setComments(d.comments ?? []);
-        loaded.current = true;
+        if (!projectClient.isStale()) {
+          setComments(d.comments ?? []);
+          loaded.current = true;
+        }
       })
       .catch(() => {
         loaded.current = true;
       });
-  }, []);
+  }, [projectClient]);
 
   useEffect(() => {
     reload();
@@ -65,7 +69,7 @@ export function useReview(): {
       clearTimeout(saveTimer.current);
     }
     saveTimer.current = setTimeout(() => {
-      fetch('/run/review/save', {
+      projectClient.fetchResponse('/run/review/save', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ comments }),
@@ -76,7 +80,7 @@ export function useReview(): {
         clearTimeout(saveTimer.current);
       }
     };
-  }, [comments, editable]);
+  }, [comments, editable, projectClient]);
 
   // Poll for status transitions while a fix is applying (open → fixing → resolved).
   useEffect(() => {
@@ -124,14 +128,14 @@ export function useReview(): {
   const clearResolved = useCallback(() => {
     setComments(prev => {
       const next = prev.filter(c => c.status !== 'resolved');
-      fetch('/run/review/save', {
+      projectClient.fetchResponse('/run/review/save', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ comments: next }),
       }).catch(() => {});
       return next;
     });
-  }, []);
+  }, [projectClient]);
 
   const clearAll = useCallback(() => setComments([]), []);
 

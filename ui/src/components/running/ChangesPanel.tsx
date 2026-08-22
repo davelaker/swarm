@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { DiffView, lineKey, type StructuredDiffFile } from './DiffView';
 import { useReview, type ReviewComment } from '../../hooks/useReview';
+import { useProjectClient } from '../../project/ProjectClientContext';
 
 interface StructuredDiff {
   source: string;
@@ -298,6 +299,7 @@ function ReviewPane({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function ChangesPanel() {
+  const projectClient = useProjectClient();
   const [diff, setDiff] = useState<StructuredDiff | null>(null);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -311,16 +313,13 @@ export function ChangesPanel() {
 
   const loadDiff = () => {
     setLoading(true);
-    fetch('/run/diff/structured')
-      .then(r => {
-        if (!r.ok) {
-          throw new Error(`HTTP ${r.status}`);
-        }
-        return r.json();
-      })
+    projectClient
+      .fetchJson<StructuredDiff>('/run/diff/structured', { allowMissingEnvelope: true })
       .then((d: StructuredDiff) => {
-        setDiff(d);
-        setLoading(false);
+        if (!projectClient.isStale()) {
+          setDiff(d);
+          setLoading(false);
+        }
       })
       .catch((e: Error) => {
         setFetchError(e.message);
@@ -395,13 +394,13 @@ export function ChangesPanel() {
     setSubmitting('pm');
     setApplyError(null);
     setPmReply(null);
-    fetch('/run/review/save', {
+    projectClient.fetchResponse('/run/review/save', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ comments }),
     })
       .then(() =>
-        fetch('/run/review/pm', {
+        projectClient.fetchResponse('/run/review/pm', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: '{}',
@@ -433,13 +432,13 @@ export function ChangesPanel() {
     }
     setSubmitting('fast');
     setApplyError(null);
-    fetch('/run/review/save', {
+    projectClient.fetchResponse('/run/review/save', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ comments }),
     })
       .then(() =>
-        fetch('/run/review/fix', {
+        projectClient.fetchResponse('/run/review/fix', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: '{}',

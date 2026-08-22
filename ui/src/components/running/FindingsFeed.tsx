@@ -4,6 +4,7 @@ import type { Components } from 'react-markdown';
 import type { Finding, Task } from '../../types';
 import { resolveAgentPersona } from '../../data/personas';
 import { IconReport } from '../common/icons';
+import { useProjectClient } from '../../project/ProjectClientContext';
 
 // ─── Custom markdown renderers ────────────────────────────────────────────────
 
@@ -140,6 +141,7 @@ function fmtTime(ts: number): string {
 // ─── Detail modal ─────────────────────────────────────────────────────────────
 
 function FindingModal({ f, onClose }: { f: Finding; onClose: () => void }) {
+  const projectClient = useProjectClient();
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const p = resolveAgentPersona(f.agent);
@@ -151,7 +153,7 @@ function FindingModal({ f, onClose }: { f: Finding; onClose: () => void }) {
       setLoading(false);
       return;
     }
-    fetch(`/findings?path=${encodeURIComponent(f.path)}`)
+    projectClient.fetchResponse(`/findings?path=${encodeURIComponent(f.path)}`)
       .then(r => r.text())
       .then(text => {
         const body = text.replace(/^---[\r\n][\s\S]*?[\r\n]---[\r\n]?/, '').trim();
@@ -159,7 +161,7 @@ function FindingModal({ f, onClose }: { f: Finding; onClose: () => void }) {
       })
       .catch(() => setContent('*(could not load finding)*'))
       .finally(() => setLoading(false));
-  }, [f.path]);
+  }, [f.path, projectClient]);
 
   // Close on Escape
   useEffect(() => {

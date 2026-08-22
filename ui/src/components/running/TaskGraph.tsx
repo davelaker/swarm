@@ -5,6 +5,7 @@ import { STATUS_COLOR, STATUS_LABEL } from '../../data/runScript';
 import { ActivityLog } from '../common/ActivityLog';
 import { DiffView, type StructuredDiffFile } from './DiffView';
 import { modelMeta } from '../../data/models';
+import { useProjectClient } from '../../project/ProjectClientContext';
 
 const TRUNCATE = 72; // chars shown before "more" toggle appears
 
@@ -76,6 +77,7 @@ function TaskCard({
   runActive?: boolean;
   onSteer?: (taskId: string, note: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
+  const projectClient = useProjectClient();
   const [expanded, setExpanded] = useState(false);
   const [steering, setSteering] = useState(false);
   const [steerDraft, setSteerDraft] = useState('');
@@ -120,8 +122,11 @@ function TaskCard({
     }
     let cancelled = false;
     const load = () =>
-      fetch(`/run/task-diff?task=${encodeURIComponent(t.id)}`)
-        .then(r => (r.ok ? r.json() : null))
+      projectClient
+        .fetchJson<{ files?: StructuredDiffFile[] } | null>(
+          `/run/task-diff?task=${encodeURIComponent(t.id)}`,
+          { allowMissingEnvelope: true },
+        )
         .then((d: { files?: StructuredDiffFile[] } | null) => {
           if (!cancelled && d) {
             setDiffFiles(d.files ?? []);
@@ -139,7 +144,7 @@ function TaskCard({
     return () => {
       cancelled = true;
     };
-  }, [diffOpen, isActive, t.id]);
+  }, [diffOpen, isActive, projectClient, t.id]);
 
   return (
     <div
@@ -223,7 +228,7 @@ function TaskCard({
               if (!window.confirm(`Rewind ${t.id}? Its merged changes are reverted as a new commit (history is preserved; the revert can itself be reverted).`)) {
                 return;
               }
-              fetch('/run/rewind', {
+              projectClient.fetchResponse('/run/rewind', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ taskId: t.id }),
