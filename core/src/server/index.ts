@@ -34,6 +34,10 @@ import { checkRequest } from './request-guard.js';
 import { createQuickTaskHandler } from './quick-task.js';
 import { validateRosterPayload, validateCharterGraph } from './validate.js';
 import { runPreflight, uniqueSwarmBranch } from './preflight.js';
+import {
+  handleProviderModeRequest,
+  providerModeStatus,
+} from './provider-mode.js';
 import { rewindTask } from './rewind.js';
 import { buildStructuredDiff, buildTaskDiff } from './diff.js';
 import { worktreeInfo } from '../loop.js';
@@ -364,6 +368,7 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
           driver,
           model,
           activeRun,
+          providerMode: providerModeStatus(activeRun),
           pendingPermission: currentPendingPermission(),
           repoUrl: githubUrl,
           root: getRoot(),
@@ -387,6 +392,7 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
           driver,
           model: null,
           activeRun: false,
+          providerMode: providerModeStatus(false),
           repoUrl: githubUrl,
           root: getRoot(),
         }),
@@ -473,6 +479,7 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
         driver,
         model: driver === 'agent-sdk' ? null : (cfg?.coderModel ?? null),
         activeRun,
+        providerMode: providerModeStatus(activeRun),
         repoUrl: githubUrl,
       }),
     );
@@ -523,8 +530,16 @@ function handleGet(req: http.IncomingMessage, res: http.ServerResponse, url: URL
             : [],
         };
       });
-      res.end(JSON.stringify({ playwright, providers }));
+      res.end(JSON.stringify({ playwright, providerMode: providerModeStatus(activeRun), providers }));
     })();
+    return;
+  }
+
+  if (url.pathname === '/providers/mode') {
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+    });
+    res.end(JSON.stringify(providerModeStatus(activeRun)));
     return;
   }
 
@@ -1314,6 +1329,13 @@ async function routePost(
 
     if (route === '/intake/classify') {
       const response = await classifyIntakeRequest(rawPayload);
+      res.writeHead(response.status);
+      res.end(JSON.stringify(response.body));
+      return;
+    }
+
+    if (route === '/providers/mode') {
+      const response = handleProviderModeRequest(rawPayload, { activeRun });
       res.writeHead(response.status);
       res.end(JSON.stringify(response.body));
       return;

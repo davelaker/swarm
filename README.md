@@ -72,6 +72,20 @@ export SWARM_DEFAULT_PROVIDER=auto
 
 `SWARM_DEFAULT_PROVIDER` accepts `auto`, `anthropic`, or `openai`. `auto` selects an authenticated enabled provider deterministically, preferring Anthropic. An explicit unavailable provider fails closed rather than silently using another account. `SWARM_DRIVER=agent-sdk`, `api-key`, or `codex` remains available for compatibility with the older single-driver configuration.
 
+For temporary testing, the dashboard backend also exposes an in-memory Codex-only mode:
+
+```sh
+curl -s http://localhost:7000/providers/mode
+curl -s -X POST http://localhost:7000/providers/mode \
+  -H 'Content-Type: application/json' \
+  -d '{"mode":"codex_only"}'
+curl -s -X POST http://localhost:7000/providers/mode \
+  -H 'Content-Type: application/json' \
+  -d '{"mode":"normal"}'
+```
+
+The response shape is `{ "mode": "normal" | "codex_only", "codexAvailable": boolean, "activeRun": boolean }`. Enabling Codex-only mode requires the local `codex` CLI subscription transport, refuses to switch while a run is active, exposes only OpenAI provider routes, and resets to normal on server restart.
+
 Never put credentials in committed configuration files. Swarm does not expose credential values in provider availability responses or telemetry.
 
 ## Per-task routing and overrides

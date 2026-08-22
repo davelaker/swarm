@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import type { AuthMode, ProviderId } from './catalog.js';
+import { isCodexOnlyModeEnabled } from './codex-only-mode.js';
 
 export interface ProviderAvailability {
   provider: ProviderId;
@@ -75,6 +76,19 @@ export function discoverProviderAvailability(
   env: NodeJS.ProcessEnv = process.env,
   probe: CliProbe = commandIsAvailable,
 ): readonly ProviderAvailability[] {
+  if (isCodexOnlyModeEnabled()) {
+    const hasCodexCli = probe('codex');
+    return [
+      {
+        provider: 'openai',
+        enabled: true,
+        cliAvailable: hasCodexCli,
+        apiKeyConfigured: Boolean(env.OPENAI_API_KEY),
+        availableAuthModes: hasCodexCli ? ['subscription'] : [],
+      },
+    ];
+  }
+
   const enabledProviders = parseEnabledProviders(env.SWARM_ENABLED_PROVIDERS);
   const hasClaudeCli = probe('claude');
   const hasCodexCli = probe('codex');
@@ -162,6 +176,15 @@ export function getProviderSelection(
   env: NodeJS.ProcessEnv = process.env,
   probe: CliProbe = commandIsAvailable,
 ): ProviderSelection {
+  if (isCodexOnlyModeEnabled()) {
+    const availability = discoverProviderAvailability(env, probe);
+    return {
+      defaultProvider: 'openai',
+      enabledProviders: ['openai'],
+      availability,
+    };
+  }
+
   // SWARM_DRIVER is the pre-provider configuration surface. Preserve its
   // meaning when SWARM_DEFAULT_PROVIDER has not been set explicitly.
   const legacyDriver = env.SWARM_DRIVER?.trim().toLowerCase();

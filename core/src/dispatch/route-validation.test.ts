@@ -1,13 +1,18 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { afterEach, test } from 'node:test';
 import { validateTaskRouteForDispatch } from './index.js';
 import type { ProviderAvailability } from '../providers/index.js';
+import { disableCodexOnlyMode, enableCodexOnlyMode, getProviderSelection } from '../providers/index.js';
 import type { Task } from '../state/types.js';
 
 const available: readonly ProviderAvailability[] = [
   { provider: 'anthropic', enabled: true, cliAvailable: true, apiKeyConfigured: false, availableAuthModes: ['subscription'] },
   { provider: 'openai', enabled: true, cliAvailable: true, apiKeyConfigured: false, availableAuthModes: ['subscription'] },
 ];
+
+afterEach(() => {
+  disableCodexOnlyMode();
+});
 
 function task(route: Task['route']): Task {
   return {
@@ -41,4 +46,23 @@ test('rejects coder routes without a declared broker write scope', () => {
     provider: 'openai', model: 'gpt-5.4', rationale: 'Change code.', fallback: null,
     requiresConfirmation: false, writeScope: [],
   }), available), /must declare a non-empty write scope/);
+});
+
+test('Codex-only mode rejects Anthropic task routes and Anthropic fallbacks', () => {
+  enableCodexOnlyMode((command) => command === 'codex');
+  const codexOnlyAvailability = getProviderSelection(
+    {},
+    (command) => command === 'codex',
+  ).availability;
+
+  assert.throws(() => validateTaskRouteForDispatch(task({
+    provider: 'anthropic', model: 'claude-sonnet-4-6', reasoningEffort: 'medium', rationale: 'Use Claude.',
+    fallback: null, requiresConfirmation: false, writeScope: ['src/allowed.ts'],
+  }), codexOnlyAvailability), /provider "anthropic" is unavailable or unauthorised/);
+
+  assert.throws(() => validateTaskRouteForDispatch(task({
+    provider: 'openai', model: 'gpt-5.4', reasoningEffort: 'medium', rationale: 'Use Codex.',
+    fallback: { provider: 'anthropic', model: 'claude-sonnet-4-6', reasoningEffort: 'medium' },
+    requiresConfirmation: false, writeScope: ['src/allowed.ts'],
+  }), codexOnlyAvailability), /fallback provider "anthropic" is unavailable or unauthorised/);
 });

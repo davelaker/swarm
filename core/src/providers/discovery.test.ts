@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import { afterEach, test } from 'node:test';
+import {
+  disableCodexOnlyMode,
+  enableCodexOnlyMode,
+} from './codex-only-mode.js';
 import { discoverProviderAvailability, getProviderSelection, resolveProviderSelection } from './discovery.js';
+
+afterEach(() => {
+  disableCodexOnlyMode();
+});
 
 test('discovery returns safe provider metadata without CLI output or credentials', () => {
   const availability = discoverProviderAvailability(
@@ -102,4 +110,40 @@ test('process-backed selection probes only known CLI executable names', () => {
 
   assert.equal(selection.defaultProvider, 'openai');
   assert.deepEqual(commands, ['claude', 'codex']);
+});
+
+test('Codex-only mode exposes only OpenAI and defaults to OpenAI', () => {
+  enableCodexOnlyMode((command) => command === 'codex');
+
+  assert.deepEqual(
+    discoverProviderAvailability(
+      {
+        SWARM_ENABLED_PROVIDERS: 'anthropic',
+        ANTHROPIC_API_KEY: 'not-inspected',
+        OPENAI_API_KEY: 'not-inspected',
+      },
+      (command) => command === 'codex',
+    ),
+    [
+      {
+        provider: 'openai',
+        enabled: true,
+        cliAvailable: true,
+        apiKeyConfigured: true,
+        availableAuthModes: ['subscription'],
+      },
+    ],
+  );
+
+  const selection = getProviderSelection(
+    {
+      SWARM_DEFAULT_PROVIDER: 'anthropic',
+      SWARM_ENABLED_PROVIDERS: 'anthropic',
+      ANTHROPIC_API_KEY: 'not-inspected',
+    },
+    (command) => command === 'codex',
+  );
+  assert.equal(selection.defaultProvider, 'openai');
+  assert.deepEqual(selection.enabledProviders, ['openai']);
+  assert.deepEqual(selection.availability.map((provider) => provider.provider), ['openai']);
 });

@@ -151,3 +151,20 @@ test('Codex subscription routes never select Responses-API-only OpenAI models', 
   assert.equal(largePlanning.route.model, 'gpt-5.4');
   assert.notEqual(largePlanning.route.fallback?.model, 'gpt-5.6-sol');
 });
+
+test('Codex-only availability produces only OpenAI routes and fallbacks', () => {
+  const openaiOnly: readonly ProviderAvailability[] = [
+    bothProviders[1],
+  ];
+  const recommendation = recommendRoute(input({
+    intent: 'coding',
+    scope: 'large',
+    providerAvailability: openaiOnly,
+  }));
+  if (recommendation.kind !== 'model') {
+    throw new Error('Expected a model route.');
+  }
+  assert.equal(recommendation.route.provider, 'openai');
+  assert.equal(recommendation.route.model, 'gpt-5.4');
+  assert.ok(recommendation.route.fallback === null || recommendation.route.fallback.provider === 'openai');
+});

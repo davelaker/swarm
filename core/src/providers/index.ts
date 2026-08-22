@@ -15,6 +15,16 @@ export {
   resolveProviderSelection,
 } from './discovery.js';
 
+export {
+  codexCliSubscriptionTransportAvailable,
+  disableCodexOnlyMode,
+  enableCodexOnlyMode,
+  getProviderMode,
+  isCodexOnlyModeEnabled,
+  providerModeRevision,
+  setProviderMode,
+} from './codex-only-mode.js';
+
 export type {
   CliProbe,
   ProviderAvailability,
@@ -32,3 +42,7 @@ export type {
   ReasoningEffort,
   SupportedReasoningEffort,
 } from './catalog.js';
+
+export type {
+  ProviderMode,
+} from './codex-only-mode.js';

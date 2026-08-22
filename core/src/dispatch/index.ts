@@ -43,9 +43,13 @@ function capabilityForTask(task: Task): ModelCapability | undefined {
   return 'coding';
 }
 
-function validateFallback(route: TaskRoute): void {
+function validateFallback(route: TaskRoute, availability: readonly ProviderAvailability[]): void {
   if (!route.fallback) {
     return;
+  }
+  const fallbackProvider = availability.find((entry) => entry.provider === route.fallback?.provider);
+  if (!fallbackProvider?.enabled || !fallbackProvider.availableAuthModes.length) {
+    throw new Error(`Task route fallback provider "${route.fallback.provider}" is unavailable or unauthorised.`);
   }
   const fallback = getProviderModel(route.fallback.model);
   if (!fallback || fallback.provider !== route.fallback.provider) {
@@ -92,7 +96,7 @@ export function validateTaskRouteForDispatch(
   if (route.provider === 'openai' && !provider.cliAvailable) {
     throw new Error(`Task ${task.id} OpenAI route requires the local Codex CLI.`);
   }
-  validateFallback(route);
+  validateFallback(route, availability);
 }
 
 export async function dispatch(

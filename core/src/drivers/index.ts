@@ -7,6 +7,7 @@ import { codexDriver } from './codex.js';
 import { resolveDriverMode, type AgentDriver, type DriverMode } from './types.js';
 import { getProviderSelection } from '../providers/index.js';
 import type { ProviderId } from '../providers/index.js';
+import { providerModeRevision } from '../providers/index.js';
 
 function detect(): DriverMode {
   const selection = getProviderSelection();
@@ -26,14 +27,19 @@ function detect(): DriverMode {
 }
 
 let _driver: AgentDriver | null = null;
+let _driverCacheKey: string | null = null;
 
 export function getDriver(): AgentDriver {
-  if (_driver) return _driver;
   const mode = detect();
+  const cacheKey = `${providerModeRevision()}:${mode}`;
+  if (_driver && _driverCacheKey === cacheKey) {
+    return _driver;
+  }
   _driver = mode === 'agent-sdk' ? agentSdkDriver : apiKeyDriver;
   if (mode === 'codex') {
     _driver = codexDriver;
   }
+  _driverCacheKey = cacheKey;
   return _driver;
 }
 
@@ -44,7 +50,10 @@ export function getDriver(): AgentDriver {
  */
 export function getDriverForProvider(provider: ProviderId): AgentDriver {
   const selection = getProviderSelection();
-  const availability = selection.availability.find((entry) => entry.provider === provider)!;
+  const availability = selection.availability.find((entry) => entry.provider === provider);
+  if (!availability) {
+    throw new Error(`Provider "${provider}" is not enabled for this Swarm run.`);
+  }
   if (!availability.enabled) {
     throw new Error(`Provider "${provider}" is not enabled for this Swarm run.`);
   }
