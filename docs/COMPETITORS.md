@@ -57,7 +57,7 @@ review-and-merge loop bolted on.
 | Capability | Conductor | This product |
 |---|---|---|
 | Parallel agents in isolated git worktrees | ✅ Core, shipping | ✅ Built (worktree flows through dispatch) |
-| Multi-model backend | ✅ Claude Code, Codex, Cursor; switch per workspace | ⚠️ Claude-only, but per-task model selection (haiku→fable) + per-task effort, PM-assigned with a cost-confirmation gate |
+| Multi-model backend | ✅ Claude Code, Codex, Cursor; switch per workspace | ✅ Anthropic + OpenAI/Codex via `core/src/providers/`, routed **per task** (not per workspace) with model, reasoning effort, and a declared write scope |
 | Review / merge diffs, open PRs, archive | ✅ Polished, central to UX | ✅ Shiki diff review + inline comments + fix loop built; push built; automatic PR creation built (`/run/pr`) |
 | Per-project setup/run/archive scripts (`.conductor/settings.toml`) | ✅ Shipping | ❌ No env/run-script config equivalent |
 | Live "what's each agent doing" dashboard | ✅ Shipping (native Mac) | ✅ Live SSE dashboard: task graph, live transcripts, live per-task diffs, mid-run steering, per-task cost |
@@ -77,7 +77,10 @@ review-and-merge loop bolted on.
 1. **It ships and it's polished.** Native Mac app, real users, changelog, docs. Ours is
    local single-user. (The June-2026 caveats here — SSE unwired, mock planning, no
    Negotiator — are resolved; see the July 2026 snapshot below.)
-2. **Multi-model.** Codex + Cursor + Claude, switchable per workspace. We're Claude-only.
+2. ~~**Multi-model.**~~ **Closed (Aug 2026).** We now route Anthropic and OpenAI/Codex
+   per *task* rather than per workspace — arguably ahead of Conductor here, since the
+   choice is made by the planner against a capability catalog instead of by the human
+   picking a workspace.
 3. **The merge/PR/archive last mile is complete and central** — since closed on our side:
    diff review, inline comments with a fix loop, push, and automatic PR creation
    (`/run/pr`) all ship.
@@ -242,7 +245,7 @@ lack of system context.
 | Capability | Xirp | This product |
 |---|---|---|
 | Parallel agents in isolated git worktrees | ✅ Core; 50+ concurrent claimed | ✅ Built |
-| Multi-vendor harnesses, **mid-task handoff** | ✅ Core thesis — full working state carries across a Claude→Codex→Gemini switch; price-performance routing | ❌ Claude-only (per-task model + effort within Claude) |
+| Multi-vendor harnesses, **mid-task handoff** | ✅ Core thesis — full working state carries across a Claude→Codex→Gemini switch; price-performance routing | ⚠️ Multi-vendor since Aug 2026 (Anthropic + OpenAI/Codex, routed per task with declared write scope), but routes are **immutable once dispatched** — no mid-task harness handoff, and no Gemini |
 | Org-context injection at session start | ✅ Catalog/ownership/dependencies/decisions via Portal MCP | ⚠️ Repo digest + GitHub-issue seeding only |
 | Cross-session institutional memory | ✅ Transcripts flow back; later sessions (any engineer) resume prior context | ⚠️ Scribe distils learnings into `CLAUDE.md`; session snapshots exist but are not recalled at intake |
 | Living documentation generated from sessions | ✅ Auto-generated, stays current, feeds future sessions | ❌ |

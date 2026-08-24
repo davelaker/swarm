@@ -64,6 +64,19 @@ structurally-enforced quality** — the things a parallel-agent runner (see
   (grants are the permission boundary; a curated intake set caps what's usable),
   cached with a 10-minute TTL and injected into planning with an explicit
   data-not-instructions trust rule (C1). (`pm/live-context.ts`)
+- **Multi-provider routing (Anthropic + OpenAI/Codex).** `core/src/providers/`
+  holds the capability catalog, execution policy, and CLI discovery; the PM
+  recommends a **per-task route** (provider, model, reasoning effort, fallback)
+  that is validated and immutable once dispatched. The Codex driver is
+  **read-only by construction** — it proposes a patch, and a broker validates it
+  against the route's declared `writeScope` (rejecting stale bases, binary
+  patches, traversal, and out-of-scope paths), takes approval once, and applies
+  once inside the task worktree. Also: quick one-node tasks, a CLI intake flow,
+  and a model-policy UI. (`providers/`, `drivers/codex*.ts`, `server/validate.ts`)
+- **The HTTP security boundary.** Origin+Host guard on every request, zero CORS
+  headers, schema-validated roster/execute payloads, crash-proofed request
+  handling, prove-then-`execFile` SQL policy, and proxy-enforced ask-mode scopes.
+  (`server/request-guard.ts`, `server/validate.ts`, `permission-proxy/`)
 
 ## Planned next
 
@@ -82,10 +95,11 @@ Then: per-task hard budget caps with pre-dispatch estimates (Devin parity) · Pl
 (reusable task templates beside the scribe's memory) · deeper scorecards
 (cost-per-merged-task, gate pass-rate) · daemon mode (ambient CI/error watching) ·
 inter-agent trust boundaries · read AGENTS.md alongside CLAUDE.md · WIP-limit warning
-(>5 parallel agents exceeds human review capacity) · multi-harness driver (Codex/Gemini
-CLI behind the existing `AgentDriver` seam — both support MCP so the perm/result servers
-carry over; only if vendor neutrality becomes a real adoption blocker, since it's Xirp's
-whole product and orchestration depth is ours).
+(>5 parallel agents exceeds human review capacity) · a per-session request token and
+at-rest encryption for planning state (both prerequisites for any non-localhost
+deployment — see `docs/THREATS.md` S3) · Gemini as a third provider, and mid-task
+harness handoff (Xirp's differentiator; our routes are deliberately immutable once
+dispatched, so this is a real design decision rather than a small addition).
 
 ## Foundational — productisation (Phase 6)
 

@@ -15,7 +15,21 @@ invisible during development until you run `tsc -b`.
 
 A `Stop` hook in `.claude/settings.json` runs `tsc -b` when Claude finishes a turn and
 surfaces any errors — but don't rely solely on it; run `npm run typecheck` after code
-changes.
+changes. (`.codex/hooks.json` carries the same two hooks for Codex sessions.)
+
+## Tests — `npm test` exists (vitest, added Aug 2026)
+
+The UI went a long time with **no test runner at all**, which is why several pure
+functions carry an "exported for tests" comment with no test beside them. That gap is
+closed: `npm test` runs **vitest**. Put unit tests next to the module as
+`<name>.test.ts`.
+
+Prefer pinning the pure logic — it is where the real bugs have been. High-value examples
+already covered: `data/rosterSync.ts` (roster↔catalog merge, which must only ever narrow
+permissions). Still worth pinning: `data/models.ts` `RANK`/`isUpgrade` (a mis-ordering
+here once let the priciest model bypass the upgrade-confirmation gate — see the model
+ladder section in `core/CLAUDE.md`), `data/forecast.ts` weights, `computeLanes`, and
+`deriveInboxItems`.
 
 ## Formatting — Prettier is installed but the codebase is hand-aligned
 
