@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | { read -r f; case \"$f\" in *.ts|*.tsx|*.css) /Users/davidlaker/Sites/swarm/ui/node_modules/.bin/prettier --write \"$f\" ;; esac; } 2>/dev/null || true",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/davidlaker/Sites/swarm/ui && out=$(npx tsc -b 2>&1); [ -z \"$out\" ] && exit 0; printf '%s' \"$out\" | head -c 1500 | jq -Rs '{systemMessage: (\"\\u26a0 tsc -b found type errors (run `npm run typecheck` in ui/ for full output):\\n\" + .)}'",
+            "timeout": 60,
+            "statusMessage": "Typechecking (tsc -b)…"
+          }
+        ]
+      }
+    ]
+  }
+}
